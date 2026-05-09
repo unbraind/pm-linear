@@ -1,0 +1,23 @@
+{
+  "name": "pm-ext-linear",
+  "version": "0.1.0",
+  "description": "Linear.app issue sync for pm-cli",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@unbrained/pm-cli": ">=2026.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": ["pm-cli", "linear", "extension", "sync"],
+  "license": "MIT"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "pm-ext-linear",
+  "version": "0.1.0",
+  "description": "Linear.app issue sync for pm-cli",
+  "author": "@unbraind",
+  "entry": "index.js",
+  "priority": 50,
+  "capabilities": ["commands", "importers", "services"]
+}
