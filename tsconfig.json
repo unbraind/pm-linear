@@ -5,11 +5,13 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "outDir": "./dist",
+    "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmitOnError": false
   },
   "include": ["index.ts"],
   "exclude": ["node_modules", "dist"]
