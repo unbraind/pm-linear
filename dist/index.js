@@ -1,4 +1,4 @@
-import { defineExtension } from "@unbrained/pm-cli/sdk";
+function defineExtension(m){return m}
 import https from "node:https";
 // ---------------------------------------------------------------------------
 // Linear priority → pm priority
