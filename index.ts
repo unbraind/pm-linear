@@ -1,4 +1,5 @@
 import { defineExtension } from "@unbrained/pm-cli/sdk";
+import { spawnSync } from "node:child_process";
 import https from "node:https";
 
 // ---------------------------------------------------------------------------
@@ -65,21 +66,21 @@ function mapPriority(linearPriority: number): number {
 function mapStatus(
   stateType: string,
   stateName: string
-): "todo" | "wip" | "done" | "blocked" {
+): "open" | "in_progress" | "closed" | "blocked" {
   const type = stateType.toLowerCase();
   const name = stateName.toLowerCase();
 
-  if (type === "completed" || type === "cancelled") return "done";
-  if (type === "started") return "wip";
+  if (type === "completed" || type === "cancelled") return "closed";
+  if (type === "started") return "in_progress";
 
   // Fallback: match on state name
   if (name.includes("in progress") || name.includes("in review"))
-    return "wip";
+    return "in_progress";
   if (name.includes("blocked")) return "blocked";
-  if (name.includes("done") || name.includes("completed")) return "done";
-  if (name.includes("cancelled")) return "done";
+  if (name.includes("done") || name.includes("completed")) return "closed";
+  if (name.includes("cancelled")) return "closed";
 
-  return "todo"; // triage / backlog / unstarted
+  return "open"; // triage / backlog / unstarted
 }
 
 // ---------------------------------------------------------------------------
@@ -170,18 +171,7 @@ interface SyncResult {
 
 async function syncLinearIssues(
   options: SyncOptions,
-  pm: {
-    upsertItem: (item: {
-      idSuffix: string;
-      title: string;
-      body: string;
-      status: "todo" | "wip" | "done" | "blocked";
-      priority: number;
-      tags: string[];
-      meta: Record<string, string>;
-    }) => Promise<unknown>;
-  },
-  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void }
+  pm_root: string
 ): Promise<SyncResult> {
   const apiKey = process.env["LINEAR_API_KEY"];
   if (!apiKey) {
@@ -191,7 +181,7 @@ async function syncLinearIssues(
     );
   }
 
-  log.info(`Fetching issues from Linear team: ${options.team} (limit: ${options.limit})`);
+  console.error(`Fetching issues from Linear team: ${options.team} (limit: ${options.limit})`);
 
   const response = await linearRequest(apiKey, ISSUES_QUERY, {
     team: options.team.toUpperCase(),
@@ -206,7 +196,7 @@ async function syncLinearIssues(
   const issues = response.data?.issues?.nodes ?? [];
 
   if (issues.length === 0) {
-    log.warn(`No issues found for team "${options.team}". Check the team slug and your API key permissions.`);
+    console.error(`No issues found for team "${options.team}". Check the team slug and your API key permissions.`);
     return { synced: 0, skipped: 0, team: options.team, issues: [] };
   }
 
@@ -226,30 +216,27 @@ async function syncLinearIssues(
     const status = mapStatus(issue.state.type, issue.state.name);
     const priority = mapPriority(issue.priority);
     const tags = issue.labels.nodes.map((l) => l.name);
-
-    const meta: Record<string, string> = {
-      linear_id: issue.id,
-      linear_team: options.team.toUpperCase(),
-      linear_state: issue.state.name,
-      linear_identifier: issue.identifier,
-    };
-    if (issue.dueDate) meta["due_date"] = issue.dueDate;
-    if (issue.cycle?.name) meta["linear_cycle"] = issue.cycle.name;
-
     const body = issue.description ?? "";
+    const title = `[${issue.identifier}] ${issue.title}`;
 
     if (!options.dryRun) {
-      await pm.upsertItem({
-        idSuffix: issue.identifier,
-        title: `[${issue.identifier}] ${issue.title}`,
-        body,
-        status,
-        priority,
-        tags,
-        meta,
-      });
+      const spawnArgs = [
+        "--path", pm_root,
+        "create",
+        "--title", title,
+        "--status", status,
+        "--priority", String(priority),
+      ];
+      if (body) spawnArgs.push("--body", body);
+      if (tags.length > 0) spawnArgs.push("--tags", tags.join(","));
+      if (issue.dueDate) spawnArgs.push("--due-date", issue.dueDate);
+
+      const result = spawnSync("pm", spawnArgs, { encoding: "utf-8" });
+      if (result.status !== 0) {
+        console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
+      }
     } else {
-      log.info(
+      console.error(
         `[dry-run] Would upsert: ${issue.identifier} — ${issue.title} (${status}, p${priority})`
       );
     }
@@ -280,62 +267,42 @@ export default defineExtension({
         "pm linear sync --team ENG --limit 50",
         "pm linear sync --team ENG --dry-run",
       ],
-      flags: {
-        team: {
-          type: "string",
-          description: "Linear team slug (e.g. ENG, BACKEND). Required.",
-          required: true,
-        },
-        state: {
-          type: "string",
-          description:
-            "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional.",
-          required: false,
-        },
-        limit: {
-          type: "number",
-          description: "Maximum number of issues to fetch (default: 100)",
-          required: false,
-          default: 100,
-        },
-        "dry-run": {
-          type: "boolean",
-          description: "Preview what would be synced without writing anything",
-          required: false,
-          default: false,
-        },
-      },
+      flags: [
+        { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Required." },
+        { long: "--state", value_name: "name", description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional." },
+        { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
+        { long: "--dry-run", description: "Preview what would be synced without writing anything" },
+      ],
 
       async run(ctx) {
-        const team = ctx.args["team"] as string;
-        const stateFilter = ctx.args["state"] as string | undefined;
-        const limit = (ctx.args["limit"] as number | undefined) ?? 100;
-        const dryRun = (ctx.args["dry-run"] as boolean | undefined) ?? false;
+        const team = ctx.options["team"] as string;
+        const stateFilter = ctx.options["state"] as string | undefined;
+        const limit = (ctx.options["limit"] as number | undefined) ?? 100;
+        const dryRun = (ctx.options["dry-run"] as boolean | undefined) ?? false;
 
         if (!team) {
-          ctx.log.error("--team is required. Example: pm linear sync --team ENG");
+          console.error("--team is required. Example: pm linear sync --team ENG");
           return { success: false, error: "Missing --team flag" };
         }
 
         if (dryRun) {
-          ctx.log.info("Running in dry-run mode — no items will be written.");
+          console.error("Running in dry-run mode — no items will be written.");
         }
 
         try {
           const result = await syncLinearIssues(
             { team, stateFilter, limit, dryRun },
-            ctx.pm,
-            ctx.log
+            ctx.pm_root
           );
 
           const verb = dryRun ? "Would sync" : "Synced";
           const summary = `${verb} ${result.synced} issue${result.synced !== 1 ? "s" : ""} from Linear team ${result.team.toUpperCase()}`;
           if (result.skipped > 0) {
-            ctx.log.info(
+            console.error(
               `${summary} (${result.skipped} skipped by state filter)`
             );
           } else {
-            ctx.log.info(summary);
+            console.error(summary);
           }
 
           return {
@@ -347,7 +314,7 @@ export default defineExtension({
           };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
-          ctx.log.error(`Linear sync failed: ${message}`);
+          console.error(`Linear sync failed: ${message}`);
           return { success: false, error: message };
         }
       },
@@ -356,27 +323,26 @@ export default defineExtension({
     // -----------------------------------------------------------------------
     // Importer: linear-sync
     // -----------------------------------------------------------------------
-    api.registerImporter("linear-sync", async ({ config, pm, log }) => {
+    api.registerImporter("linear-sync", async (ctx) => {
       const team =
-        (config?.["team"] as string | undefined) ??
+        (ctx.options["team"] as string | undefined) ??
         process.env["LINEAR_DEFAULT_TEAM"];
 
       if (!team) {
         throw new Error(
-          "linear-sync importer requires a 'team' config value or LINEAR_DEFAULT_TEAM env var"
+          "linear-sync importer requires a 'team' option or LINEAR_DEFAULT_TEAM env var"
         );
       }
 
-      const limit = (config?.["limit"] as number | undefined) ?? 100;
-      const stateFilter = config?.["state"] as string | undefined;
+      const limit = (ctx.options["limit"] as number | undefined) ?? 100;
+      const stateFilter = ctx.options["state"] as string | undefined;
 
       const result = await syncLinearIssues(
         { team, stateFilter, limit },
-        pm,
-        log
+        ctx.pm_root
       );
 
-      log.info(
+      console.error(
         `Synced ${result.synced} issues from Linear team ${result.team.toUpperCase()}`
       );
 
