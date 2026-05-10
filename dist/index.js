@@ -182,30 +182,27 @@ export default defineExtension({
                 "pm linear sync --team ENG --limit 50",
                 "pm linear sync --team ENG --dry-run",
             ],
-            flags: {
-                team: {
-                    type: "string",
+            flags: [
+                {
+                    long: "--team",
+                    value_name: "slug",
                     description: "Linear team slug (e.g. ENG, BACKEND). Required.",
-                    required: true,
                 },
-                state: {
-                    type: "string",
+                {
+                    long: "--state",
+                    value_name: "name",
                     description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional.",
-                    required: false,
                 },
-                limit: {
-                    type: "number",
+                {
+                    long: "--limit",
+                    value_name: "n",
                     description: "Maximum number of issues to fetch (default: 100)",
-                    required: false,
-                    default: 100,
                 },
-                "dry-run": {
-                    type: "boolean",
+                {
+                    long: "--dry-run",
                     description: "Preview what would be synced without writing anything",
-                    required: false,
-                    default: false,
                 },
-            },
+            ],
             async run(ctx) {
                 const team = ctx.args["team"];
                 const stateFilter = ctx.args["state"];
