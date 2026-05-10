@@ -13,11 +13,17 @@
     "@unbrained/pm-cli": ">=2026.5.0"
   },
   "devDependencies": {
+    "@unbrained/pm-cli": "^2026.5.10",
     "typescript": "^5.4.0"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": ["pm-cli", "linear", "extension", "sync"],
+  "keywords": [
+    "pm-cli",
+    "linear",
+    "extension",
+    "sync"
+  ],
   "license": "MIT"
 }
