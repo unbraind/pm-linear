@@ -20,12 +20,12 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 1. Go to **Linear → Settings → API** (`https://linear.app/settings/api`)
 2. Create a **Personal API key** (or a workspace key for shared use)
-3. Copy the key — it starts with `lin_api_`
+3. Copy the key into your shell environment.
 
 ### 2. Set the environment variable
 
 ```bash
-export LINEAR_API_KEY=lin_api_xxxxxxxxxxxxxxxxxxxx
+export LINEAR_API_KEY=<linear-api-key>
 ```
 
 Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
