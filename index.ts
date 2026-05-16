@@ -1,6 +1,9 @@
-import { defineExtension } from "@unbrained/pm-cli/sdk";
 import { spawnSync } from "node:child_process";
 import https from "node:https";
+
+import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/sdk";
+
+const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
 // ---------------------------------------------------------------------------
 // Types
