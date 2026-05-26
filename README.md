@@ -1,4 +1,4 @@
-# pm-ext-linear
+# pm-linear
 
 Linear.app issue sync extension for [pm-cli](https://github.com/unbraind/pm-cli).
 
@@ -33,13 +33,13 @@ Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
 ### 3. Install the extension
 
 ```bash
-pm ext install pm-ext-linear
+pm ext install pm-linear
 ```
 
 Or clone and load locally:
 
 ```bash
-git clone https://github.com/unbraind/pm-cli-ext-linear
+git clone https://github.com/unbraind/pm-linear
 pm ext load ./pm-cli-ext-linear
 ```
 
@@ -178,3 +178,7 @@ The compiled output lands in `dist/index.js`, which is the entry point reference
 ## License
 
 MIT
+
+## Release Automation
+
+This package is release-ready for GitHub, npm, and Bun-compatible installs. CI runs type checking, build, production dependency audit, package packing, Bun install verification, and pm-changelog validation. The daily release workflow publishes only when commits exist after the latest release tag and uses pm-changelog to generate CHANGELOG.md and GitHub release notes.
