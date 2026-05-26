@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 - 2026-05-26
+## 2026.05.26 - 2026-05-26
+
+### Fixed
+
+- ci: fix release workflow step ordering ([pm-linear-wnw3](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-wnw3.toon))
 
 ### Other
 
