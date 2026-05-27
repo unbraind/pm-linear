@@ -254,7 +254,7 @@ async function syncLinearIssues(
 // ---------------------------------------------------------------------------
 export default defineExtension({
   name: "pm-linear",
-  version: "2026.5.26",
+  version: "2026.5.27",
 
   activate(api) {
     // -----------------------------------------------------------------------
