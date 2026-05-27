@@ -1,12 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add publish retry + provenance fallback to release workflow ([pm-linear-iowz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-iowz.toon))
+
 ## 2026.05.27 - 2026-05-27
 
 ### Added
 
 - Add bun-install verification to release workflow ([pm-linear-fwwx](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-fwwx.toon))
-
-## 2026.05.26 - 2026-05-26
 
 ### Fixed
 
