@@ -33,14 +33,13 @@ Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
 ### 3. Install the extension
 
 ```bash
-pm ext install pm-linear
+pm install github.com/unbraind/pm-linear --global
 ```
 
-Or clone and load locally:
+Or install per-project:
 
 ```bash
-git clone https://github.com/unbraind/pm-linear
-pm ext load ./pm-cli-ext-linear
+pm install github.com/unbraind/pm-linear --project
 ```
 
 ---

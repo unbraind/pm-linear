@@ -21,6 +21,8 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build && npm run build:test && node --test dist-test/*.js",
     "dev": "tsc --watch",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
