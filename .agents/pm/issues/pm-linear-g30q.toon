@@ -1,0 +1,12 @@
+id: pm-linear-g30q
+title: dry-run/limit flags read kebab keys; --dry-run silently writes
+description: ""
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-05-29T15:45:54.555Z"
+updated_at: "2026-05-29T15:45:54.555Z"
+author: codex
+parent: pm-linear-kj99
+body: "SYMPTOM: `pm linear sync --team ENG --dry-run` does NOT preview — it runs the write path. --limit was also ignored (always 100).\n\nROOT CAUSE: pm CLI normalizes loose extension flags to camelCase; code read ctx.options['dry-run']/['limit'] (kebab) -> always undefined -> dryRun=false. Proven: probe showed ctx.options['dry-run']=undefined, ['dryRun']=true.\n\nOBSERVED vs EXPECTED: observed silent writes during preview; expected no writes.\n\nFIX: added readStringOption/readNumberOption/readBooleanOption (check both kebab+camel); applied to team/state/limit/dry-run in command and importer. Verified: dry-run probe made 0 pm create calls, returned dryRun:true."
