@@ -1,0 +1,12 @@
+id: pm-linear-hyc6
+title: issues with dueDate use --due-date which pm create rejects (exit 2)
+description: ""
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-05-29T15:46:14.680Z"
+updated_at: "2026-05-29T15:46:14.680Z"
+author: codex
+parent: pm-linear-kj99
+body: "SYMPTOM: `pm create` has no --due-date flag (the flag is --deadline). For every Linear issue with a dueDate, the spawned create exited with code 2 (Unknown option --due-date) and the item was NOT created — yet the code still incremented `synced`, so the summary over-reported success.\n\nREPRO: spawnSync pm create ... --due-date 2026-06-01 -> status 2, 'Error: Unknown option --due-date'.\n\nOBSERVED vs EXPECTED: observed silent drop of dated issues + inflated synced count; expected items created with deadline set.\n\nFIX: changed --due-date to --deadline; on spawn failure now increments skipped and `continue`s instead of counting as synced. Verified via real pm create: item ENG-777 stored deadline:2026-07-01 with priority/body/tags also correct."

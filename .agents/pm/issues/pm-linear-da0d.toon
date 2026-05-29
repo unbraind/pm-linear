@@ -1,0 +1,12 @@
+id: pm-linear-da0d
+title: "sync failures return {success:false} instead of throwing -> exit 0"
+description: ""
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-05-29T15:45:56.970Z"
+updated_at: "2026-05-29T15:45:56.970Z"
+author: codex
+parent: pm-linear-kj99
+body: "SYMPTOM: missing LINEAR_API_KEY, missing --team, and Linear API errors returned { success:false } from run() -> CLI exit code 0. Scripts chaining on exit status proceed as if sync succeeded.\n\nREPRO: unset LINEAR_API_KEY; pm linear sync --team ENG >/dev/null 2>&1; echo $? -> 0 (before).\n\nFIX: missing --team and the catch block now `throw`. Verified after fix: no-key=1, no-team=1."

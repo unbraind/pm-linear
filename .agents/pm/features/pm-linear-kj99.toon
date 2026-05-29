@@ -1,0 +1,12 @@
+id: pm-linear-kj99
+title: Hands-on functional test pass 2026-05-29 (real data)
+description: ""
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-05-29T15:45:43.080Z"
+updated_at: "2026-05-29T15:46:25.520Z"
+author: codex
+close_reason: Closed via pm update
+body: "Hands-on functional test pass with real CLI invocation and stubbed Linear GraphQL API. Found and fixed 4 real bugs (option normalization, exit codes, missing pagination, wrong deadline flag). See child Issues."

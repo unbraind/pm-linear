@@ -38,9 +38,56 @@ interface LinearResponse {
   data?: {
     issues?: {
       nodes: LinearIssue[];
+      pageInfo?: { hasNextPage: boolean; endCursor: string | null };
     };
   };
   errors?: Array<{ message: string }>;
+}
+
+// Linear's GraphQL API caps `first` at 250 per page; request at most that and
+// follow pageInfo.endCursor for the rest.
+const LINEAR_MAX_PAGE_SIZE = 250;
+
+// ---------------------------------------------------------------------------
+// Option readers — tolerate both kebab-case and camelCase keys.
+// The pm CLI normalizes loose extension flags to camelCase (e.g. --dry-run
+// arrives as `dryRun`). Reading only the kebab key silently yields undefined,
+// which for --dry-run means a "preview" that actually writes. Check both.
+// ---------------------------------------------------------------------------
+
+function camelKey(kebab: string): string {
+  return kebab.replace(/-([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
+}
+
+function readStringOption(
+  options: Record<string, unknown>,
+  kebab: string
+): string | undefined {
+  const v = options[kebab] ?? options[camelKey(kebab)];
+  return typeof v === "string" ? v : v === undefined ? undefined : String(v);
+}
+
+function readNumberOption(
+  options: Record<string, unknown>,
+  kebab: string
+): number | undefined {
+  const v = options[kebab] ?? options[camelKey(kebab)];
+  if (v === undefined || v === null) return undefined;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function readBooleanOption(
+  options: Record<string, unknown>,
+  kebab: string
+): boolean {
+  const v = options[kebab] ?? options[camelKey(kebab)];
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "";
+  }
+  return Boolean(v);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,9 +137,10 @@ function mapStatus(
 // GraphQL query
 // ---------------------------------------------------------------------------
 const ISSUES_QUERY = `
-query($team: String!, $limit: Int!) {
+query($team: String!, $first: Int!, $after: String) {
   issues(
-    first: $limit
+    first: $first
+    after: $after
     filter: {
       team: { key: { eq: $team } }
     }
@@ -109,9 +157,48 @@ query($team: String!, $limit: Int!) {
       dueDate
       cycle { name }
     }
+    pageInfo { hasNextPage endCursor }
   }
 }
 `.trim();
+
+// ---------------------------------------------------------------------------
+// Fetch all issues for a team, following GraphQL cursor pagination up to limit.
+// ---------------------------------------------------------------------------
+async function fetchAllLinearIssues(
+  apiKey: string,
+  team: string,
+  limit: number
+): Promise<LinearIssue[]> {
+  const all: LinearIssue[] = [];
+  let after: string | null = null;
+
+  while (all.length < limit) {
+    const remaining = limit - all.length;
+    const first = Math.min(remaining, LINEAR_MAX_PAGE_SIZE);
+
+    const response: LinearResponse = await linearRequest(apiKey, ISSUES_QUERY, {
+      team: team.toUpperCase(),
+      first,
+      after,
+    });
+
+    if (response.errors?.length) {
+      const msgs = response.errors.map((e) => e.message).join("; ");
+      throw new Error(`Linear API error: ${msgs}`);
+    }
+
+    const page = response.data?.issues;
+    const nodes = page?.nodes ?? [];
+    all.push(...nodes);
+
+    const info = page?.pageInfo;
+    if (!info?.hasNextPage || !info.endCursor || nodes.length === 0) break;
+    after = info.endCursor;
+  }
+
+  return all.slice(0, limit);
+}
 
 // ---------------------------------------------------------------------------
 // Linear GraphQL client (native Node.js https — no external deps)
@@ -186,17 +273,7 @@ async function syncLinearIssues(
 
   console.error(`Fetching issues from Linear team: ${options.team} (limit: ${options.limit})`);
 
-  const response = await linearRequest(apiKey, ISSUES_QUERY, {
-    team: options.team.toUpperCase(),
-    limit: options.limit,
-  });
-
-  if (response.errors?.length) {
-    const msgs = response.errors.map((e) => e.message).join("; ");
-    throw new Error(`Linear API error: ${msgs}`);
-  }
-
-  const issues = response.data?.issues?.nodes ?? [];
+  const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit);
 
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}". Check the team slug and your API key permissions.`);
@@ -232,11 +309,13 @@ async function syncLinearIssues(
       ];
       if (body) spawnArgs.push("--body", body);
       if (tags.length > 0) spawnArgs.push("--tags", tags.join(","));
-      if (issue.dueDate) spawnArgs.push("--due-date", issue.dueDate);
+      if (issue.dueDate) spawnArgs.push("--deadline", issue.dueDate);
 
       const result = spawnSync("pm", spawnArgs, { encoding: "utf-8" });
       if (result.status !== 0) {
         console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
+        skipped++;
+        continue;
       }
     } else {
       console.error(
@@ -254,7 +333,7 @@ async function syncLinearIssues(
 // ---------------------------------------------------------------------------
 export default defineExtension({
   name: "pm-linear",
-  version: "2026.5.28",
+  version: "2026.5.29",
 
   activate(api) {
     // -----------------------------------------------------------------------
@@ -278,14 +357,13 @@ export default defineExtension({
       ],
 
       async run(ctx) {
-        const team = ctx.options["team"] as string;
-        const stateFilter = ctx.options["state"] as string | undefined;
-        const limit = (ctx.options["limit"] as number | undefined) ?? 100;
-        const dryRun = (ctx.options["dry-run"] as boolean | undefined) ?? false;
+        const team = readStringOption(ctx.options, "team");
+        const stateFilter = readStringOption(ctx.options, "state");
+        const limit = readNumberOption(ctx.options, "limit") ?? 100;
+        const dryRun = readBooleanOption(ctx.options, "dry-run");
 
         if (!team) {
-          console.error("--team is required. Example: pm linear sync --team ENG");
-          return { success: false, error: "Missing --team flag" };
+          throw new Error("--team is required. Example: pm linear sync --team ENG");
         }
 
         if (dryRun) {
@@ -317,8 +395,7 @@ export default defineExtension({
           };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`Linear sync failed: ${message}`);
-          return { success: false, error: message };
+          throw new Error(`Linear sync failed: ${message}`);
         }
       },
     });
@@ -328,7 +405,7 @@ export default defineExtension({
     // -----------------------------------------------------------------------
     api.registerImporter("linear-sync", async (ctx) => {
       const team =
-        (ctx.options["team"] as string | undefined) ??
+        readStringOption(ctx.options, "team") ??
         process.env["LINEAR_DEFAULT_TEAM"];
 
       if (!team) {
@@ -337,8 +414,8 @@ export default defineExtension({
         );
       }
 
-      const limit = (ctx.options["limit"] as number | undefined) ?? 100;
-      const stateFilter = ctx.options["state"] as string | undefined;
+      const limit = readNumberOption(ctx.options, "limit") ?? 100;
+      const stateFilter = readStringOption(ctx.options, "state");
 
       const result = await syncLinearIssues(
         { team, stateFilter, limit },
