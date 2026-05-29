@@ -6,7 +6,7 @@
 
 - Hands-on functional test pass 2026-05-29 \(real data\) ([pm-linear-kj99](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-kj99.toon))
 
-### Other
+### Fixed
 
 - issues with dueDate use --due-date which pm create rejects \(exit 2\) ([pm-linear-hyc6](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hyc6.toon))
 - no GraphQL pagination: --limit \> 250 silently truncates ([pm-linear-92kd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-92kd.toon))
