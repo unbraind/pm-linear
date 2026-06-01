@@ -1,0 +1,13 @@
+id: pm-linear-sn60
+title: linear sync threw plain Error (no exitCode) → runtime double-invocation
+description: "linear sync (and the linear-sync importer) threw plain Error on missing team/key and API errors; pm re-invokes the handler on the unhandled path. Added CommandError mirroring SDK EXIT_CODE; the sync catch now preserves a specific exitCode (missing key=2) instead of flattening to generic. missing-team/key=2, API-failure=1; single invocation."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-01T10:34:46.400Z"
+updated_at: "2026-06-01T10:34:46.684Z"
+author: codex
+parent: pm-linear-kj99
+close_reason: "Fixed: CommandError carries exitCode. Verified missing-team/key exit 2 (USAGE preserved), API failure exits 1, single invocation; 2 tests pass."
+body: ""

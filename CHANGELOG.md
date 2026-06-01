@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- linear sync threw plain Error \(no exitCode\) → runtime double-invocation ([pm-linear-sn60](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-sn60.toon))
+
 ## 2026.05.29 - 2026-05-29
 
 ### Added
