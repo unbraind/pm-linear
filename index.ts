@@ -5,6 +5,28 @@ import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/s
 
 const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
+// pm's extension command runtime only treats a thrown error as a cleanly
+// handled non-zero exit when the error carries a numeric `exitCode` property
+// (see @unbrained/pm-cli runCommandHandler). A plain `Error` makes the runtime
+// fall through to its "unhandled" path, which RE-INVOKES the command handler a
+// second time and exits with a generic code. We mirror the SDK's EXIT_CODE
+// contract here rather than importing it: standalone-installed extensions load
+// only their own `dist/`, so `@unbrained/pm-cli` is not resolvable at runtime.
+const EXIT_CODE = {
+  GENERIC_FAILURE: 1,
+  USAGE: 2,
+  NOT_FOUND: 3,
+} as const;
+
+class CommandError extends Error {
+  exitCode: number;
+  constructor(message: string, exitCode: number = EXIT_CODE.GENERIC_FAILURE) {
+    super(message);
+    this.name = "CommandError";
+    this.exitCode = exitCode;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -185,7 +207,7 @@ async function fetchAllLinearIssues(
 
     if (response.errors?.length) {
       const msgs = response.errors.map((e) => e.message).join("; ");
-      throw new Error(`Linear API error: ${msgs}`);
+      throw new CommandError(`Linear API error: ${msgs}`);
     }
 
     const page = response.data?.issues;
@@ -265,9 +287,10 @@ async function syncLinearIssues(
 ): Promise<SyncResult> {
   const apiKey = process.env["LINEAR_API_KEY"];
   if (!apiKey) {
-    throw new Error(
+    throw new CommandError(
       "LINEAR_API_KEY environment variable is not set. " +
-        "Get your API key at https://linear.app/settings/api"
+        "Get your API key at https://linear.app/settings/api",
+      EXIT_CODE.USAGE
     );
   }
 
@@ -363,7 +386,7 @@ export default defineExtension({
         const dryRun = readBooleanOption(ctx.options, "dry-run");
 
         if (!team) {
-          throw new Error("--team is required. Example: pm linear sync --team ENG");
+          throw new CommandError("--team is required. Example: pm linear sync --team ENG", EXIT_CODE.USAGE);
         }
 
         if (dryRun) {
@@ -394,8 +417,11 @@ export default defineExtension({
             dryRun,
           };
         } catch (err: unknown) {
+          // Preserve a more specific exitCode (e.g. a missing API key is a
+          // USAGE error) rather than flattening everything to a generic failure.
+          if (err instanceof CommandError) throw err;
           const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`Linear sync failed: ${message}`);
+          throw new CommandError(`Linear sync failed: ${message}`);
         }
       },
     });
@@ -409,8 +435,9 @@ export default defineExtension({
         process.env["LINEAR_DEFAULT_TEAM"];
 
       if (!team) {
-        throw new Error(
-          "linear-sync importer requires a 'team' option or LINEAR_DEFAULT_TEAM env var"
+        throw new CommandError(
+          "linear-sync importer requires a 'team' option or LINEAR_DEFAULT_TEAM env var",
+          EXIT_CODE.USAGE
         );
       }
 
