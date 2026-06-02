@@ -531,7 +531,7 @@ async function resolveTeamId(apiKey: string, teamKey: string): Promise<string> {
 // ---------------------------------------------------------------------------
 export default defineExtension({
   name: "pm-linear",
-  version: "2026.6.1",
+  version: "2026.6.2",
 
   activate(api) {
     // -----------------------------------------------------------------------
