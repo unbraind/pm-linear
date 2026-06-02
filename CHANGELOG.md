@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026.6.1 - 2026-06-01
+## 2026.6.2 - 2026-06-02
+
+### Added
+
+- Adopt full SDK capability surface \(linear importer/exporter + schema fields + flags\) ([pm-linear-du0a](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-du0a.toon))
+
+## 2026.06.01 - 2026-06-01
 
 ### Fixed
 

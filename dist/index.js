@@ -366,7 +366,7 @@ async function resolveTeamId(apiKey, teamKey) {
 // ---------------------------------------------------------------------------
 export default defineExtension({
     name: "pm-linear",
-    version: "2026.6.1",
+    version: "2026.6.2",
     activate(api) {
         // -----------------------------------------------------------------------
         // Command: pm linear sync
