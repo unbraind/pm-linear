@@ -1,0 +1,12 @@
+id: pm-linear-u8ed
+title: "preflight capability: validate LINEAR_API_KEY + API reachability"
+description: registerPreflight guarding mutating commands (linear sync/import/export --push). Check key present + a cheap viewer query reachable; clear failure_hints. Add 'preflight' to manifest capabilities.
+type: Task
+status: open
+priority: 1
+tags: []
+created_at: "2026-06-02T07:59:51.075Z"
+updated_at: "2026-06-02T07:59:51.075Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""
