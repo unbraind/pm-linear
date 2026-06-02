@@ -1,0 +1,12 @@
+id: pm-linear-swdk
+title: Tests + functional fixtures + manifest/README
+description: "Extend unit tests for new pure helpers (status->linear mapping, item indexing, filter query building, backoff). Functional fixtures mirroring Linear API shapes; dry-run scratch workspace; exit code checks. Update manifest capabilities + README."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-06-02T07:59:52.070Z"
+updated_at: "2026-06-02T07:59:52.070Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""

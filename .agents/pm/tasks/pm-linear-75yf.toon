@@ -1,0 +1,12 @@
+id: pm-linear-75yf
+title: Exporter update + bidirectional status mapping + dry-run
+description: "Exporter must update already-linked Linear issues (issueUpdate) instead of skipping, create unlinked ones, map pm status -> Linear state on push, support --dry-run preview."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-06-02T07:59:51.529Z"
+updated_at: "2026-06-02T07:59:51.529Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""
