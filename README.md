@@ -2,7 +2,16 @@
 
 Linear.app issue sync extension for [pm-cli](https://github.com/unbraind/pm-cli).
 
-Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, statuses, labels, and due dates in sync.
+Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, statuses, labels, and due dates in sync. Also provides a native import pipeline (`pm linear import`) and an exporter (`pm linear export`) that renders pm items as Linear issue-create payloads, and declares `linear_id` / `linear_url` provenance fields.
+
+## Capabilities
+
+| Capability | Surface |
+|------------|---------|
+| `commands` | `pm linear sync` |
+| `importers` | `pm linear import` (+ legacy `linear-sync` importer) |
+| `importers` (exporter) | `pm linear export` |
+| `schema` | `linear_id`, `linear_url` item fields |
 
 ---
 
@@ -59,7 +68,9 @@ pm linear sync --team <slug> [options]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--team` | string | *(required)* | Linear team slug (e.g. `ENG`, `BACKEND`) |
+| `--project` | string | — | Filter by Linear project name |
 | `--state` | string | — | Filter by state name (e.g. `"In Progress"`) |
+| `--status-map` | string | — | Override status mapping, e.g. `"In Review=in_progress,Backlog=open"` |
 | `--limit` | number | `100` | Max issues to fetch |
 | `--dry-run` | boolean | `false` | Preview without writing |
 
@@ -72,12 +83,74 @@ pm linear sync --team ENG
 # Only sync issues currently In Progress
 pm linear sync --team ENG --state "In Progress"
 
+# Restrict to a single Linear project
+pm linear sync --team ENG --project "Q3 Roadmap"
+
+# Custom status mapping (Linear state name -> pm status)
+pm linear sync --team ENG --status-map "In Review=in_progress,Backlog=open"
+
 # Sync up to 200 issues from the BACKEND team
 pm linear sync --team BACKEND --limit 200
 
 # Preview what would be synced (no writes)
 pm linear sync --team ENG --dry-run
 ```
+
+---
+
+## `pm linear import`
+
+Native import pipeline. Pulls issues from a Linear team (and optional project) via the
+GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`,
+`--status-map`, `--limit`, and `--dry-run` flags as `pm linear sync`.
+
+```bash
+pm linear import --team ENG
+pm linear import --team ENG --project "Q3 Roadmap" --limit 50
+pm linear import --team ENG --dry-run
+```
+
+Requires `LINEAR_API_KEY` (or falls back to `LINEAR_DEFAULT_TEAM` for the team). When
+the key is missing it exits non-zero with a structured error rather than crashing.
+
+## `pm linear export`
+
+Renders pm items as Linear issue-create payloads.
+
+- **Default (no `--push`):** prints the JSON payload to stdout. Safe, read-only, no
+  network. Items that already carry Linear provenance are flagged `alreadyInLinear: true`.
+- **`--push`:** creates the issues in Linear. Only mutates Linear when **both** `--push`
+  is set **and** `LINEAR_API_KEY` is present, and requires `--team <slug>` to resolve the
+  target team. Items already linked to Linear are skipped so the push is idempotent.
+
+```bash
+# Preview the payload (no network, no writes)
+pm linear export
+
+# Create the issues in Linear (requires LINEAR_API_KEY)
+pm linear export --push --team ENG
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--push` | boolean | `false` | Create the issues in Linear (requires key + `--team`) |
+| `--team` | string | — | Target Linear team slug (required with `--push`) |
+
+---
+
+## Provenance fields
+
+The extension declares two custom item fields (`registerItemFields`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `linear_id` | string (optional) | Linear issue UUID |
+| `linear_url` | string (optional) | Canonical Linear issue URL |
+
+Because `pm create` has no generic setter for extension-declared fields, imported items
+encode provenance in their description behind a stable `[linear]` marker
+(`[linear] linear_id=… linear_url=…`). `pm linear export` reads this marker back so
+already-linked items are not re-created on `--push`.
 
 ---
 
