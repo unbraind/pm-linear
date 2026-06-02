@@ -9,7 +9,7 @@
     "commands",
     "schema",
     "importers",
-    "services"
+    "preflight"
   ],
   "pm": {
     "compatibility": "v2"

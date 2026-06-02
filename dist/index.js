@@ -124,6 +124,38 @@ export function resolveStatus(stateType, stateName, statusMap) {
     return mapStatus(stateType, stateName);
 }
 // ---------------------------------------------------------------------------
+// Reverse status mapping (pm status -> Linear workflow-state name) for export.
+// Linear has no fixed global state names, so we map to the conventional default
+// names every Linear team ships with ("Todo", "In Progress", "Done"). The
+// exporter resolves the name to a concrete workflow-state id per team at push
+// time; an unresolved name is simply skipped (issue keeps its current state).
+// A user-supplied --status-map (parsed normally as Linear=pm) is inverted so
+// the same flag round-trips both directions. Pure + exported for testing.
+// ---------------------------------------------------------------------------
+const DEFAULT_PM_TO_LINEAR_STATE = {
+    open: "Todo",
+    in_progress: "In Progress",
+    blocked: "In Progress",
+    closed: "Done",
+};
+export function invertStatusMap(statusMap) {
+    // statusMap is { "<linear state name lower>": "<pm status>" }; invert to
+    // { "<pm status>": "<Linear state name>" }. First entry wins on collision.
+    const inverted = {};
+    for (const [linearName, pmStatus] of Object.entries(statusMap)) {
+        const key = pmStatus.trim().toLowerCase();
+        if (key && !(key in inverted))
+            inverted[key] = linearName;
+    }
+    return inverted;
+}
+export function resolveLinearStateName(pmStatus, invertedMap) {
+    if (!pmStatus)
+        return undefined;
+    const key = pmStatus.trim().toLowerCase();
+    return invertedMap[key] ?? DEFAULT_PM_TO_LINEAR_STATE[key];
+}
+// ---------------------------------------------------------------------------
 // Provenance marker. We can't write registerItemFields custom fields via
 // `pm create` from a standalone extension, so encode linear_id + linear_url in
 // the item description behind a stable, machine-parseable marker. Pure.
@@ -147,22 +179,32 @@ export function parseProvenance(description) {
         linear_url: urlMatch ? urlMatch[1] : "",
     };
 }
-// ---------------------------------------------------------------------------
-// GraphQL query
-// ---------------------------------------------------------------------------
-// Build the issues query. When `project` is supplied we add a project-name
-// filter clause; otherwise we omit it entirely (a `null`/empty project filter
-// would match nothing rather than "any project").
-function buildIssuesQuery(hasProject) {
-    const projectFilter = hasProject ? "\n      project: { name: { eq: $project } }" : "";
-    const projectVar = hasProject ? ", $project: String!" : "";
+// Build the issues query with only the requested filter clauses + variables.
+// Pure + exported so the query-construction logic can be unit tested without
+// touching the network.
+export function buildIssuesQuery(flags) {
+    const clauses = ["team: { key: { eq: $team } }"];
+    const vars = ["$team: String!", "$first: Int!", "$after: String"];
+    if (flags.project) {
+        clauses.push("project: { name: { eq: $project } }");
+        vars.push("$project: String!");
+    }
+    if (flags.assignee) {
+        clauses.push("assignee: { email: { eq: $assignee } }");
+        vars.push("$assignee: String!");
+    }
+    if (flags.label) {
+        clauses.push("labels: { some: { name: { eq: $label } } }");
+        vars.push("$label: String!");
+    }
+    const filterBody = clauses.map((c) => `      ${c}`).join("\n");
     return `
-query($team: String!, $first: Int!, $after: String${projectVar}) {
+query(${vars.join(", ")}) {
   issues(
     first: $first
     after: $after
     filter: {
-      team: { key: { eq: $team } }${projectFilter}
+${filterBody}
     }
     orderBy: updatedAt
   ) {
@@ -174,6 +216,7 @@ query($team: String!, $first: Int!, $after: String${projectVar}) {
       priority
       state { name type }
       labels { nodes { name } }
+      assignee { name email }
       dueDate
       cycle { name }
       url
@@ -183,14 +226,18 @@ query($team: String!, $first: Int!, $after: String${projectVar}) {
 }
 `.trim();
 }
-// ---------------------------------------------------------------------------
-// Fetch all issues for a team, following GraphQL cursor pagination up to limit.
-// ---------------------------------------------------------------------------
-async function fetchAllLinearIssues(apiKey, team, limit, project) {
+async function fetchAllLinearIssues(apiKey, team, limit, filters = {}) {
     const all = [];
     let after = null;
-    const hasProject = typeof project === "string" && project.trim().length > 0;
-    const query = buildIssuesQuery(hasProject);
+    const project = filters.project?.trim();
+    const assignee = filters.assignee?.trim();
+    const label = filters.label?.trim();
+    const flags = {
+        project: Boolean(project),
+        assignee: Boolean(assignee),
+        label: Boolean(label),
+    };
+    const query = buildIssuesQuery(flags);
     while (all.length < limit) {
         const remaining = limit - all.length;
         const first = Math.min(remaining, LINEAR_MAX_PAGE_SIZE);
@@ -199,8 +246,12 @@ async function fetchAllLinearIssues(apiKey, team, limit, project) {
             first,
             after,
         };
-        if (hasProject)
-            variables.project = project.trim();
+        if (flags.project)
+            variables.project = project;
+        if (flags.assignee)
+            variables.assignee = assignee;
+        if (flags.label)
+            variables.label = label;
         const response = await linearRequest(apiKey, query, variables);
         if (response.errors?.length) {
             const msgs = response.errors.map((e) => e.message).join("; ");
@@ -218,23 +269,67 @@ async function fetchAllLinearIssues(apiKey, team, limit, project) {
 }
 // ---------------------------------------------------------------------------
 // Linear GraphQL client (native Node.js https — no external deps)
+//
+// Robustness: a per-request timeout (default 30s) and exponential backoff retry
+// on transient failures (HTTP 429 + 5xx), honoring a Retry-After header when
+// present. A retriable HTTP status is surfaced as a RetriableHttpError so the
+// retry wrapper can decide; everything else resolves/rejects immediately.
 // ---------------------------------------------------------------------------
-function linearRequest(apiKey, query, variables) {
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 4;
+class RetriableHttpError extends Error {
+    status;
+    retryAfterMs;
+    constructor(status, retryAfterMs) {
+        super(`Linear API returned retriable HTTP ${status}`);
+        this.name = "RetriableHttpError";
+        this.status = status;
+        this.retryAfterMs = retryAfterMs;
+    }
+}
+// Compute the delay before the next attempt. Pure + exported for testing.
+// `attempt` is zero-based (0 = first retry). Honors an explicit Retry-After.
+export function backoffDelayMs(attempt, retryAfterMs) {
+    if (typeof retryAfterMs === "number" && retryAfterMs >= 0)
+        return retryAfterMs;
+    // 250ms, 500ms, 1s, 2s … capped at 8s.
+    return Math.min(250 * 2 ** attempt, 8_000);
+}
+function parseRetryAfter(header) {
+    if (!header)
+        return undefined;
+    const raw = Array.isArray(header) ? header[0] : header;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds >= 0)
+        return seconds * 1000;
+    const date = Date.parse(raw);
+    if (!Number.isNaN(date))
+        return Math.max(0, date - Date.now());
+    return undefined;
+}
+function linearRequestOnce(apiKey, query, variables) {
     return new Promise((resolve, reject) => {
         const body = JSON.stringify({ query, variables });
         const req = https.request({
             hostname: "api.linear.app",
             path: "/graphql",
             method: "POST",
+            timeout: REQUEST_TIMEOUT_MS,
             headers: {
                 "Content-Type": "application/json",
                 "Content-Length": Buffer.byteLength(body),
                 Authorization: apiKey,
             },
         }, (res) => {
+            const status = res.statusCode ?? 0;
             const chunks = [];
             res.on("data", (chunk) => chunks.push(chunk));
             res.on("end", () => {
+                if (status === 429 || (status >= 500 && status <= 599)) {
+                    res.resume();
+                    reject(new RetriableHttpError(status, parseRetryAfter(res.headers["retry-after"])));
+                    return;
+                }
                 try {
                     const raw = Buffer.concat(chunks).toString("utf8");
                     resolve(JSON.parse(raw));
@@ -244,10 +339,62 @@ function linearRequest(apiKey, query, variables) {
                 }
             });
         });
+        req.on("timeout", () => {
+            req.destroy(new RetriableHttpError(0));
+        });
         req.on("error", reject);
         req.write(body);
         req.end();
     });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function linearRequest(apiKey, query, variables) {
+    let lastErr;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            return await linearRequestOnce(apiKey, query, variables);
+        }
+        catch (err) {
+            lastErr = err;
+            if (!(err instanceof RetriableHttpError) || attempt === MAX_RETRIES)
+                break;
+            await sleep(backoffDelayMs(attempt, err.retryAfterMs));
+        }
+    }
+    const msg = lastErr instanceof RetriableHttpError
+        ? `Linear API unavailable after ${MAX_RETRIES + 1} attempts (HTTP ${lastErr.status || "timeout"})`
+        : `Linear request failed: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`;
+    throw new CommandError(msg);
+}
+const PM_LIST_MAX_BUFFER = 16 * 1024 * 1024;
+function readPmItems(pmRoot) {
+    const result = spawnSync("pm", ["--path", pmRoot, "--json", "list", "--full", "--include-body", "--limit", "10000"], { encoding: "utf-8", maxBuffer: PM_LIST_MAX_BUFFER });
+    if (result.error) {
+        throw new CommandError(`pm list failed: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+        throw new CommandError(result.stderr || "pm list failed");
+    }
+    try {
+        const parsed = JSON.parse(result.stdout);
+        const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
+        return items;
+    }
+    catch {
+        throw new CommandError("Could not parse `pm list --json` output.");
+    }
+}
+// Index existing pm items by their stored Linear id (parsed from the provenance
+// marker) so a re-import can UPDATE the matching item instead of creating a
+// duplicate. Items without Linear provenance are ignored. Pure + exported.
+export function indexItemsByLinearId(items) {
+    const index = {};
+    for (const item of items) {
+        const prov = parseProvenance(item.description);
+        if (prov?.linear_id)
+            index[prov.linear_id] = item;
+    }
+    return index;
 }
 async function syncLinearIssues(options, pm_root) {
     const apiKey = process.env["LINEAR_API_KEY"];
@@ -255,18 +402,35 @@ async function syncLinearIssues(options, pm_root) {
         throw new CommandError("LINEAR_API_KEY environment variable is not set. " +
             "Get your API key at https://linear.app/settings/api", EXIT_CODE.USAGE);
     }
-    const scope = options.project ? ` project "${options.project}"` : "";
+    const scopeBits = [];
+    if (options.project)
+        scopeBits.push(`project "${options.project}"`);
+    if (options.assignee)
+        scopeBits.push(`assignee ${options.assignee}`);
+    if (options.label)
+        scopeBits.push(`label "${options.label}"`);
+    const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
     console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
-    const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, options.project);
+    const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, {
+        project: options.project,
+        assignee: options.assignee,
+        label: options.label,
+    });
     if (issues.length === 0) {
-        console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, project name, and your API key permissions.`);
-        return { synced: 0, skipped: 0, team: options.team, issues: [] };
+        console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
+        return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
     }
     const statusMap = options.statusMap ?? {};
-    let synced = 0;
+    // Idempotency: index existing items by stored Linear id so a re-import
+    // UPDATES the matching item rather than creating a duplicate. We only read
+    // the workspace when actually writing (dry-run is read-free on Linear's side
+    // but we still want the preview to report create-vs-update accurately).
+    const existingByLinearId = indexItemsByLinearId(readPmItems(pm_root));
+    let created = 0;
+    let updated = 0;
     let skipped = 0;
     for (const issue of issues) {
-        // Optional state name filter
+        // Optional state name filter (applied client-side after fetch)
         if (options.stateFilter) {
             const stateName = issue.state.name.toLowerCase();
             if (!stateName.includes(options.stateFilter.toLowerCase())) {
@@ -282,10 +446,44 @@ async function syncLinearIssues(options, pm_root) {
         // `pm create` has no generic setter for the registerItemFields custom
         // fields from a standalone extension, so we persist Linear provenance in
         // the description behind a stable marker. This survives round-trips and is
-        // what `pm linear export` reads back to skip re-creating known issues.
+        // what re-import + `pm linear export` read back to stay idempotent.
         const description = buildProvenance(issue);
-        if (!options.dryRun) {
-            const spawnArgs = [
+        const existing = existingByLinearId[issue.id];
+        if (options.dryRun) {
+            const verb = existing ? "update" : "create";
+            console.error(`[dry-run] Would ${verb}: ${issue.identifier} — ${issue.title} (${status}, p${priority})`);
+            if (existing)
+                updated++;
+            else
+                created++;
+            continue;
+        }
+        if (existing && existing.id) {
+            // Update the matched item in place (no duplicate).
+            const updateArgs = [
+                "--path", pm_root,
+                "update", existing.id,
+                "--title", title,
+                "--status", status,
+                "--priority", String(priority),
+                "--description", description,
+            ];
+            if (body)
+                updateArgs.push("--body", body);
+            if (tags.length > 0)
+                updateArgs.push("--tags", tags.join(","));
+            if (issue.dueDate)
+                updateArgs.push("--deadline", issue.dueDate);
+            const result = spawnSync("pm", updateArgs, { encoding: "utf-8" });
+            if (result.status !== 0) {
+                console.error(`Failed to update item for ${issue.identifier}: ${result.stderr}`);
+                skipped++;
+                continue;
+            }
+            updated++;
+        }
+        else {
+            const createArgs = [
                 "--path", pm_root,
                 "create",
                 "--title", title,
@@ -294,55 +492,52 @@ async function syncLinearIssues(options, pm_root) {
                 "--description", description,
             ];
             if (body)
-                spawnArgs.push("--body", body);
+                createArgs.push("--body", body);
             if (tags.length > 0)
-                spawnArgs.push("--tags", tags.join(","));
+                createArgs.push("--tags", tags.join(","));
             if (issue.dueDate)
-                spawnArgs.push("--deadline", issue.dueDate);
-            const result = spawnSync("pm", spawnArgs, { encoding: "utf-8" });
+                createArgs.push("--deadline", issue.dueDate);
+            const result = spawnSync("pm", createArgs, { encoding: "utf-8" });
             if (result.status !== 0) {
                 console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
                 skipped++;
                 continue;
             }
+            created++;
         }
-        else {
-            console.error(`[dry-run] Would upsert: ${issue.identifier} — ${issue.title} (${status}, p${priority})`);
-        }
-        synced++;
     }
-    return { synced, skipped, team: options.team, issues };
+    return {
+        synced: created + updated,
+        created,
+        updated,
+        skipped,
+        team: options.team,
+        issues,
+    };
 }
-function readPmItems(pmRoot) {
-    const result = spawnSync("pm", ["--path", pmRoot, "--json", "list", "--full", "--include-body", "--limit", "10000"], { encoding: "utf-8" });
-    if (result.status !== 0) {
-        throw new CommandError(result.stderr || "pm list failed");
-    }
-    try {
-        const parsed = JSON.parse(result.stdout);
-        const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
-        return items;
-    }
-    catch {
-        throw new CommandError("Could not parse `pm list --json` output.");
-    }
-}
-// Pure transform: pm item -> Linear issue-create payload. Items that already
-// carry Linear provenance are flagged so `--push` can skip re-creating them.
+// Pure transform: pm item -> Linear issue payload. Items that already carry
+// Linear provenance are flagged (and keep their linear id) so `--push` UPDATES
+// them in place instead of creating a duplicate.
 export function itemToLinearPayload(item) {
     const provenance = parseProvenance(item.description);
     return {
         title: item.title ?? "(untitled)",
-        description: item.body || item.description || "",
+        description: item.body || (provenance ? "" : item.description || ""),
         pmId: item.id,
+        pmStatus: item.status,
         alreadyInLinear: provenance !== undefined,
+        linearId: provenance?.linear_id || undefined,
         linearUrl: provenance?.linear_url || undefined,
     };
 }
-// Resolve a Linear team key (e.g. "ENG") to its internal id for issueCreate.
+// Resolve a Linear team key (e.g. "ENG") to its internal id for issueCreate,
+// and fetch its workflow states so the exporter can map pm status -> a real
+// state id when pushing. One round-trip.
 const TEAM_QUERY = `
 query($key: String!) {
-  teams(filter: { key: { eq: $key } }, first: 1) { nodes { id } }
+  teams(filter: { key: { eq: $key } }, first: 1) {
+    nodes { id states { nodes { id name } } }
+  }
 }
 `.trim();
 const ISSUE_CREATE_MUTATION = `
@@ -350,16 +545,81 @@ mutation($input: IssueCreateInput!) {
   issueCreate(input: $input) { success issue { id identifier url } }
 }
 `.trim();
-async function resolveTeamId(apiKey, teamKey) {
+const ISSUE_UPDATE_MUTATION = `
+mutation($id: String!, $input: IssueUpdateInput!) {
+  issueUpdate(id: $id, input: $input) { success issue { id identifier url } }
+}
+`.trim();
+async function resolveTeamContext(apiKey, teamKey) {
     const resp = await linearRequest(apiKey, TEAM_QUERY, { key: teamKey.toUpperCase() });
     if (resp.errors?.length) {
         throw new CommandError(`Linear API error resolving team ${teamKey}: ${resp.errors.map((e) => e.message).join("; ")}`);
     }
-    const id = resp.data?.teams?.nodes?.[0]?.id;
-    if (!id) {
+    const node = resp.data?.teams?.nodes?.[0];
+    if (!node?.id) {
         throw new CommandError(`Linear team "${teamKey}" not found.`, EXIT_CODE.NOT_FOUND);
     }
-    return id;
+    const statesByName = {};
+    for (const s of node.states?.nodes ?? []) {
+        if (s?.name && s?.id)
+            statesByName[String(s.name).trim().toLowerCase()] = s.id;
+    }
+    return { teamId: node.id, statesByName };
+}
+// ---------------------------------------------------------------------------
+// Preflight — credential + reachability validation for mutating Linear calls.
+//
+// pm's preflight runtime swallows thrown errors (a throw aborts the override,
+// not the command), so we cannot reject from inside the override. Instead the
+// preflight does the cheap validation and, on failure, injects a sentinel
+// option that the command/importer/exporter handlers read and turn into a
+// clean CommandError. This keeps the `preflight` capability load-bearing.
+// ---------------------------------------------------------------------------
+const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
+// Commands that actually mutate Linear/the workspace and therefore need a key.
+// `linear export` is gated only when --push is present.
+function commandMutatesLinear(command, options) {
+    const cmd = command.trim().toLowerCase();
+    if (cmd === "linear sync" || cmd === "linear import") {
+        return !readBooleanOption(options, "dry-run");
+    }
+    if (cmd === "linear export") {
+        return readBooleanOption(options, "push");
+    }
+    return false;
+}
+// Validate that the credential needed for a mutating Linear call is present and
+// (best-effort) that the API is reachable. Returns an error string or null.
+// Reachability check is skipped when SKIP_NETWORK is requested so unit/offline
+// runs stay deterministic.
+async function preflightLinear(options, checkReachability) {
+    const apiKey = process.env["LINEAR_API_KEY"];
+    if (!apiKey) {
+        return ("LINEAR_API_KEY is not set. Linear operations that write data require an " +
+            "API key. Get one at https://linear.app/settings/api and `export LINEAR_API_KEY=...`.");
+    }
+    if (!checkReachability)
+        return null;
+    try {
+        const resp = await linearRequest(apiKey, "query { viewer { id } }", {});
+        if (resp.errors?.length) {
+            return `Linear API rejected the credentials: ${resp.errors.map((e) => e.message).join("; ")}`;
+        }
+        if (!resp.data?.viewer?.id) {
+            return "Linear API reachable but returned no viewer; check the API key scope.";
+        }
+        return null;
+    }
+    catch (err) {
+        return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+}
+// Read + clear the sentinel a preflight may have injected; throw if present.
+function assertPreflightOk(options) {
+    const err = options[PREFLIGHT_ERROR_OPTION];
+    if (typeof err === "string" && err) {
+        throw new CommandError(err, EXIT_CODE.USAGE);
+    }
 }
 // ---------------------------------------------------------------------------
 // Extension definition
@@ -368,6 +628,22 @@ export default defineExtension({
     name: "pm-linear",
     version: "2026.6.2",
     activate(api) {
+        // -----------------------------------------------------------------------
+        // preflight — validate credentials + reachability before any mutating
+        // Linear command runs. On failure it injects a sentinel option (it cannot
+        // abort by throwing) that the handlers convert into a clean USAGE error.
+        // -----------------------------------------------------------------------
+        api.registerPreflight(async (ctx) => {
+            if (!commandMutatesLinear(ctx.command, ctx.options))
+                return {};
+            // Reachability uses the network; allow opting out (CI/offline/tests).
+            const checkReachability = !readBooleanOption(ctx.options, "no-preflight-network") &&
+                process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
+            const error = await preflightLinear(ctx.options, checkReachability);
+            if (!error)
+                return {};
+            return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+        });
         // -----------------------------------------------------------------------
         // Command: pm linear sync
         // -----------------------------------------------------------------------
@@ -378,6 +654,7 @@ export default defineExtension({
             examples: [
                 "pm linear sync --team ENG",
                 "pm linear sync --team ENG --state 'In Progress'",
+                "pm linear sync --team ENG --assignee dev@acme.com --label bug",
                 "pm linear sync --team ENG --limit 50",
                 "pm linear sync --team ENG --dry-run",
             ],
@@ -385,14 +662,19 @@ export default defineExtension({
                 { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Required." },
                 { long: "--project", value_name: "name", description: "Filter by Linear project name. Optional." },
                 { long: "--state", value_name: "name", description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional." },
+                { long: "--assignee", value_name: "email", description: "Filter by assignee email. Optional." },
+                { long: "--label", value_name: "name", description: "Filter by label name. Optional." },
                 { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress,Backlog=open\". Optional." },
                 { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
                 { long: "--dry-run", description: "Preview what would be synced without writing anything" },
             ],
             async run(ctx) {
+                assertPreflightOk(ctx.options);
                 const team = readStringOption(ctx.options, "team");
                 const project = readStringOption(ctx.options, "project");
                 const stateFilter = readStringOption(ctx.options, "state");
+                const assignee = readStringOption(ctx.options, "assignee");
+                const label = readStringOption(ctx.options, "label");
                 const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
                 const limit = readNumberOption(ctx.options, "limit") ?? 100;
                 const dryRun = readBooleanOption(ctx.options, "dry-run");
@@ -403,11 +685,12 @@ export default defineExtension({
                     console.error("Running in dry-run mode — no items will be written.");
                 }
                 try {
-                    const result = await syncLinearIssues({ team, project, stateFilter, statusMap, limit, dryRun }, ctx.pm_root);
+                    const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit, dryRun }, ctx.pm_root);
                     const verb = dryRun ? "Would sync" : "Synced";
-                    const summary = `${verb} ${result.synced} issue${result.synced !== 1 ? "s" : ""} from Linear team ${result.team.toUpperCase()}`;
+                    const summary = `${verb} ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
+                        `(${result.created} new, ${result.updated} updated) from Linear team ${result.team.toUpperCase()}`;
                     if (result.skipped > 0) {
-                        console.error(`${summary} (${result.skipped} skipped by state filter)`);
+                        console.error(`${summary} (${result.skipped} skipped)`);
                     }
                     else {
                         console.error(summary);
@@ -415,6 +698,8 @@ export default defineExtension({
                     return {
                         success: true,
                         synced: result.synced,
+                        created: result.created,
+                        updated: result.updated,
                         skipped: result.skipped,
                         team: result.team.toUpperCase(),
                         dryRun,
@@ -437,11 +722,31 @@ export default defineExtension({
             { name: "linear_id", type: "string", optional: true },
             { name: "linear_url", type: "string", optional: true },
         ]);
+        // Surface importer/exporter flags in help. The importer/exporter read these
+        // off ctx.options regardless, but declaring them makes `pm linear import
+        // --help` / `pm linear export --help` self-documenting.
+        api.registerFlags("linear import", [
+            { long: "--team", value_name: "slug", description: "Linear team slug (or set LINEAR_DEFAULT_TEAM)." },
+            { long: "--project", value_name: "name", description: "Filter by Linear project name." },
+            { long: "--state", value_name: "name", description: "Filter by Linear state name." },
+            { long: "--assignee", value_name: "email", description: "Filter by assignee email." },
+            { long: "--label", value_name: "name", description: "Filter by label name." },
+            { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress\"." },
+            { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
+            { long: "--dry-run", description: "Preview without writing (reports create vs update)." },
+        ]);
+        api.registerFlags("linear export", [
+            { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
+            { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push)." },
+            { long: "--status-map", value_name: "map", description: "pm-status<->Linear-state map; inverted for the push direction." },
+            { long: "--dry-run", description: "With --push, preview the create/update plan without mutating Linear." },
+        ]);
         // -----------------------------------------------------------------------
         // importer — `pm linear import` (native import pipeline; pulls issues via
         // the Linear GraphQL API and creates pm items, reusing the sync core).
         // -----------------------------------------------------------------------
         api.registerImporter("linear", async (ctx) => {
+            assertPreflightOk(ctx.options);
             const team = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
             if (!team) {
                 throw new CommandError("pm linear import requires --team <slug> (or set LINEAR_DEFAULT_TEAM). " +
@@ -449,15 +754,20 @@ export default defineExtension({
             }
             const project = readStringOption(ctx.options, "project");
             const stateFilter = readStringOption(ctx.options, "state");
+            const assignee = readStringOption(ctx.options, "assignee");
+            const label = readStringOption(ctx.options, "label");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             try {
-                const result = await syncLinearIssues({ team, project, stateFilter, statusMap, limit, dryRun }, ctx.pm_root);
-                console.error(`Imported ${result.synced} issue(s) from Linear team ${result.team.toUpperCase()}` +
+                const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit, dryRun }, ctx.pm_root);
+                console.error(`Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
+                    `from Linear team ${result.team.toUpperCase()}` +
                     (result.skipped > 0 ? ` (${result.skipped} skipped)` : ""));
                 return {
                     imported: result.synced,
+                    created: result.created,
+                    updated: result.updated,
                     skipped: result.skipped,
                     team: result.team.toUpperCase(),
                     dryRun,
@@ -476,20 +786,38 @@ export default defineExtension({
         // BOTH --push is set AND LINEAR_API_KEY is present (requires --team).
         // -----------------------------------------------------------------------
         api.registerExporter("linear", async (ctx) => {
+            assertPreflightOk(ctx.options);
             const push = readBooleanOption(ctx.options, "push");
+            const dryRun = readBooleanOption(ctx.options, "dry-run");
+            const invertedStatusMap = invertStatusMap(parseStatusMap(readStringOption(ctx.options, "status-map")));
             const items = readPmItems(ctx.pm_root);
             const payloads = items.map(itemToLinearPayload);
-            if (!push) {
-                // Strip internal flags from the printed payload.
+            // Default + dry-run: print payloads with the planned create/update action.
+            if (!push || dryRun) {
                 const printable = payloads.map((p) => ({
+                    action: p.alreadyInLinear ? "update" : "create",
                     title: p.title,
                     description: p.description,
-                    alreadyInLinear: p.alreadyInLinear,
+                    targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
+                    ...(p.linearId ? { linearId: p.linearId } : {}),
                     ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
                 }));
                 console.log(JSON.stringify(printable, null, 2));
-                return { exported: printable.length, pushed: false };
+                const wouldCreate = printable.filter((p) => p.action === "create").length;
+                const wouldUpdate = printable.length - wouldCreate;
+                if (dryRun && push) {
+                    console.error(`[dry-run] Would push ${printable.length} item(s): ${wouldCreate} create, ${wouldUpdate} update.`);
+                }
+                return {
+                    exported: printable.length,
+                    pushed: false,
+                    dryRun: dryRun && push,
+                    wouldCreate,
+                    wouldUpdate,
+                };
             }
+            // Real push. Preflight has already validated the key + reachability; the
+            // explicit checks below keep the contract self-evident at the call site.
             const apiKey = process.env["LINEAR_API_KEY"];
             if (!apiKey) {
                 throw new CommandError("--push requires LINEAR_API_KEY. Get a key at https://linear.app/settings/api", EXIT_CODE.USAGE);
@@ -498,26 +826,52 @@ export default defineExtension({
             if (!team) {
                 throw new CommandError("--push requires --team <slug> to create issues in Linear.", EXIT_CODE.USAGE);
             }
-            const teamId = await resolveTeamId(apiKey, team);
+            const teamCtx = await resolveTeamContext(apiKey, team);
             let created = 0;
+            let updated = 0;
             let skipped = 0;
             for (const payload of payloads) {
-                // Don't re-create items that already originated in Linear.
-                if (payload.alreadyInLinear) {
-                    skipped++;
+                // Map pm status -> a concrete Linear workflow-state id for this team,
+                // when one resolves; otherwise leave the state untouched.
+                const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
+                const stateId = stateName
+                    ? teamCtx.statesByName[stateName.trim().toLowerCase()]
+                    : undefined;
+                if (payload.alreadyInLinear && payload.linearId) {
+                    // Idempotent update of the linked Linear issue.
+                    const input = {
+                        title: payload.title,
+                        description: payload.description,
+                    };
+                    if (stateId)
+                        input.stateId = stateId;
+                    const resp = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
+                        id: payload.linearId,
+                        input,
+                    });
+                    if (resp.errors?.length) {
+                        throw new CommandError(`Linear issueUpdate failed: ${resp.errors.map((e) => e.message).join("; ")}`);
+                    }
+                    updated++;
                     continue;
                 }
-                const resp = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, {
-                    input: { teamId, title: payload.title, description: payload.description },
-                });
+                const input = {
+                    teamId: teamCtx.teamId,
+                    title: payload.title,
+                    description: payload.description,
+                };
+                if (stateId)
+                    input.stateId = stateId;
+                const resp = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
                 if (resp.errors?.length) {
                     throw new CommandError(`Linear issueCreate failed: ${resp.errors.map((e) => e.message).join("; ")}`);
                 }
                 created++;
             }
-            console.error(`Pushed ${created} issue(s) to Linear team ${team.toUpperCase()}` +
-                (skipped > 0 ? ` (${skipped} already linked, skipped)` : ""));
-            return { exported: payloads.length, pushed: true, created, skipped };
+            console.error(`Pushed ${created + updated} issue(s) to Linear team ${team.toUpperCase()} ` +
+                `(${created} created, ${updated} updated)` +
+                (skipped > 0 ? ` — ${skipped} skipped` : ""));
+            return { exported: payloads.length, pushed: true, created, updated, skipped };
         });
         // -----------------------------------------------------------------------
         // Importer: linear-sync
@@ -531,11 +885,16 @@ export default defineExtension({
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const stateFilter = readStringOption(ctx.options, "state");
             const project = readStringOption(ctx.options, "project");
+            const assignee = readStringOption(ctx.options, "assignee");
+            const label = readStringOption(ctx.options, "label");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
-            const result = await syncLinearIssues({ team, project, stateFilter, statusMap, limit }, ctx.pm_root);
-            console.error(`Synced ${result.synced} issues from Linear team ${result.team.toUpperCase()}`);
+            const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit }, ctx.pm_root);
+            console.error(`Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
+                `from Linear team ${result.team.toUpperCase()}`);
             return {
                 synced: result.synced,
+                created: result.created,
+                updated: result.updated,
                 skipped: result.skipped,
                 team: result.team.toUpperCase(),
             };

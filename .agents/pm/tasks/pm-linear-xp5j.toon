@@ -1,0 +1,12 @@
+id: pm-linear-xp5j
+title: "Idempotent import: update existing pm items matched on linear_id"
+description: "Re-import must UPDATE existing items keyed on linear_id provenance rather than pm create duplicates. Read existing items via pm list --json, index by linear_id parsed from description marker, and pm update matched items; pm create only when unseen."
+type: Task
+status: open
+priority: 1
+tags: []
+created_at: "2026-06-02T07:59:50.838Z"
+updated_at: "2026-06-02T07:59:50.838Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""

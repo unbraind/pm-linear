@@ -1,0 +1,12 @@
+id: pm-linear-cj68
+title: "HTTP robustness: timeout + rate-limit/429 backoff retry"
+description: "linearRequest: add request timeout and retry with exponential backoff on 429/5xx, honoring Retry-After."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-06-02T07:59:51.751Z"
+updated_at: "2026-06-02T07:59:51.751Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""
