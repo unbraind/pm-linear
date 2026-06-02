@@ -1,0 +1,12 @@
+id: pm-linear-rnf2
+title: "Import filters: assignee + label GraphQL filter clauses"
+description: "Add --assignee (email) and --label filters wired into the issues GraphQL filter, alongside existing team/project/state."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-06-02T07:59:51.298Z"
+updated_at: "2026-06-02T07:59:51.298Z"
+author: codex
+parent: pm-linear-ikwo
+body: ""

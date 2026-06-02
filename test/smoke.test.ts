@@ -7,6 +7,11 @@ import extension, {
   buildProvenance,
   parseProvenance,
   itemToLinearPayload,
+  invertStatusMap,
+  resolveLinearStateName,
+  buildIssuesQuery,
+  indexItemsByLinearId,
+  backoffDelayMs,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -49,6 +54,8 @@ test("extension registers expected capabilities", () => {
   assert.ok(registered.includes("itemFields"), "should register item fields");
   assert.ok(registered.includes("importer"), "should register importer(s)");
   assert.ok(registered.includes("exporter"), "should register the exporter");
+  assert.ok(registered.includes("preflight"), "should register the preflight guard");
+  assert.ok(registered.includes("flags"), "should register importer/exporter flags");
 });
 
 test("parseStatusMap parses pairs case-insensitively and ignores junk", () => {
@@ -106,4 +113,80 @@ test("itemToLinearPayload maps fields and flags linked items", () => {
 
   const untitled = itemToLinearPayload({});
   assert.equal(untitled.title, "(untitled)");
+});
+
+test("itemToLinearPayload does not export provenance as the issue description", () => {
+  const payload = itemToLinearPayload({
+    id: "pm-1",
+    title: "Linked",
+    description: buildProvenance({ id: "lin-1", identifier: "ENG-1" }),
+  });
+
+  assert.equal(payload.alreadyInLinear, true);
+  assert.equal(payload.description, "");
+});
+
+test("itemToLinearPayload carries linear id + pm status for idempotent push", () => {
+  const linked = itemToLinearPayload({
+    id: "pm-1",
+    title: "Fix login",
+    status: "in_progress",
+    description: buildProvenance({ id: "lin-1", identifier: "ENG-1" }),
+  });
+  assert.equal(linked.linearId, "lin-1");
+  assert.equal(linked.pmStatus, "in_progress");
+  assert.equal(linked.alreadyInLinear, true);
+});
+
+test("invertStatusMap + resolveLinearStateName map pm status -> Linear state", () => {
+  // Default mapping (no overrides).
+  assert.equal(resolveLinearStateName("open", {}), "Todo");
+  assert.equal(resolveLinearStateName("in_progress", {}), "In Progress");
+  assert.equal(resolveLinearStateName("closed", {}), "Done");
+  assert.equal(resolveLinearStateName(undefined, {}), undefined);
+
+  // A user --status-map "Backlog=open" inverts to open -> Backlog and wins.
+  const inverted = invertStatusMap(parseStatusMap("Backlog=open,In Review=in_progress"));
+  assert.equal(inverted["open"], "backlog");
+  assert.equal(resolveLinearStateName("open", inverted), "backlog");
+  // statuses not in the map fall back to the default.
+  assert.equal(resolveLinearStateName("closed", inverted), "Done");
+});
+
+test("buildIssuesQuery includes only requested filter clauses + variables", () => {
+  const base = buildIssuesQuery({});
+  assert.ok(base.includes("team: { key: { eq: $team } }"));
+  assert.ok(!base.includes("$project"), "no project var when not requested");
+  assert.ok(!base.includes("assignee: {"), "no assignee clause when not requested");
+
+  const full = buildIssuesQuery({ project: true, assignee: true, label: true });
+  assert.ok(full.includes("$project: String!"));
+  assert.ok(full.includes("project: { name: { eq: $project } }"));
+  assert.ok(full.includes("assignee: { email: { eq: $assignee } }"));
+  assert.ok(full.includes("labels: { some: { name: { eq: $label } } }"));
+  // The selection set always requests assignee so client-side use works.
+  assert.ok(full.includes("assignee { name email }"));
+});
+
+test("indexItemsByLinearId keys items by stored linear id, ignoring unlinked", () => {
+  const items = [
+    { id: "pm-1", description: buildProvenance({ id: "lin-A", identifier: "ENG-1" }) },
+    { id: "pm-2", description: "plain, no provenance" },
+    { id: "pm-3", description: buildProvenance({ id: "lin-B", identifier: "ENG-2" }) },
+  ];
+  const index = indexItemsByLinearId(items);
+  assert.equal(Object.keys(index).length, 2);
+  assert.equal(index["lin-A"].id, "pm-1");
+  assert.equal(index["lin-B"].id, "pm-3");
+  assert.equal(index["lin-missing"], undefined);
+});
+
+test("backoffDelayMs grows exponentially and honors Retry-After", () => {
+  assert.equal(backoffDelayMs(0), 250);
+  assert.equal(backoffDelayMs(1), 500);
+  assert.equal(backoffDelayMs(2), 1000);
+  // capped at 8s
+  assert.equal(backoffDelayMs(10), 8000);
+  // explicit retry-after wins
+  assert.equal(backoffDelayMs(0, 4200), 4200);
 });
