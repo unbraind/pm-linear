@@ -1,0 +1,14 @@
+id: pm-linear-du0a
+title: Adopt full SDK capability surface (linear importer/exporter + schema fields + flags)
+description: "Add registerImporter('linear')/registerExporter('linear'), registerItemFields(linear_id,linear_url), and --team/--project/--state/--status-map/--push flags. Backward-compatible with pm linear sync."
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-02T05:29:42.624Z"
+updated_at: "2026-06-02T05:35:32.161Z"
+author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-02T05:35:27.671Z",codex,"Added registerImporter('linear') -> pm linear import, registerExporter('linear') -> pm linear export (read-only by default; --push mutates Linear only with key + --team), registerItemFields(linear_id, linear_url). New flags: --team/--project/--state/--status-map on sync+import, --push on export. Provenance persisted in description behind [linear] marker. Verified: build, tsc --noEmit, 7/7 tests (incl. pure-transform unit tests), functional install + extension doctor (active, 0 failures), graceful structured CommandError (exit 2) on missing key for import + export --push. Backward-compatible: pm linear sync unchanged."
+close_reason: "Shipped: importer/exporter/schema + flags; all verification passed (build, tsc, 7/7 tests, doctor 0 failures, graceful no-key)."
+body: ""
