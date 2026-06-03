@@ -2,10 +2,13 @@ id: pm-linear-ced8
 title: Unit tests for new pure fns + README + manifest capability review + release
 description: ""
 type: Task
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-06-03T05:34:23.519Z"
-updated_at: "2026-06-03T05:34:23.519Z"
+updated_at: "2026-06-03T05:48:29.983Z"
 author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:48:29.930Z",codex,"DONE. 20/20 unit tests green; README updated; manifest caps reviewed (no change needed). CI green (run 26866239025). Released pm-linear@2026.6.3 via release.yml (run 26866262258), npm latest=2026.6.3, GH release v2026.06.03."
+close_reason: Closed via pm update
 body: ""
