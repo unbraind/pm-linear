@@ -1,0 +1,14 @@
+id: pm-linear-6u39
+title: "Offline --dry-run: build+print GraphQL query/variables + export mutations, no network"
+description: ""
+type: Task
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-03T05:34:21.922Z"
+updated_at: "2026-06-03T05:45:00.714Z"
+author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:45:00.668Z",codex,"DONE. --dry-run import (sync + importer) is now fully OFFLINE: buildImportRequestPlan builds the literal GraphQL query+variables, renderImportDryRun prints them, NO network call. --dry-run export builds+prints would-be issueCreate/issueUpdate mutations via buildExportMutationPlan, also offline. PROVEN no-network via strace: bogus API key 'PROBE_STRING' had 0 socket-write occurrences; only pm-cli's own telemetry hit the network. text+json modes both verified."
+close_reason: Closed via pm update
+body: ""

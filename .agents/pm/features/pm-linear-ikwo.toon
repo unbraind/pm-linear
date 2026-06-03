@@ -2,10 +2,13 @@ id: pm-linear-ikwo
 title: "SDK-capability enhancement: idempotent sync, preflight, bidirectional status mapping, export updates"
 description: "Drastically enhance pm-linear toward domain-appropriate max against pm-cli SDK 2026.5.31.\n\nValue: make Linear<->pm sync production-grade and idempotent so re-running import updates existing items instead of duplicating, add a preflight guard before any mutating Linear call, add assignee/label filters, make the exporter update (not just create) Linear issues, and add bidirectional status mapping + HTTP robustness (timeout, rate-limit backoff).\n\nCapabilities before: commands, schema, importers, services (services declared but unused). \nCapabilities after (target): commands, schema, importers, preflight (drop unused services).\n\nAcceptance criteria:\n- Re-import updates existing pm items matched on linear_id provenance (no duplicates); evidence via fixtures.\n- preflight capability validates LINEAR_API_KEY + API reachability before mutating commands with clear failure_hints.\n- assignee + label filters on import (GraphQL filter clauses).\n- exporter creates AND updates Linear issues (idempotent on stored linear id), with --dry-run.\n- bidirectional status map (pm-status -> Linear state) applied on export push.\n- linearRequest gains timeout + 429/rate-limit backoff retry.\n- All gates green; functional fixtures + dry-run scratch workspace; exit codes verified."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-06-02T07:59:37.921Z"
-updated_at: "2026-06-02T07:59:37.921Z"
+updated_at: "2026-06-03T05:45:18.631Z"
 author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:45:18.590Z",codex,"Superseded/completed: all enumerated SDK-capability enhancements (idempotent sync, preflight, bidirectional status mapping, export updates) are present in shipped code and verified this round."
+close_reason: Closed via pm update
 body: ""
