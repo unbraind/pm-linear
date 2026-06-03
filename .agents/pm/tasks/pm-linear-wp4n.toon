@@ -1,0 +1,14 @@
+id: pm-linear-wp4n
+title: "Push-on-write hook (opt-in, hooks capability) mirroring pm writes to Linear"
+description: ""
+type: Task
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-03T05:34:22.956Z"
+updated_at: "2026-06-03T05:39:52.040Z"
+author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:39:51.992Z",codex,"SKIPPED with rationale (not a fit). The SDK OnWriteHookContext only carries {path, scope, op} — NO item id or content (verified extension-types.d.ts:122). A push-on-write hook therefore cannot identify WHICH item changed or read its new fields without re-reading+diffing the whole workspace on every write (heavy, racy, and still ambiguous). Adding the 'hooks' capability + an onWrite that can't reliably mirror would be exactly the phantom-capability anti-pattern the brief warns against, and it mutates Linear so it is un-verifiable offline. DECISION: do not add 'hooks'. The opt-in push direction is already served by 'pm linear export --push' (explicit, idempotent, creds-gated). Documented LINEAR_PUSH_ON_WRITE readiness flag is surfaced by 'linear validate' as a forward signal only."
+close_reason: Closed via pm update
+body: ""

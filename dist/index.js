@@ -156,6 +156,52 @@ export function resolveLinearStateName(pmStatus, invertedMap) {
     return invertedMap[key] ?? DEFAULT_PM_TO_LINEAR_STATE[key];
 }
 // ---------------------------------------------------------------------------
+// Generic field map: --map linearField=pmField[,linearField=pmField...]
+// Lets a caller remap which Linear field feeds which pm field at import time
+// (e.g. --map identifier=title to drop the "[ENG-1] " prefix, or
+// --map priority=ignore to skip priority). Keys are Linear field names; values
+// are pm field names (or the sentinel "ignore" to suppress that field).
+// Recognized Linear keys: title, description, priority, status, labels,
+// assignee, identifier. Pure + exported for unit testing.
+// ---------------------------------------------------------------------------
+const KNOWN_LINEAR_FIELDS = [
+    "title",
+    "description",
+    "priority",
+    "status",
+    "labels",
+    "assignee",
+    "identifier",
+];
+export function parseFieldMap(raw) {
+    const map = {};
+    if (!raw)
+        return map;
+    for (const pair of raw.split(",")) {
+        const idx = pair.indexOf("=");
+        if (idx === -1)
+            continue;
+        const key = pair.slice(0, idx).trim().toLowerCase();
+        const value = pair.slice(idx + 1).trim().toLowerCase();
+        if (key && value)
+            map[key] = value;
+    }
+    return map;
+}
+// True when the Linear field is suppressed via `--map <field>=ignore`. Pure.
+export function fieldIsIgnored(fieldMap, linearField) {
+    return fieldMap[linearField.toLowerCase()] === "ignore";
+}
+// Resolve the pm target field for a given Linear field, honoring an override.
+// Returns the override (unless "ignore"), else the Linear field name itself.
+// Pure + exported for testing.
+export function resolvePmField(fieldMap, linearField) {
+    const override = fieldMap[linearField.toLowerCase()];
+    if (!override || override === "ignore")
+        return linearField.toLowerCase();
+    return override;
+}
+// ---------------------------------------------------------------------------
 // Provenance marker. We can't write registerItemFields custom fields via
 // `pm create` from a standalone extension, so encode linear_id + linear_url in
 // the item description behind a stable, machine-parseable marker. Pure.
@@ -197,6 +243,10 @@ export function buildIssuesQuery(flags) {
         clauses.push("labels: { some: { name: { eq: $label } } }");
         vars.push("$label: String!");
     }
+    if (flags.updatedSince) {
+        clauses.push("updatedAt: { gte: $updatedSince }");
+        vars.push("$updatedSince: DateTimeOrDuration!");
+    }
     const filterBody = clauses.map((c) => `      ${c}`).join("\n");
     return `
 query(${vars.join(", ")}) {
@@ -226,33 +276,47 @@ ${filterBody}
 }
 `.trim();
 }
-async function fetchAllLinearIssues(apiKey, team, limit, filters = {}) {
-    const all = [];
-    let after = null;
+export function buildImportRequestPlan(team, limit, filters = {}, after = null) {
     const project = filters.project?.trim();
     const assignee = filters.assignee?.trim();
     const label = filters.label?.trim();
+    const updatedSince = filters.updatedSince?.trim();
     const flags = {
         project: Boolean(project),
         assignee: Boolean(assignee),
         label: Boolean(label),
+        updatedSince: Boolean(updatedSince),
     };
-    const query = buildIssuesQuery(flags);
+    const variables = {
+        team: team.toUpperCase(),
+        first: Math.min(Math.max(limit, 1), LINEAR_MAX_PAGE_SIZE),
+        after,
+    };
+    if (flags.project)
+        variables.project = project;
+    if (flags.assignee)
+        variables.assignee = assignee;
+    if (flags.label)
+        variables.label = label;
+    if (flags.updatedSince)
+        variables.updatedSince = updatedSince;
+    return {
+        endpoint: "https://api.linear.app/graphql",
+        method: "POST",
+        query: buildIssuesQuery(flags),
+        variables,
+    };
+}
+async function fetchAllLinearIssues(apiKey, team, limit, filters = {}) {
+    const all = [];
+    let after = null;
     while (all.length < limit) {
         const remaining = limit - all.length;
-        const first = Math.min(remaining, LINEAR_MAX_PAGE_SIZE);
-        const variables = {
-            team: team.toUpperCase(),
-            first,
-            after,
-        };
-        if (flags.project)
-            variables.project = project;
-        if (flags.assignee)
-            variables.assignee = assignee;
-        if (flags.label)
-            variables.label = label;
-        const response = await linearRequest(apiKey, query, variables);
+        // buildImportRequestPlan is the single source of truth for query+variables;
+        // it caps `first` at the page size. Pass `remaining` so the last page does
+        // not over-fetch.
+        const plan = buildImportRequestPlan(team, remaining, filters, after);
+        const response = await linearRequest(apiKey, plan.query, plan.variables);
         if (response.errors?.length) {
             const msgs = response.errors.map((e) => e.message).join("; ");
             throw new CommandError(`Linear API error: ${msgs}`);
@@ -396,12 +460,80 @@ export function indexItemsByLinearId(items) {
     }
     return index;
 }
+export function buildItemPlan(issue, statusMap, fieldMap = {}) {
+    // identifier=ignore drops the "[ENG-1] " prefix from the title.
+    const prefix = fieldIsIgnored(fieldMap, "identifier")
+        ? ""
+        : `[${issue.identifier}] `;
+    const title = fieldIsIgnored(fieldMap, "title")
+        ? `${prefix}(untitled)`
+        : `${prefix}${issue.title}`;
+    const body = fieldIsIgnored(fieldMap, "description")
+        ? ""
+        : issue.description ?? "";
+    const status = fieldIsIgnored(fieldMap, "status")
+        ? "open"
+        : resolveStatus(issue.state.type, issue.state.name, statusMap);
+    const priority = fieldIsIgnored(fieldMap, "priority")
+        ? 3
+        : mapPriority(issue.priority);
+    const tags = fieldIsIgnored(fieldMap, "labels")
+        ? []
+        : issue.labels.nodes.map((l) => l.name);
+    const plan = {
+        title,
+        body,
+        status,
+        priority,
+        tags,
+        description: buildProvenance(issue),
+    };
+    if (issue.dueDate)
+        plan.deadline = issue.dueDate;
+    return plan;
+}
+function buildImportDryRunPlan(options, pm_root) {
+    const request = buildImportRequestPlan(options.team, options.limit, {
+        project: options.project,
+        assignee: options.assignee,
+        label: options.label,
+        updatedSince: options.updatedSince,
+    });
+    // Local-only read; no Linear network call. Reports how many already-linked pm
+    // items exist so the preview can hint at create-vs-update without fetching.
+    let existingLinkedItems = 0;
+    try {
+        existingLinkedItems = Object.keys(indexItemsByLinearId(readPmItems(pm_root))).length;
+    }
+    catch {
+        existingLinkedItems = 0;
+    }
+    return {
+        dryRun: true,
+        team: options.team.toUpperCase(),
+        request,
+        existingLinkedItems,
+        fieldMap: options.fieldMap ?? {},
+        statusMap: options.statusMap ?? {},
+    };
+}
 async function syncLinearIssues(options, pm_root) {
     const apiKey = process.env["LINEAR_API_KEY"];
     if (!apiKey) {
         throw new CommandError("LINEAR_API_KEY environment variable is not set. " +
             "Get your API key at https://linear.app/settings/api", EXIT_CODE.USAGE);
     }
+    const filters = {
+        project: options.project,
+        assignee: options.assignee,
+        label: options.label,
+        updatedSince: options.updatedSince,
+    };
+    // --dry-run is fully OFFLINE: build and PRINT the exact GraphQL request that
+    // WOULD be sent (query + variables), make NO network call, and report against
+    // the local workspace only. This is handled in the command/importer handler
+    // (which has access to the JSON-mode flag); syncLinearIssues is only reached
+    // here for real writes, so a missing/invalid key surfaces as a real error.
     const scopeBits = [];
     if (options.project)
         scopeBits.push(`project "${options.project}"`);
@@ -409,13 +541,11 @@ async function syncLinearIssues(options, pm_root) {
         scopeBits.push(`assignee ${options.assignee}`);
     if (options.label)
         scopeBits.push(`label "${options.label}"`);
+    if (options.updatedSince)
+        scopeBits.push(`updated since ${options.updatedSince}`);
     const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
     console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
-    const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, {
-        project: options.project,
-        assignee: options.assignee,
-        label: options.label,
-    });
+    const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, filters);
     if (issues.length === 0) {
         console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
         return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
@@ -438,26 +568,15 @@ async function syncLinearIssues(options, pm_root) {
                 continue;
             }
         }
-        const status = resolveStatus(issue.state.type, issue.state.name, statusMap);
-        const priority = mapPriority(issue.priority);
-        const tags = issue.labels.nodes.map((l) => l.name);
-        const body = issue.description ?? "";
-        const title = `[${issue.identifier}] ${issue.title}`;
         // `pm create` has no generic setter for the registerItemFields custom
-        // fields from a standalone extension, so we persist Linear provenance in
-        // the description behind a stable marker. This survives round-trips and is
-        // what re-import + `pm linear export` read back to stay idempotent.
-        const description = buildProvenance(issue);
+        // fields from a standalone extension, so buildItemPlan persists Linear
+        // provenance in the description behind a stable marker. This survives
+        // round-trips and is what re-import + `pm linear export` read back to stay
+        // idempotent. The same builder feeds the offline --dry-run preview.
+        const plan = buildItemPlan(issue, statusMap, options.fieldMap ?? {});
+        const { title, body, status, priority, description } = plan;
+        const tags = plan.tags;
         const existing = existingByLinearId[issue.id];
-        if (options.dryRun) {
-            const verb = existing ? "update" : "create";
-            console.error(`[dry-run] Would ${verb}: ${issue.identifier} — ${issue.title} (${status}, p${priority})`);
-            if (existing)
-                updated++;
-            else
-                created++;
-            continue;
-        }
         if (existing && existing.id) {
             // Update the matched item in place (no duplicate).
             const updateArgs = [
@@ -472,8 +591,8 @@ async function syncLinearIssues(options, pm_root) {
                 updateArgs.push("--body", body);
             if (tags.length > 0)
                 updateArgs.push("--tags", tags.join(","));
-            if (issue.dueDate)
-                updateArgs.push("--deadline", issue.dueDate);
+            if (plan.deadline)
+                updateArgs.push("--deadline", plan.deadline);
             const result = spawnSync("pm", updateArgs, { encoding: "utf-8" });
             if (result.status !== 0) {
                 console.error(`Failed to update item for ${issue.identifier}: ${result.stderr}`);
@@ -495,8 +614,8 @@ async function syncLinearIssues(options, pm_root) {
                 createArgs.push("--body", body);
             if (tags.length > 0)
                 createArgs.push("--tags", tags.join(","));
-            if (issue.dueDate)
-                createArgs.push("--deadline", issue.dueDate);
+            if (plan.deadline)
+                createArgs.push("--deadline", plan.deadline);
             const result = spawnSync("pm", createArgs, { encoding: "utf-8" });
             if (result.status !== 0) {
                 console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
@@ -566,6 +685,36 @@ async function resolveTeamContext(apiKey, teamKey) {
     }
     return { teamId: node.id, statesByName };
 }
+export function buildExportMutationPlan(payload, invertedStatusMap, teamKey) {
+    const targetStateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap) ?? null;
+    if (payload.alreadyInLinear && payload.linearId) {
+        const input = {
+            title: payload.title,
+            description: payload.description,
+        };
+        if (targetStateName)
+            input.stateName = targetStateName;
+        return {
+            action: "update",
+            mutation: ISSUE_UPDATE_MUTATION,
+            variables: { id: payload.linearId, input },
+            targetStateName,
+        };
+    }
+    const input = {
+        teamId: teamKey ? `<resolved-id-for-${teamKey.toUpperCase()}>` : "<team-id>",
+        title: payload.title,
+        description: payload.description,
+    };
+    if (targetStateName)
+        input.stateName = targetStateName;
+    return {
+        action: "create",
+        mutation: ISSUE_CREATE_MUTATION,
+        variables: { input },
+        targetStateName,
+    };
+}
 // ---------------------------------------------------------------------------
 // Preflight — credential + reachability validation for mutating Linear calls.
 //
@@ -614,12 +763,71 @@ async function preflightLinear(options, checkReachability) {
         return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
     }
 }
+// Mask an API key for diagnostics: never reveal more than a short prefix.
+// Pure + exported for testing. "" / undefined -> "".
+export function maskApiKey(key) {
+    if (!key)
+        return "";
+    const head = key.slice(0, 4);
+    return `${head}…(${key.length} chars)`;
+}
+function buildValidationReport() {
+    const key = process.env["LINEAR_API_KEY"];
+    const apiKeyPresent = Boolean(key);
+    return {
+        apiKeyPresent,
+        apiKeyMasked: maskApiKey(key),
+        defaultTeam: process.env["LINEAR_DEFAULT_TEAM"],
+        readyForWrites: apiKeyPresent,
+        networkChecked: false,
+        networkOk: false,
+    };
+}
 // Read + clear the sentinel a preflight may have injected; throw if present.
 function assertPreflightOk(options) {
     const err = options[PREFLIGHT_ERROR_OPTION];
     if (typeof err === "string" && err) {
         throw new CommandError(err, EXIT_CODE.USAGE);
     }
+}
+// True when the caller passed the GLOBAL --json flag. pm exposes it on
+// ctx.global.json; in JSON mode handlers return the object and must NOT write
+// their own stdout (the runtime serializes the return value).
+function isJsonMode(ctx) {
+    return Boolean(ctx?.global?.json);
+}
+// Render an offline import dry-run: build the literal GraphQL request (no
+// network) and either return the plan object (JSON mode) or print a human
+// preview to stderr. Shared by `linear sync` and the `linear` importer so both
+// dry-run paths are identical and network-free. Returns the JSON-mode payload.
+function renderImportDryRun(ctx, options) {
+    const plan = buildImportDryRunPlan(options, ctx.pm_root);
+    if (!isJsonMode(ctx)) {
+        console.error("Running in dry-run mode — no Linear network call is made.");
+        console.error(`Target team: ${plan.team} (limit: ${options.limit})`);
+        console.error(`GraphQL endpoint: ${plan.request.method} ${plan.request.endpoint}`);
+        console.error("GraphQL query:");
+        console.error(plan.request.query);
+        console.error("GraphQL variables:");
+        console.error(JSON.stringify(plan.request.variables, null, 2));
+        console.error(`Existing Linear-linked pm items: ${plan.existingLinkedItems} ` +
+            `(matched issues would update; the rest would be created).`);
+        if (Object.keys(plan.statusMap).length) {
+            console.error(`Status map: ${JSON.stringify(plan.statusMap)}`);
+        }
+        if (Object.keys(plan.fieldMap).length) {
+            console.error(`Field map: ${JSON.stringify(plan.fieldMap)}`);
+        }
+    }
+    return {
+        success: true,
+        dryRun: true,
+        team: plan.team,
+        request: plan.request,
+        existingLinkedItems: plan.existingLinkedItems,
+        statusMap: plan.statusMap,
+        fieldMap: plan.fieldMap,
+    };
 }
 // ---------------------------------------------------------------------------
 // Extension definition
@@ -637,7 +845,11 @@ export default defineExtension({
             if (!commandMutatesLinear(ctx.command, ctx.options))
                 return {};
             // Reachability uses the network; allow opting out (CI/offline/tests).
-            const checkReachability = !readBooleanOption(ctx.options, "no-preflight-network") &&
+            // pm strips a leading `--no-` as boolean negation, so the user-facing flag
+            // is `--skip-preflight-network` (the legacy `no-preflight-network` key is
+            // still honored for back-compat with any existing scripts/config).
+            const checkReachability = !readBooleanOption(ctx.options, "skip-preflight-network") &&
+                !readBooleanOption(ctx.options, "no-preflight-network") &&
                 process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
             const error = await preflightLinear(ctx.options, checkReachability);
             if (!error)
@@ -664,9 +876,12 @@ export default defineExtension({
                 { long: "--state", value_name: "name", description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional." },
                 { long: "--assignee", value_name: "email", description: "Filter by assignee email. Optional." },
                 { long: "--label", value_name: "name", description: "Filter by label name. Optional." },
+                { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration (e.g. 2026-01-01, -P7D). Optional." },
                 { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress,Backlog=open\". Optional." },
+                { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore,priority=ignore\". Optional." },
                 { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
-                { long: "--dry-run", description: "Preview what would be synced without writing anything" },
+                { long: "--dry-run", description: "Preview the exact GraphQL request without any network call or writes" },
+                { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
             ],
             async run(ctx) {
                 assertPreflightOk(ctx.options);
@@ -675,19 +890,25 @@ export default defineExtension({
                 const stateFilter = readStringOption(ctx.options, "state");
                 const assignee = readStringOption(ctx.options, "assignee");
                 const label = readStringOption(ctx.options, "label");
+                const updatedSince = readStringOption(ctx.options, "updated-since");
                 const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
+                const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
                 const limit = readNumberOption(ctx.options, "limit") ?? 100;
                 const dryRun = readBooleanOption(ctx.options, "dry-run");
                 if (!team) {
                     throw new CommandError("--team is required. Example: pm linear sync --team ENG", EXIT_CODE.USAGE);
                 }
+                const syncOpts = {
+                    team, project, stateFilter, assignee, label, updatedSince,
+                    statusMap, fieldMap, limit, dryRun,
+                };
+                // --dry-run is fully offline: print the literal GraphQL request, no call.
                 if (dryRun) {
-                    console.error("Running in dry-run mode — no items will be written.");
+                    return renderImportDryRun(ctx, syncOpts);
                 }
                 try {
-                    const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit, dryRun }, ctx.pm_root);
-                    const verb = dryRun ? "Would sync" : "Synced";
-                    const summary = `${verb} ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
+                    const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+                    const summary = `Synced ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
                         `(${result.created} new, ${result.updated} updated) from Linear team ${result.team.toUpperCase()}`;
                     if (result.skipped > 0) {
                         console.error(`${summary} (${result.skipped} skipped)`);
@@ -702,7 +923,7 @@ export default defineExtension({
                         updated: result.updated,
                         skipped: result.skipped,
                         team: result.team.toUpperCase(),
-                        dryRun,
+                        dryRun: false,
                     };
                 }
                 catch (err) {
@@ -713,6 +934,45 @@ export default defineExtension({
                     const message = err instanceof Error ? err.message : String(err);
                     throw new CommandError(`Linear sync failed: ${message}`);
                 }
+            },
+        });
+        // -----------------------------------------------------------------------
+        // Command: pm linear validate — readiness diagnostics. Reports whether the
+        // API key + default team are configured WITHOUT leaking the key, and
+        // whether push-on-write is enabled. Offline by default; --check-network
+        // (opt-in) probes the Linear API. --json returns the structured object.
+        // -----------------------------------------------------------------------
+        api.registerCommand({
+            name: "linear validate",
+            description: "Check pm-linear configuration + Linear API readiness",
+            intent: "Report whether LINEAR_API_KEY and team config are present (without leaking the key)",
+            examples: [
+                "pm linear validate",
+                "pm linear validate --json",
+                "pm linear validate --check-network",
+            ],
+            flags: [
+                { long: "--check-network", description: "Probe the Linear API to confirm the key is accepted (needs network)." },
+            ],
+            async run(ctx) {
+                const checkNetwork = readBooleanOption(ctx.options, "check-network");
+                const diag = buildValidationReport();
+                if (checkNetwork && diag.apiKeyPresent) {
+                    const err = await preflightLinear(ctx.options, true);
+                    diag.networkChecked = true;
+                    diag.networkOk = err === null;
+                    if (err)
+                        diag.networkError = err;
+                }
+                if (isJsonMode(ctx))
+                    return diag;
+                console.error(`Linear API key:      ${diag.apiKeyPresent ? `present (${diag.apiKeyMasked})` : "MISSING"}`);
+                console.error(`Default team:        ${diag.defaultTeam ?? "(not set)"}`);
+                if (diag.networkChecked) {
+                    console.error(`API reachability:    ${diag.networkOk ? "ok" : `FAILED — ${diag.networkError}`}`);
+                }
+                console.error(`Ready for writes:    ${diag.readyForWrites ? "yes" : "no — set LINEAR_API_KEY"}`);
+                return diag;
             },
         });
         // -----------------------------------------------------------------------
@@ -731,15 +991,17 @@ export default defineExtension({
             { long: "--state", value_name: "name", description: "Filter by Linear state name." },
             { long: "--assignee", value_name: "email", description: "Filter by assignee email." },
             { long: "--label", value_name: "name", description: "Filter by label name." },
+            { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration." },
             { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress\"." },
+            { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore\"." },
             { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
-            { long: "--dry-run", description: "Preview without writing (reports create vs update)." },
+            { long: "--dry-run", description: "Print the exact GraphQL request offline (no network, no writes)." },
         ]);
         api.registerFlags("linear export", [
             { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
             { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push)." },
             { long: "--status-map", value_name: "map", description: "pm-status<->Linear-state map; inverted for the push direction." },
-            { long: "--dry-run", description: "With --push, preview the create/update plan without mutating Linear." },
+            { long: "--dry-run", description: "Print the would-be Linear mutations (no network) — works with or without --push." },
         ]);
         // -----------------------------------------------------------------------
         // importer — `pm linear import` (native import pipeline; pulls issues via
@@ -756,11 +1018,22 @@ export default defineExtension({
             const stateFilter = readStringOption(ctx.options, "state");
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");
+            const updatedSince = readStringOption(ctx.options, "updated-since");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
+            const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const dryRun = readBooleanOption(ctx.options, "dry-run");
+            const syncOpts = {
+                team, project, stateFilter, assignee, label, updatedSince,
+                statusMap, fieldMap, limit, dryRun,
+            };
+            // --dry-run is fully offline: emit the literal GraphQL request, no call.
+            if (dryRun) {
+                const plan = renderImportDryRun(ctx, syncOpts);
+                return { imported: 0, created: 0, updated: 0, skipped: 0, ...plan };
+            }
             try {
-                const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit, dryRun }, ctx.pm_root);
+                const result = await syncLinearIssues(syncOpts, ctx.pm_root);
                 console.error(`Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
                     `from Linear team ${result.team.toUpperCase()}` +
                     (result.skipped > 0 ? ` (${result.skipped} skipped)` : ""));
@@ -770,7 +1043,7 @@ export default defineExtension({
                     updated: result.updated,
                     skipped: result.skipped,
                     team: result.team.toUpperCase(),
-                    dryRun,
+                    dryRun: false,
                 };
             }
             catch (err) {
@@ -790,10 +1063,36 @@ export default defineExtension({
             const push = readBooleanOption(ctx.options, "push");
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             const invertedStatusMap = invertStatusMap(parseStatusMap(readStringOption(ctx.options, "status-map")));
+            const teamKey = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
             const items = readPmItems(ctx.pm_root);
             const payloads = items.map(itemToLinearPayload);
-            // Default + dry-run: print payloads with the planned create/update action.
-            if (!push || dryRun) {
+            // --dry-run: build + print the exact would-be Linear GraphQL mutations
+            // (issueCreate / issueUpdate with their variables), OFFLINE — no network,
+            // no writes — regardless of --push. This is the symmetric counterpart to
+            // the import dry-run plan.
+            if (dryRun) {
+                const plans = payloads.map((p) => buildExportMutationPlan(p, invertedStatusMap, teamKey));
+                const wouldCreate = plans.filter((p) => p.action === "create").length;
+                const wouldUpdate = plans.length - wouldCreate;
+                if (!isJsonMode(ctx)) {
+                    console.error(`[dry-run] Would push ${plans.length} item(s): ${wouldCreate} create, ${wouldUpdate} update. No network call made.`);
+                    for (const plan of plans) {
+                        console.error(`--- ${plan.action} ---`);
+                        console.error(plan.mutation);
+                        console.error(JSON.stringify(plan.variables, null, 2));
+                    }
+                }
+                return {
+                    exported: plans.length,
+                    pushed: false,
+                    dryRun: true,
+                    wouldCreate,
+                    wouldUpdate,
+                    mutations: plans,
+                };
+            }
+            // Default (no --push, no --dry-run): print the read-only payload preview.
+            if (!push) {
                 const printable = payloads.map((p) => ({
                     action: p.alreadyInLinear ? "update" : "create",
                     title: p.title,
@@ -802,19 +1101,13 @@ export default defineExtension({
                     ...(p.linearId ? { linearId: p.linearId } : {}),
                     ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
                 }));
-                console.log(JSON.stringify(printable, null, 2));
                 const wouldCreate = printable.filter((p) => p.action === "create").length;
                 const wouldUpdate = printable.length - wouldCreate;
-                if (dryRun && push) {
-                    console.error(`[dry-run] Would push ${printable.length} item(s): ${wouldCreate} create, ${wouldUpdate} update.`);
+                if (isJsonMode(ctx)) {
+                    return { exported: printable.length, pushed: false, dryRun: false, wouldCreate, wouldUpdate, payloads: printable };
                 }
-                return {
-                    exported: printable.length,
-                    pushed: false,
-                    dryRun: dryRun && push,
-                    wouldCreate,
-                    wouldUpdate,
-                };
+                console.log(JSON.stringify(printable, null, 2));
+                return { exported: printable.length, pushed: false, dryRun: false, wouldCreate, wouldUpdate };
             }
             // Real push. Preflight has already validated the key + reachability; the
             // explicit checks below keep the contract self-evident at the call site.

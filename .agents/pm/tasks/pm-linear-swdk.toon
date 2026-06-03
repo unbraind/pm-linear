@@ -2,11 +2,14 @@ id: pm-linear-swdk
 title: Tests + functional fixtures + manifest/README
 description: "Extend unit tests for new pure helpers (status->linear mapping, item indexing, filter query building, backoff). Functional fixtures mirroring Linear API shapes; dry-run scratch workspace; exit code checks. Update manifest capabilities + README."
 type: Task
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-06-02T07:59:52.070Z"
-updated_at: "2026-06-02T07:59:52.070Z"
+updated_at: "2026-06-03T05:45:18.359Z"
 author: codex
 parent: pm-linear-ikwo
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:45:18.326Z",codex,"Done this round: 7 new unit tests (parseFieldMap/fieldIsIgnored/resolvePmField, buildImportRequestPlan, buildItemPlan x2, buildExportMutationPlan, maskApiKey, updated-since query) — 20/20 pass. README updated for new flags + offline/live split. Manifest capabilities reviewed: all register* calls have matching declared caps; no change needed."
+close_reason: Closed via pm update
 body: ""

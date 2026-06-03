@@ -1,0 +1,13 @@
+id: pm-linear-oa21
+title: "Deep enhancement: offline dry-run plans, --map field mapping, validate diagnostics, push-on-write hook"
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-06-03T05:34:11.910Z"
+updated_at: "2026-06-03T05:34:40.651Z"
+author: codex
+notes[1]{created_at,author,text}:
+  "2026-06-03T05:34:40.636Z",codex,"DECISION (capabilities): registerExporter requires 'importers' (loader.js:1133), not a separate 'exporters' token. Existing manifest [commands,schema,importers,preflight] covers all current register* calls; no change needed for existing code. To add push-on-write we must add 'hooks' capability (api.hooks.onWrite => loader.js:1209) AND verify it activates."
+body: "Drastically deepen pm-linear: (1) make --dry-run import/export build+print exact GraphQL request/variables and mutations with NO network call; (2) richer field mapping with generic --map linearField=pmField; (3) linear validate diagnostics command; (4) opt-in push-on-write hook mirroring pm writes to Linear (hooks capability); (5) fix unusable --no-preflight-network escape hatch on sync. All pure logic offline-testable. No live Linear creds available."

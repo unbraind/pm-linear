@@ -8,18 +8,27 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 | Capability | Surface |
 |------------|---------|
-| `commands` | `pm linear sync` |
+| `commands` | `pm linear sync`, `pm linear validate` |
 | `importers` | `pm linear import` (+ legacy `linear-sync` importer) |
 | `importers` (exporter) | `pm linear export` |
-| `schema` | `linear_id`, `linear_url` item fields |
+| `schema` | `linear_id`, `linear_url` item fields + command/importer/exporter flags |
+| `preflight` | credential + reachability guard for mutating commands |
+
+> **Offline vs live.** Every `--dry-run` path (import **and** export) is fully
+> **offline** — it builds and prints the exact GraphQL request/variables (import)
+> or the would-be `issueCreate`/`issueUpdate` mutations (export) and makes **no**
+> network call. Only the real (non-dry-run) `sync`/`import`, `export --push`, and
+> `validate --check-network` reach the Linear API and require a live
+> `LINEAR_API_KEY`.
 
 ---
 
 ## Requirements
 
-- pm-cli `>=2026.5.0`
+- pm-cli `>=2026.5.31`
 - Node.js `>=20`
-- A Linear API key with read access to the relevant teams
+- A Linear API key with read access to the relevant teams (only for **live**
+  paths; every `--dry-run` and offline `validate` works without one)
 
 ---
 
@@ -70,9 +79,26 @@ pm linear sync --team <slug> [options]
 | `--team` | string | *(required)* | Linear team slug (e.g. `ENG`, `BACKEND`) |
 | `--project` | string | — | Filter by Linear project name |
 | `--state` | string | — | Filter by state name (e.g. `"In Progress"`) |
+| `--assignee` | string | — | Filter by assignee email |
+| `--label` | string | — | Filter by label name |
+| `--updated-since` | string | — | Only issues updated at/after an ISO date or duration (e.g. `2026-01-01`, `-P7D`) |
 | `--status-map` | string | — | Override status mapping, e.g. `"In Review=in_progress,Backlog=open"` |
+| `--map` | string | — | Remap Linear→pm fields, e.g. `"identifier=ignore,priority=ignore"` |
 | `--limit` | number | `100` | Max issues to fetch |
-| `--dry-run` | boolean | `false` | Preview without writing |
+| `--dry-run` | boolean | `false` | **Offline** — print the exact GraphQL request, no network/writes |
+| `--skip-preflight-network` | boolean | `false` | Skip the preflight reachability probe (offline/CI) |
+
+#### `--map` field remapping
+
+`--map linearField=pmField[,…]` adjusts how Linear fields feed pm fields at
+import time. The special value `ignore` suppresses a field:
+
+| `--map` entry | Effect |
+|---------------|--------|
+| `identifier=ignore` | Drop the `[ENG-1] ` prefix from the pm title |
+| `priority=ignore` | Skip priority (pm item gets the default) |
+| `labels=ignore` | Skip label→tag import |
+| `status=ignore` | Skip status mapping (pm item stays `open`) |
 
 #### Examples
 
@@ -102,7 +128,8 @@ pm linear sync --team ENG --dry-run
 
 Native import pipeline. Pulls issues from a Linear team (and optional project) via the
 GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`,
-`--status-map`, `--limit`, and `--dry-run` flags as `pm linear sync`.
+`--assignee`, `--label`, `--updated-since`, `--status-map`, `--map`, `--limit`, and
+`--dry-run` flags as `pm linear sync`.
 
 ```bash
 pm linear import --team ENG
@@ -135,6 +162,29 @@ pm linear export --push --team ENG
 |------|------|---------|-------------|
 | `--push` | boolean | `false` | Create the issues in Linear (requires key + `--team`) |
 | `--team` | string | — | Target Linear team slug (required with `--push`) |
+| `--dry-run` | boolean | `false` | **Offline** — print the would-be `issueCreate`/`issueUpdate` mutations + variables, no network |
+
+```bash
+# Preview the exact Linear mutations that a --push would send (no network)
+pm linear export --dry-run --team ENG
+```
+
+## `pm linear validate`
+
+Readiness diagnostics. Reports whether `LINEAR_API_KEY` and `LINEAR_DEFAULT_TEAM`
+are configured — **without leaking the key** (only a short prefix + length are
+shown) — and whether the workspace is ready for writes. Offline by default;
+`--check-network` (opt-in) probes the Linear API to confirm the key is accepted.
+
+```bash
+pm linear validate                # offline: config presence only
+pm --json linear validate         # structured report
+pm linear validate --check-network # live: confirm the key is accepted (needs key + network)
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--check-network` | boolean | `false` | Probe the Linear API to confirm the key is accepted (needs network) |
 
 ---
 
@@ -196,11 +246,14 @@ export LINEAR_DEFAULT_TEAM=ENG
 
 | Linear state type / name | pm status |
 |--------------------------|-----------|
-| `unstarted` (Todo, Backlog, Triage) | `todo` |
-| `started` (In Progress, In Review) | `wip` |
-| `completed` (Done, Completed) | `done` |
-| `cancelled` (Cancelled) | `done` |
+| `unstarted` (Todo, Backlog, Triage) | `open` |
+| `started` (In Progress, In Review) | `in_progress` |
+| `completed` (Done, Completed) | `closed` |
+| `cancelled` (Cancelled) | `closed` |
 | name contains "blocked" | `blocked` |
+
+A `--status-map "Linear State=pm_status,…"` overrides this heuristic and is
+inverted to drive the export/push direction (pm status → Linear state name).
 
 ### Item fields
 
