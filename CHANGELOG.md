@@ -1,6 +1,13 @@
 # Changelog
 
-## 2026.6.3 - 2026-06-03
+## Unreleased
+
+### Added
+
+- Deep enhancement: offline dry-run plans, --map field mapping, validate diagnostics, push-on-write hook ([pm-linear-oa21](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-oa21.toon))
+- Unit tests for new pure fns + README + manifest capability review + release ([pm-linear-ced8](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-ced8.toon))
+
+## 2026.06.03 - 2026-06-03
 
 ### Added
 
