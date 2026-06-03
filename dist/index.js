@@ -54,6 +54,19 @@ function readBooleanOption(options, kebab) {
     }
     return Boolean(v);
 }
+// Read --project-map, preserving the "absent vs bare-flag" distinction that a
+// plain readStringOption would lose. Returns undefined when the flag was not
+// passed at all; "" (passthrough) when passed as a bare boolean flag; otherwise
+// the string value. This lets `--project-map` (no value) mean "tag with the
+// verbatim project name" while still supporting `--project-map "A=x,B=y"`.
+function readProjectMapOption(options) {
+    const v = options["project-map"] ?? options[camelKey("project-map")];
+    if (v === undefined)
+        return undefined;
+    if (typeof v === "boolean")
+        return v ? "" : undefined;
+    return typeof v === "string" ? v : String(v);
+}
 // ---------------------------------------------------------------------------
 // Linear priority → pm priority
 // Linear: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low
@@ -72,6 +85,35 @@ function mapPriority(linearPriority) {
         default:
             return 3; // No priority (0) → Medium
     }
+}
+// ---------------------------------------------------------------------------
+// pm priority → Linear priority (reverse of mapPriority, for export).
+// pm:     1=Urgent, 2=High, 3=Medium, 4=Low (and we treat anything else as 0).
+// Linear: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low.
+// pm 1..4 maps 1:1 onto Linear 1..4; any other value (undefined/0/out-of-range)
+// becomes Linear 0 ("No priority") so we never push a bogus int. Pure + exported.
+// ---------------------------------------------------------------------------
+export function mapPriorityToLinear(pmPriority) {
+    if (pmPriority === 1 || pmPriority === 2 || pmPriority === 3 || pmPriority === 4) {
+        return pmPriority;
+    }
+    return 0; // No priority
+}
+// ---------------------------------------------------------------------------
+// Normalize a pm deadline to Linear's `dueDate` shape (a bare YYYY-MM-DD date).
+// pm stores deadlines as full ISO datetimes (e.g. "2026-08-01T00:00:00.000Z");
+// Linear's TimelessDate wants just the calendar date. We slice the date part of
+// any ISO-ish value and pass through an already-bare date untouched. Returns
+// undefined for empty/unparseable input. Pure + exported for unit testing.
+// ---------------------------------------------------------------------------
+export function normalizeDueDate(deadline) {
+    if (!deadline)
+        return undefined;
+    const trimmed = deadline.trim();
+    if (!trimmed)
+        return undefined;
+    const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : undefined;
 }
 // ---------------------------------------------------------------------------
 // Linear state type → pm status
@@ -154,6 +196,48 @@ export function resolveLinearStateName(pmStatus, invertedMap) {
         return undefined;
     const key = pmStatus.trim().toLowerCase();
     return invertedMap[key] ?? DEFAULT_PM_TO_LINEAR_STATE[key];
+}
+export function parseProjectMap(raw) {
+    if (raw === undefined)
+        return { enabled: false, passthrough: false, map: {} };
+    const trimmed = raw.trim();
+    // Bare flag / "*" / "true" => passthrough (tag with the verbatim project name).
+    if (trimmed === "" || trimmed === "*" || trimmed.toLowerCase() === "true") {
+        return { enabled: true, passthrough: true, map: {} };
+    }
+    const map = {};
+    let sawPair = false;
+    for (const pair of trimmed.split(",")) {
+        const idx = pair.indexOf("=");
+        if (idx === -1)
+            continue;
+        const key = pair.slice(0, idx).trim().toLowerCase();
+        const value = pair.slice(idx + 1).trim();
+        if (key && value) {
+            map[key] = value;
+            sawPair = true;
+        }
+    }
+    // A value with no usable pairs (e.g. "garbage") still enables passthrough so
+    // the flag is never silently a no-op.
+    return { enabled: true, passthrough: !sawPair, map };
+}
+// Resolve the project tag for an issue's project name under a ProjectMap, or
+// undefined when no tag should be applied. Pure + exported for testing.
+export function resolveProjectTag(projectName, projectMap) {
+    if (!projectMap.enabled)
+        return undefined;
+    const name = projectName?.trim();
+    if (!name)
+        return undefined;
+    const override = projectMap.map[name.toLowerCase()];
+    if (override) {
+        return override.toLowerCase() === "ignore" ? undefined : override;
+    }
+    // No explicit entry: passthrough tags with the verbatim project name; an
+    // explicit (non-passthrough) map leaves unmatched projects' own name as the
+    // tag so a partial map still tags everything.
+    return name;
 }
 // ---------------------------------------------------------------------------
 // Generic field map: --map linearField=pmField[,linearField=pmField...]
@@ -269,6 +353,7 @@ ${filterBody}
       assignee { name email }
       dueDate
       cycle { name }
+      project { name }
       url
     }
     pageInfo { hasNextPage endCursor }
@@ -460,7 +545,7 @@ export function indexItemsByLinearId(items) {
     }
     return index;
 }
-export function buildItemPlan(issue, statusMap, fieldMap = {}) {
+export function buildItemPlan(issue, statusMap, fieldMap = {}, projectMap = { enabled: false, passthrough: false, map: {} }) {
     // identifier=ignore drops the "[ENG-1] " prefix from the title.
     const prefix = fieldIsIgnored(fieldMap, "identifier")
         ? ""
@@ -480,6 +565,11 @@ export function buildItemPlan(issue, statusMap, fieldMap = {}) {
     const tags = fieldIsIgnored(fieldMap, "labels")
         ? []
         : issue.labels.nodes.map((l) => l.name);
+    // --project-map (additive): tag the item with its Linear project name (or a
+    // mapped value). De-duplicated against existing label-derived tags.
+    const projectTag = resolveProjectTag(issue.project?.name, projectMap);
+    if (projectTag && !tags.includes(projectTag))
+        tags.push(projectTag);
     const plan = {
         title,
         body,
@@ -515,6 +605,7 @@ function buildImportDryRunPlan(options, pm_root) {
         existingLinkedItems,
         fieldMap: options.fieldMap ?? {},
         statusMap: options.statusMap ?? {},
+        projectMap: options.projectMap ?? { enabled: false, passthrough: false, map: {} },
     };
 }
 async function syncLinearIssues(options, pm_root) {
@@ -573,7 +664,7 @@ async function syncLinearIssues(options, pm_root) {
         // provenance in the description behind a stable marker. This survives
         // round-trips and is what re-import + `pm linear export` read back to stay
         // idempotent. The same builder feeds the offline --dry-run preview.
-        const plan = buildItemPlan(issue, statusMap, options.fieldMap ?? {});
+        const plan = buildItemPlan(issue, statusMap, options.fieldMap ?? {}, options.projectMap ?? { enabled: false, passthrough: false, map: {} });
         const { title, body, status, priority, description } = plan;
         const tags = plan.tags;
         const existing = existingByLinearId[issue.id];
@@ -636,18 +727,29 @@ async function syncLinearIssues(options, pm_root) {
 }
 // Pure transform: pm item -> Linear issue payload. Items that already carry
 // Linear provenance are flagged (and keep their linear id) so `--push` UPDATES
-// them in place instead of creating a duplicate.
+// them in place instead of creating a duplicate. priority/labels/dueDate mirror
+// the importer's Linear->pm mapping so an exported item round-trips its
+// priority, tags (as labels), and deadline (as dueDate).
 export function itemToLinearPayload(item) {
     const provenance = parseProvenance(item.description);
-    return {
+    const labels = Array.isArray(item.tags)
+        ? item.tags.map((t) => String(t).trim()).filter((t) => t.length > 0)
+        : [];
+    const payload = {
         title: item.title ?? "(untitled)",
         description: item.body || (provenance ? "" : item.description || ""),
         pmId: item.id,
         pmStatus: item.status,
+        priority: mapPriorityToLinear(item.priority),
+        labels,
         alreadyInLinear: provenance !== undefined,
         linearId: provenance?.linear_id || undefined,
         linearUrl: provenance?.linear_url || undefined,
     };
+    const dueDate = normalizeDueDate(item.deadline);
+    if (dueDate)
+        payload.dueDate = dueDate;
+    return payload;
 }
 // Resolve a Linear team key (e.g. "ENG") to its internal id for issueCreate,
 // and fetch its workflow states so the exporter can map pm status -> a real
@@ -655,7 +757,11 @@ export function itemToLinearPayload(item) {
 const TEAM_QUERY = `
 query($key: String!) {
   teams(filter: { key: { eq: $key } }, first: 1) {
-    nodes { id states { nodes { id name } } }
+    nodes {
+      id
+      states { nodes { id name } }
+      labels { nodes { id name } }
+    }
   }
 }
 `.trim();
@@ -683,7 +789,44 @@ async function resolveTeamContext(apiKey, teamKey) {
         if (s?.name && s?.id)
             statesByName[String(s.name).trim().toLowerCase()] = s.id;
     }
-    return { teamId: node.id, statesByName };
+    const labelsByName = {};
+    for (const l of node.labels?.nodes ?? []) {
+        if (l?.name && l?.id)
+            labelsByName[String(l.name).trim().toLowerCase()] = l.id;
+    }
+    return { teamId: node.id, statesByName, labelsByName };
+}
+// Resolve pm tags (label names) to existing Linear label ids for this team.
+// Unknown names are silently dropped so a push never fails on a tag the team
+// doesn't model. Pure + exported for unit testing.
+export function resolveLabelIds(labels, labelsByName) {
+    if (!labels?.length)
+        return [];
+    const ids = [];
+    for (const name of labels) {
+        const id = labelsByName[name.trim().toLowerCase()];
+        if (id && !ids.includes(id))
+            ids.push(id);
+    }
+    return ids;
+}
+// Apply the priority/labels/dueDate fields onto an issue input, symmetric with
+// the importer. priority is included whenever it resolves to a concrete Linear
+// int (including 0 = "No priority", which is a valid explicit clear). labels are
+// passed through by NAME in the offline plan as `labelNames` (a placeholder the
+// real push resolves to `labelIds` per team); an empty list is omitted. dueDate
+// is the bare YYYY-MM-DD. Pure helper so the plan + the real push agree. The
+// `labelIds` placeholder string makes the offline dry-run self-documenting about
+// how names become ids at push time without inventing fake ids.
+function applyExportFields(input, payload) {
+    if (typeof payload.priority === "number")
+        input.priority = payload.priority;
+    if (payload.labels && payload.labels.length > 0) {
+        input.labelNames = payload.labels;
+        input.labelIds = payload.labels.map((n) => `<label-id-for:${n}>`);
+    }
+    if (payload.dueDate)
+        input.dueDate = payload.dueDate;
 }
 export function buildExportMutationPlan(payload, invertedStatusMap, teamKey) {
     const targetStateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap) ?? null;
@@ -694,6 +837,7 @@ export function buildExportMutationPlan(payload, invertedStatusMap, teamKey) {
         };
         if (targetStateName)
             input.stateName = targetStateName;
+        applyExportFields(input, payload);
         return {
             action: "update",
             mutation: ISSUE_UPDATE_MUTATION,
@@ -708,6 +852,7 @@ export function buildExportMutationPlan(payload, invertedStatusMap, teamKey) {
     };
     if (targetStateName)
         input.stateName = targetStateName;
+    applyExportFields(input, payload);
     return {
         action: "create",
         mutation: ISSUE_CREATE_MUTATION,
@@ -818,6 +963,11 @@ function renderImportDryRun(ctx, options) {
         if (Object.keys(plan.fieldMap).length) {
             console.error(`Field map: ${JSON.stringify(plan.fieldMap)}`);
         }
+        if (plan.projectMap.enabled) {
+            console.error(`Project map: ${plan.projectMap.passthrough
+                ? "passthrough (tag = Linear project name)"
+                : JSON.stringify(plan.projectMap.map)}`);
+        }
     }
     return {
         success: true,
@@ -827,6 +977,7 @@ function renderImportDryRun(ctx, options) {
         existingLinkedItems: plan.existingLinkedItems,
         statusMap: plan.statusMap,
         fieldMap: plan.fieldMap,
+        projectMap: plan.projectMap,
     };
 }
 // ---------------------------------------------------------------------------
@@ -879,6 +1030,7 @@ export default defineExtension({
                 { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration (e.g. 2026-01-01, -P7D). Optional." },
                 { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress,Backlog=open\". Optional." },
                 { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore,priority=ignore\". Optional." },
+                { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
                 { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
                 { long: "--dry-run", description: "Preview the exact GraphQL request without any network call or writes" },
                 { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
@@ -893,6 +1045,7 @@ export default defineExtension({
                 const updatedSince = readStringOption(ctx.options, "updated-since");
                 const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
                 const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
+                const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
                 const limit = readNumberOption(ctx.options, "limit") ?? 100;
                 const dryRun = readBooleanOption(ctx.options, "dry-run");
                 if (!team) {
@@ -900,7 +1053,7 @@ export default defineExtension({
                 }
                 const syncOpts = {
                     team, project, stateFilter, assignee, label, updatedSince,
-                    statusMap, fieldMap, limit, dryRun,
+                    statusMap, fieldMap, projectMap, limit, dryRun,
                 };
                 // --dry-run is fully offline: print the literal GraphQL request, no call.
                 if (dryRun) {
@@ -994,6 +1147,7 @@ export default defineExtension({
             { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration." },
             { long: "--status-map", value_name: "map", description: "Override status mapping, e.g. \"In Review=in_progress\"." },
             { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore\"." },
+            { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
             { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
             { long: "--dry-run", description: "Print the exact GraphQL request offline (no network, no writes)." },
         ]);
@@ -1021,11 +1175,12 @@ export default defineExtension({
             const updatedSince = readStringOption(ctx.options, "updated-since");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
             const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
+            const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             const syncOpts = {
                 team, project, stateFilter, assignee, label, updatedSince,
-                statusMap, fieldMap, limit, dryRun,
+                statusMap, fieldMap, projectMap, limit, dryRun,
             };
             // --dry-run is fully offline: emit the literal GraphQL request, no call.
             if (dryRun) {
@@ -1098,6 +1253,9 @@ export default defineExtension({
                     title: p.title,
                     description: p.description,
                     targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
+                    priority: p.priority ?? 0,
+                    ...(p.labels && p.labels.length ? { labels: p.labels } : {}),
+                    ...(p.dueDate ? { dueDate: p.dueDate } : {}),
                     ...(p.linearId ? { linearId: p.linearId } : {}),
                     ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
                 }));
@@ -1130,6 +1288,9 @@ export default defineExtension({
                 const stateId = stateName
                     ? teamCtx.statesByName[stateName.trim().toLowerCase()]
                     : undefined;
+                // Resolve pm tags -> existing Linear label ids for this team (symmetric
+                // with the importer's labels->tags mapping). Unknown tags are dropped.
+                const labelIds = resolveLabelIds(payload.labels, teamCtx.labelsByName);
                 if (payload.alreadyInLinear && payload.linearId) {
                     // Idempotent update of the linked Linear issue.
                     const input = {
@@ -1138,6 +1299,12 @@ export default defineExtension({
                     };
                     if (stateId)
                         input.stateId = stateId;
+                    if (typeof payload.priority === "number")
+                        input.priority = payload.priority;
+                    if (labelIds.length > 0)
+                        input.labelIds = labelIds;
+                    if (payload.dueDate)
+                        input.dueDate = payload.dueDate;
                     const resp = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
                         id: payload.linearId,
                         input,
@@ -1155,6 +1322,12 @@ export default defineExtension({
                 };
                 if (stateId)
                     input.stateId = stateId;
+                if (typeof payload.priority === "number")
+                    input.priority = payload.priority;
+                if (labelIds.length > 0)
+                    input.labelIds = labelIds;
+                if (payload.dueDate)
+                    input.dueDate = payload.dueDate;
                 const resp = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
                 if (resp.errors?.length) {
                     throw new CommandError(`Linear issueCreate failed: ${resp.errors.map((e) => e.message).join("; ")}`);
@@ -1181,7 +1354,8 @@ export default defineExtension({
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
-            const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, limit }, ctx.pm_root);
+            const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
+            const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, projectMap, limit }, ctx.pm_root);
             console.error(`Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
                 `from Linear team ${result.team.toUpperCase()}`);
             return {

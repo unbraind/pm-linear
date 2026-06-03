@@ -84,6 +84,7 @@ pm linear sync --team <slug> [options]
 | `--updated-since` | string | — | Only issues updated at/after an ISO date or duration (e.g. `2026-01-01`, `-P7D`) |
 | `--status-map` | string | — | Override status mapping, e.g. `"In Review=in_progress,Backlog=open"` |
 | `--map` | string | — | Remap Linear→pm fields, e.g. `"identifier=ignore,priority=ignore"` |
+| `--project-map` | string | — | Tag items by Linear project name (additive). Bare flag tags with the verbatim name; `"Mobile=mobile,Web=web"` remaps |
 | `--limit` | number | `100` | Max issues to fetch |
 | `--dry-run` | boolean | `false` | **Offline** — print the exact GraphQL request, no network/writes |
 | `--skip-preflight-network` | boolean | `false` | Skip the preflight reachability probe (offline/CI) |
@@ -99,6 +100,25 @@ import time. The special value `ignore` suppresses a field:
 | `priority=ignore` | Skip priority (pm item gets the default) |
 | `labels=ignore` | Skip label→tag import |
 | `status=ignore` | Skip status mapping (pm item stays `open`) |
+
+#### `--project-map` project tagging
+
+`--project-map` is **additive**: imported items keep their label-derived tags and
+gain one more tag for their Linear project. It mirrors `--status-map`.
+
+| `--project-map` value | Effect |
+|-----------------------|--------|
+| *(bare flag)* / `*` / `true` | Passthrough — tag each item with its verbatim Linear project name |
+| `"Mobile App=mobile,Web=web"` | Remap — tag matched projects with the mapped value; an unmatched project falls back to its own name |
+| `"Legacy=ignore"` | Suppress tagging for that specific project |
+
+```bash
+# Tag every imported item with its Linear project name
+pm linear sync --team ENG --project-map
+
+# Map project names to short tags
+pm linear sync --team ENG --project-map "Mobile App=mobile,Web=web"
+```
 
 #### Examples
 
@@ -128,8 +148,8 @@ pm linear sync --team ENG --dry-run
 
 Native import pipeline. Pulls issues from a Linear team (and optional project) via the
 GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`,
-`--assignee`, `--label`, `--updated-since`, `--status-map`, `--map`, `--limit`, and
-`--dry-run` flags as `pm linear sync`.
+`--assignee`, `--label`, `--updated-since`, `--status-map`, `--map`, `--project-map`,
+`--limit`, and `--dry-run` flags as `pm linear sync`.
 
 ```bash
 pm linear import --team ENG
@@ -142,13 +162,20 @@ the key is missing it exits non-zero with a structured error rather than crashin
 
 ## `pm linear export`
 
-Renders pm items as Linear issue-create payloads.
+Renders pm items as Linear issue-create payloads. The exported payload is
+**symmetric with the importer**: a pm item's `priority`, `tags`, and `deadline`
+are carried into the Linear mutation as `priority` (int), `labelIds` (resolved
+from tag names to the team's existing labels at push time), and `dueDate`
+(`YYYY-MM-DD`) respectively — alongside `title`, `description`, and the
+status→state mapping.
 
 - **Default (no `--push`):** prints the JSON payload to stdout. Safe, read-only, no
   network. Items that already carry Linear provenance are flagged `alreadyInLinear: true`.
-- **`--push`:** creates the issues in Linear. Only mutates Linear when **both** `--push`
-  is set **and** `LINEAR_API_KEY` is present, and requires `--team <slug>` to resolve the
-  target team. Items already linked to Linear are skipped so the push is idempotent.
+- **`--push`:** creates/updates the issues in Linear. Only mutates Linear when **both**
+  `--push` is set **and** `LINEAR_API_KEY` is present, and requires `--team <slug>` to
+  resolve the target team (and its labels/states). Items already linked to Linear are
+  updated in place so the push is idempotent. Tags that don't match an existing team
+  label are dropped rather than failing the push.
 
 ```bash
 # Preview the payload (no network, no writes)
@@ -271,6 +298,18 @@ inverted to drive the export/push direction (pm status → Linear state name).
 | `meta.linear_identifier` | e.g. `ENG-123` |
 | `meta.due_date` | `dueDate` (if set) |
 | `meta.linear_cycle` | cycle name (if set) |
+
+`pm linear export` reverses this mapping so a round-trip is lossless for the
+core fields:
+
+| Linear input field | pm source |
+|--------------------|-----------|
+| `title` | `title` |
+| `description` | `body` |
+| `stateName` / `stateId` | mapped from `status` (via inverted `--status-map`) |
+| `priority` | `priority` (pm 1–4 → Linear 1–4, else `0` "No priority") |
+| `labelIds` | `tags` (resolved to existing team labels; unknowns dropped) |
+| `dueDate` | `deadline` (normalized to `YYYY-MM-DD`) |
 
 ---
 

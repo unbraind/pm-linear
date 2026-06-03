@@ -1,0 +1,15 @@
+id: pm-linear-g0c1
+title: Export priority/labels/dueDate + --project-map import tagging
+description: ""
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-03T23:24:08.196Z"
+updated_at: "2026-06-03T23:24:32.079Z"
+author: codex
+comments[2]{created_at,author,text}:
+  "2026-06-03T23:24:21.405Z",codex,"Export side: itemToLinearPayload now carries priority (mapPriorityToLinear), labels (pm tags trimmed/filtered), and dueDate (normalizeDueDate -> YYYY-MM-DD). buildExportMutationPlan + the real --push path inject priority/labelIds/dueDate into both issueCreate and issueUpdate inputs. labelIds resolved from existing team labels via extended TEAM_QUERY (resolveLabelIds, unknown tags dropped); offline plan passes labelNames + placeholder labelIds."
+  "2026-06-03T23:24:21.578Z",codex,"Import side: --project-map (parseProjectMap/resolveProjectTag) tags items by Linear project name, additive + de-duplicated against label tags. Query selection set now requests project { name }. Modes: bare-flag/'*'/'true' passthrough verbatim name; 'A=x,B=y' remap with own-name fallback; '=ignore' suppress. Proven via real-data export --dry-run (priority+labelNames+labelIds+dueDate present) and import --dry-run (query has project{name}, projectMap surfaced). 28 unit tests pass; typecheck+build clean."
+close_reason: "Shipped: export now carries priority/labels/dueDate (symmetric with importer) + additive --project-map import tagging. 28 unit tests pass; real-data --dry-run proves the fields."
+body: "Fix export asymmetry: importer maps Linear priority/labels/dueDate into pm items but the exporter dropped them. Add pm priority->Linear priority int, pm tags->Linear labelIds (name resolution at push time, names passed through in offline plan), and pm deadline->Linear dueDate to issueCreate/issueUpdate. Add --project-map to tag imported items by their Linear project name (additive, analogous to --status-map). All additive + offline-testable via --dry-run."
