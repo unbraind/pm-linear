@@ -25,12 +25,24 @@ interface LinearIssue {
     dueDate: string | null;
     cycle: LinearCycle | null;
     assignee?: LinearAssignee | null;
+    project?: {
+        name: string;
+    } | null;
     url?: string | null;
 }
+export declare function mapPriorityToLinear(pmPriority: number | undefined): number;
+export declare function normalizeDueDate(deadline: string | undefined): string | undefined;
 export declare function parseStatusMap(raw: string | undefined): Record<string, string>;
 export declare function resolveStatus(stateType: string, stateName: string, statusMap: Record<string, string>): string;
 export declare function invertStatusMap(statusMap: Record<string, string>): Record<string, string>;
 export declare function resolveLinearStateName(pmStatus: string | undefined, invertedMap: Record<string, string>): string | undefined;
+export interface ProjectMap {
+    enabled: boolean;
+    passthrough: boolean;
+    map: Record<string, string>;
+}
+export declare function parseProjectMap(raw: string | undefined): ProjectMap;
+export declare function resolveProjectTag(projectName: string | null | undefined, projectMap: ProjectMap): string | undefined;
 export declare function parseFieldMap(raw: string | undefined): Record<string, string>;
 export declare function fieldIsIgnored(fieldMap: Record<string, string>, linearField: string): boolean;
 export declare function resolvePmField(fieldMap: Record<string, string>, linearField: string): string;
@@ -72,6 +84,7 @@ interface PmItem {
     description?: string;
     priority?: number;
     tags?: string[];
+    deadline?: string;
 }
 export declare function indexItemsByLinearId(items: PmItem[]): Record<string, PmItem>;
 export interface ItemPlan {
@@ -83,17 +96,21 @@ export interface ItemPlan {
     deadline?: string;
     description: string;
 }
-export declare function buildItemPlan(issue: LinearIssue, statusMap: Record<string, string>, fieldMap?: Record<string, string>): ItemPlan;
+export declare function buildItemPlan(issue: LinearIssue, statusMap: Record<string, string>, fieldMap?: Record<string, string>, projectMap?: ProjectMap): ItemPlan;
 interface LinearCreatePayload {
     title: string;
     description: string;
     pmId?: string;
     pmStatus?: string;
+    priority?: number;
+    labels?: string[];
+    dueDate?: string;
     alreadyInLinear: boolean;
     linearId?: string;
     linearUrl?: string;
 }
 export declare function itemToLinearPayload(item: PmItem): LinearCreatePayload;
+export declare function resolveLabelIds(labels: string[] | undefined, labelsByName: Record<string, string>): string[];
 export interface ExportMutationPlan {
     action: "create" | "update";
     mutation: string;

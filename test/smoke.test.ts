@@ -19,6 +19,11 @@ import extension, {
   buildItemPlan,
   buildExportMutationPlan,
   maskApiKey,
+  mapPriorityToLinear,
+  normalizeDueDate,
+  resolveLabelIds,
+  parseProjectMap,
+  resolveProjectTag,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -303,6 +308,160 @@ test("buildExportMutationPlan: linked item -> issueUpdate, fresh -> issueCreate"
   assert.ok(fresh.mutation.includes("issueCreate"));
   assert.equal(((fresh.variables as any).input).teamId, "<resolved-id-for-ENG>");
   assert.equal(fresh.targetStateName, "Todo");
+});
+
+test("mapPriorityToLinear is the inverse of the import priority mapping", () => {
+  // pm 1..4 maps 1:1 onto Linear 1..4.
+  assert.equal(mapPriorityToLinear(1), 1);
+  assert.equal(mapPriorityToLinear(2), 2);
+  assert.equal(mapPriorityToLinear(3), 3);
+  assert.equal(mapPriorityToLinear(4), 4);
+  // anything else -> 0 ("No priority"), never a bogus int.
+  assert.equal(mapPriorityToLinear(undefined), 0);
+  assert.equal(mapPriorityToLinear(0), 0);
+  assert.equal(mapPriorityToLinear(99), 0);
+});
+
+test("normalizeDueDate slices an ISO datetime to a bare date", () => {
+  assert.equal(normalizeDueDate("2026-08-01T00:00:00.000Z"), "2026-08-01");
+  assert.equal(normalizeDueDate("2026-08-01"), "2026-08-01");
+  assert.equal(normalizeDueDate(undefined), undefined);
+  assert.equal(normalizeDueDate(""), undefined);
+  assert.equal(normalizeDueDate("not-a-date"), undefined);
+});
+
+test("resolveLabelIds maps tag names to existing label ids, dropping unknowns", () => {
+  const byName = { bug: "lbl-1", "p0": "lbl-2" };
+  assert.deepEqual(resolveLabelIds(["bug", "P0"], byName), ["lbl-1", "lbl-2"]);
+  // unknown tags are dropped, no throw
+  assert.deepEqual(resolveLabelIds(["bug", "nope"], byName), ["lbl-1"]);
+  assert.deepEqual(resolveLabelIds([], byName), []);
+  assert.deepEqual(resolveLabelIds(undefined, byName), []);
+  // de-duplicated when two names resolve to the same id
+  assert.deepEqual(resolveLabelIds(["bug", "bug"], byName), ["lbl-1"]);
+});
+
+test("itemToLinearPayload carries priority, labels, and dueDate (export symmetry)", () => {
+  const p = itemToLinearPayload({
+    id: "pm-1",
+    title: "Ship it",
+    priority: 2,
+    tags: ["bug", "p0"],
+    deadline: "2026-09-15T00:00:00.000Z",
+  });
+  assert.equal(p.priority, 2);
+  assert.deepEqual(p.labels, ["bug", "p0"]);
+  assert.equal(p.dueDate, "2026-09-15");
+
+  // No deadline => dueDate omitted; no tags => empty label list; no priority => 0.
+  const bare = itemToLinearPayload({ id: "pm-2", title: "Bare" });
+  assert.equal(bare.priority, 0);
+  assert.deepEqual(bare.labels, []);
+  assert.equal(bare.dueDate, undefined);
+});
+
+test("buildExportMutationPlan now includes priority, labels (labelIds + labelNames), and dueDate", () => {
+  const fresh = buildExportMutationPlan(
+    {
+      title: "New",
+      description: "",
+      pmStatus: "open",
+      priority: 1,
+      labels: ["bug", "urgent"],
+      dueDate: "2026-10-01",
+      alreadyInLinear: false,
+    },
+    {},
+    "eng"
+  );
+  const input = (fresh.variables as any).input;
+  assert.equal(input.priority, 1, "priority present in create input");
+  assert.deepEqual(input.labelNames, ["bug", "urgent"], "label names passed through");
+  assert.ok(Array.isArray(input.labelIds) && input.labelIds.length === 2, "labelIds placeholder present");
+  assert.ok(String(input.labelIds[0]).includes("bug"), "labelId placeholder names the label");
+  assert.equal(input.dueDate, "2026-10-01", "dueDate present in create input");
+
+  // update path carries them too
+  const linked = buildExportMutationPlan(
+    {
+      title: "T",
+      description: "D",
+      pmStatus: "in_progress",
+      priority: 3,
+      labels: ["feature"],
+      dueDate: "2026-11-02",
+      alreadyInLinear: true,
+      linearId: "lin-9",
+    },
+    {}
+  );
+  const upInput = (linked.variables as any).input;
+  assert.equal(upInput.priority, 3);
+  assert.deepEqual(upInput.labelNames, ["feature"]);
+  assert.equal(upInput.dueDate, "2026-11-02");
+
+  // priority 0 (no priority) is still explicitly present (valid clear); no
+  // labels/dueDate => those keys omitted.
+  const minimal = buildExportMutationPlan(
+    { title: "Min", description: "", pmStatus: "open", priority: 0, labels: [], alreadyInLinear: false },
+    {},
+    "eng"
+  );
+  const minInput = (minimal.variables as any).input;
+  assert.equal(minInput.priority, 0, "priority 0 still present");
+  assert.ok(!("labelIds" in minInput), "no labelIds when no labels");
+  assert.ok(!("labelNames" in minInput), "no labelNames when no labels");
+  assert.ok(!("dueDate" in minInput), "no dueDate when none set");
+});
+
+test("parseProjectMap distinguishes absent / passthrough / explicit map", () => {
+  assert.deepEqual(parseProjectMap(undefined), { enabled: false, passthrough: false, map: {} });
+  // bare flag / "*" / "true" => passthrough
+  assert.deepEqual(parseProjectMap(""), { enabled: true, passthrough: true, map: {} });
+  assert.deepEqual(parseProjectMap("*"), { enabled: true, passthrough: true, map: {} });
+  assert.deepEqual(parseProjectMap("true"), { enabled: true, passthrough: true, map: {} });
+  // explicit pairs (case-insensitive keys)
+  const explicit = parseProjectMap("Mobile App=mobile,Web=web");
+  assert.equal(explicit.enabled, true);
+  assert.equal(explicit.passthrough, false);
+  assert.deepEqual(explicit.map, { "mobile app": "mobile", web: "web" });
+  // junk-only value still enables (passthrough), never a silent no-op
+  assert.deepEqual(parseProjectMap("garbage"), { enabled: true, passthrough: true, map: {} });
+});
+
+test("resolveProjectTag maps, passes through, and ignores per spec", () => {
+  const off = parseProjectMap(undefined);
+  assert.equal(resolveProjectTag("Mobile App", off), undefined, "disabled => no tag");
+
+  const pass = parseProjectMap("");
+  assert.equal(resolveProjectTag("Mobile App", pass), "Mobile App", "passthrough verbatim");
+  assert.equal(resolveProjectTag(null, pass), undefined, "no project => no tag");
+  assert.equal(resolveProjectTag(undefined, pass), undefined);
+
+  const map = parseProjectMap("Mobile App=mobile,Legacy=ignore");
+  assert.equal(resolveProjectTag("Mobile App", map), "mobile", "explicit remap");
+  assert.equal(resolveProjectTag("Legacy", map), undefined, "ignore suppresses");
+  assert.equal(resolveProjectTag("Unmapped", map), "Unmapped", "partial map falls back to own name");
+});
+
+test("buildItemPlan appends the project tag (additive, de-duplicated)", () => {
+  const issueWithProject = { ...SAMPLE_ISSUE, project: { name: "Mobile App" } };
+  // passthrough adds the verbatim project name on top of label tags
+  const plan = buildItemPlan(issueWithProject as any, {}, {}, parseProjectMap(""));
+  assert.deepEqual(plan.tags, ["bug", "p0", "Mobile App"]);
+
+  // explicit remap
+  const plan2 = buildItemPlan(issueWithProject as any, {}, {}, parseProjectMap("Mobile App=mobile"));
+  assert.deepEqual(plan2.tags, ["bug", "p0", "mobile"]);
+
+  // disabled => unchanged (existing behavior)
+  const plan3 = buildItemPlan(issueWithProject as any, {});
+  assert.deepEqual(plan3.tags, ["bug", "p0"]);
+
+  // de-dup: a project tag equal to an existing label is not duplicated
+  const issueDup = { ...SAMPLE_ISSUE, project: { name: "bug" } };
+  const plan4 = buildItemPlan(issueDup as any, {}, {}, parseProjectMap(""));
+  assert.deepEqual(plan4.tags, ["bug", "p0"]);
 });
 
 test("maskApiKey never leaks the full key", () => {

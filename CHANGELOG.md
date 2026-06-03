@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026.6.3-1 - 2026-06-03
+## Unreleased
+
+### Added
+
+- Export priority/labels/dueDate + --project-map import tagging ([pm-linear-g0c1](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-g0c1.toon))
+
+## 2026.06.03-1 - 2026-06-03
 
 ### Added
 
