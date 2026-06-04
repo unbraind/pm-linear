@@ -1,6 +1,6 @@
 {
   "name": "pm-linear",
-  "version": "2026.6.3-1",
+  "version": "2026.6.4",
   "description": "Linear.app issue sync for pm-cli",
   "repository": {
     "type": "git",
