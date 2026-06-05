@@ -1030,7 +1030,7 @@ function renderImportDryRun(ctx, options) {
 // ---------------------------------------------------------------------------
 export default defineExtension({
     name: "pm-linear",
-    version: "2026.6.4",
+    version: "2026.6.5",
     activate(api) {
         // -----------------------------------------------------------------------
         // preflight — validate credentials + reachability before any mutating
