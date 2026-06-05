@@ -95,6 +95,7 @@ export interface ItemPlan {
     tags: string[];
     deadline?: string;
     description: string;
+    assignee?: string;
 }
 export declare function buildItemPlan(issue: LinearIssue, statusMap: Record<string, string>, fieldMap?: Record<string, string>, projectMap?: ProjectMap): ItemPlan;
 interface LinearCreatePayload {
