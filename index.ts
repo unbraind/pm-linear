@@ -485,7 +485,12 @@ export function buildIssuesQuery(flags: IssueFilterFlags): string {
     vars.push("$updatedSince: DateTimeOrDuration!");
   }
   if (flags.state) {
-    clauses.push("state: { name: { eq: $state } }");
+    // `containsIgnoreCase` preserves the original client-side filter semantics
+    // (`stateName.toLowerCase().includes(filter.toLowerCase())`) — a
+    // case-insensitive SUBSTRING match — so `--state "progress"` still matches
+    // "In Progress". A case-sensitive `eq` here would silently return zero for
+    // any lowercase/substring input (a usability regression).
+    clauses.push("state: { name: { containsIgnoreCase: $state } }");
     vars.push("$state: String!");
   }
   const filterBody = clauses.map((c) => `      ${c}`).join("\n");
@@ -992,10 +997,10 @@ async function syncLinearIssues(
 
   for (const issue of issues) {
     // State name filter. The authoritative constraint is now server-side
-    // (`state: { name: { eq: $state } }` in buildIssuesQuery), so `--limit`
-    // bounds the MATCHING issues rather than the pre-filter page. This
-    // case-insensitive substring check is a harmless backstop only — an exact
-    // server-side match always satisfies it, so it never drops a server hit.
+    // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
+    // so `--limit` bounds the MATCHING issues rather than the pre-filter page.
+    // This identical case-insensitive substring check is a harmless backstop —
+    // the server applies the same predicate, so it never drops a server hit.
     if (options.stateFilter) {
       const stateName = issue.state.name.toLowerCase();
       if (!stateName.includes(options.stateFilter.toLowerCase())) {

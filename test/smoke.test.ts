@@ -222,7 +222,7 @@ test("buildIssuesQuery filters by state server-side when requested", () => {
   // The state constraint must live in the GraphQL filter (server-side), not be
   // applied client-side after fetching `--limit` issues, otherwise large teams
   // under-return matches that page beyond the fetched window.
-  assert.ok(q.includes("state: { name: { eq: $state } }"));
+  assert.ok(q.includes("state: { name: { containsIgnoreCase: $state } }"));
   assert.ok(q.includes("$state: String!"));
   const base = buildIssuesQuery({});
   assert.ok(!base.includes("$state"), "no state var when not requested");
@@ -277,7 +277,7 @@ test("buildImportRequestPlan builds the literal request with only used vars", ()
 test("buildImportRequestPlan wires --state into the server-side filter", () => {
   const plan = buildImportRequestPlan("ENG", 100, { state: "In Progress" });
   assert.equal(plan.variables.state, "In Progress");
-  assert.ok(plan.query.includes("state: { name: { eq: $state } }"));
+  assert.ok(plan.query.includes("state: { name: { containsIgnoreCase: $state } }"));
   assert.ok(plan.query.includes("$state: String!"));
   // whitespace-only / absent state adds nothing
   const blank = buildImportRequestPlan("ENG", 100, { state: "   " });
