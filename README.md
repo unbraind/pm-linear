@@ -2,7 +2,7 @@
 
 Linear.app issue sync extension for [pm-cli](https://github.com/unbraind/pm-cli).
 
-Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, statuses, labels, and due dates in sync. Also provides a native import pipeline (`pm linear import`) and an exporter (`pm linear export`) that renders pm items as Linear issue-create payloads, and declares `linear_id` / `linear_url` provenance fields.
+Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, statuses, labels, due dates, assignees, and cycles in sync. Also provides a native import pipeline (`pm linear import`) and an exporter (`pm linear export`) that renders pm items as Linear issue-create payloads, and declares `linear_id` / `linear_url` provenance fields.
 
 ## Capabilities
 
@@ -98,8 +98,9 @@ import time. The special value `ignore` suppresses a field:
 |---------------|--------|
 | `identifier=ignore` | Drop the `[ENG-1] ` prefix from the pm title |
 | `priority=ignore` | Skip priority (pm item gets the default) |
-| `labels=ignore` | Skip label→tag import |
+| `labels=ignore` | Skip label→tag import (also drops the `cycle:<name>` tag) |
 | `status=ignore` | Skip status mapping (pm item stays `open`) |
+| `assignee=ignore` | Skip assignee import (pm item left unassigned) |
 
 #### `--project-map` project tagging
 
@@ -175,7 +176,9 @@ status→state mapping.
   `--push` is set **and** `LINEAR_API_KEY` is present, and requires `--team <slug>` to
   resolve the target team (and its labels/states). Items already linked to Linear are
   updated in place so the push is idempotent. Tags that don't match an existing team
-  label are dropped rather than failing the push.
+  label are dropped rather than failing the push. A per-item create/update failure
+  is isolated: it is logged, counted as `skipped`, and the batch continues rather
+  than aborting the remaining items.
 
 ```bash
 # Preview the payload (no network, no writes)
@@ -271,36 +274,50 @@ export LINEAR_DEFAULT_TEAM=ENG
 
 ### Status
 
+The importer maps every Linear issue to one of pm's four statuses —
+`open`, `in_progress`, `closed`, `blocked`:
+
 | Linear state type / name | pm status |
 |--------------------------|-----------|
-| `unstarted` (Todo, Backlog, Triage) | `open` |
-| `started` (In Progress, In Review) | `in_progress` |
-| `completed` (Done, Completed) | `closed` |
-| `cancelled` (Cancelled) | `closed` |
+| type `started` (In Progress, In Review) | `in_progress` |
+| type `completed` / `cancelled` | `closed` |
+| name contains "in progress" / "in review" | `in_progress` |
 | name contains "blocked" | `blocked` |
+| name contains "done" / "completed" / "cancelled" | `closed` |
+| everything else (Todo, Backlog, Triage, unstarted) | `open` |
 
-A `--status-map "Linear State=pm_status,…"` overrides this heuristic and is
-inverted to drive the export/push direction (pm status → Linear state name).
+A `--status-map "Linear State=pm_status,…"` overrides this heuristic
+(matched **case-insensitively** on the Linear state name) and is inverted to
+drive the export/push direction (pm status → Linear state name). The inverted
+direction echoes the Linear state name with its **original casing** preserved
+(`Backlog`, not `backlog`).
 
-### Item fields
+### Item fields (import: Linear → pm)
+
+`pm create`/`pm update` is the only setter available to a standalone extension,
+so imported issues map onto pm's first-class fields (there are **no**
+`meta.linear_*` fields):
 
 | pm field | Linear source |
 |----------|---------------|
-| `idSuffix` | `identifier` (e.g. `ENG-123`) |
-| `title` | `[ENG-123] Issue title` |
+| `title` | `[ENG-123] Issue title` (the `[ENG-123]` prefix can be dropped with `--map identifier=ignore`) |
 | `body` | `description` |
-| `status` | mapped from `state.type` / `state.name` |
+| `status` | mapped from `state.type` / `state.name` (see above) |
 | `priority` | mapped from `priority` |
 | `tags` | label names |
-| `meta.linear_id` | issue UUID |
-| `meta.linear_team` | team slug (uppercase) |
-| `meta.linear_state` | raw state name |
-| `meta.linear_identifier` | e.g. `ENG-123` |
-| `meta.due_date` | `dueDate` (if set) |
-| `meta.linear_cycle` | cycle name (if set) |
+| `tags` (`cycle:<name>`) | `cycle.name` — the issue's Linear cycle, encoded as a namespaced tag |
+| `tags` (project) | `project.name` — only when `--project-map` is supplied (see above) |
+| `deadline` | `dueDate` (if set) |
+| `assignee` | `assignee.email` (or `assignee.name` when no email); suppress with `--map assignee=ignore` |
+| `description` marker | `[linear] linear_id=… linear_url=…` provenance (see below) |
 
-`pm linear export` reverses this mapping so a round-trip is lossless for the
-core fields:
+> **Cycle encoding.** pm has no first-class cycle/sprint field reachable from a
+> standalone extension's `pm create`, so the Linear cycle is stored as a
+> `cycle:<name>` tag (additive, de-duplicated). Filter on it with
+> `pm list --tag "cycle:Sprint 7"`.
+
+`pm linear export` reverses the core mapping so a round-trip is lossless for the
+fields it carries:
 
 | Linear input field | pm source |
 |--------------------|-----------|
@@ -310,6 +327,9 @@ core fields:
 | `priority` | `priority` (pm 1–4 → Linear 1–4, else `0` "No priority") |
 | `labelIds` | `tags` (resolved to existing team labels; unknowns dropped) |
 | `dueDate` | `deadline` (normalized to `YYYY-MM-DD`) |
+
+> Export does not currently push assignee or cycle back to Linear (those are
+> import-direction only).
 
 ---
 
