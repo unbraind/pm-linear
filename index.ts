@@ -207,7 +207,10 @@ function mapStatus(
 // ---------------------------------------------------------------------------
 // --status-map parser: "Linear State=pm_status,Other State=pm_status"
 // Keys are matched case-insensitively against the Linear state name and take
-// precedence over the built-in mapStatus heuristic. Returns a lower-cased map.
+// precedence over the built-in mapStatus heuristic. The map PRESERVES the
+// original key casing (e.g. "In Review", "Backlog") so the export-preview /
+// inverted direction can echo the Linear state name as the user typed it;
+// matching is done case-insensitively in resolveStatus + lookupStatusOverride.
 // Pure + exported for unit testing.
 // ---------------------------------------------------------------------------
 export function parseStatusMap(raw: string | undefined): Record<string, string> {
@@ -216,21 +219,43 @@ export function parseStatusMap(raw: string | undefined): Record<string, string> 
   for (const pair of raw.split(",")) {
     const idx = pair.indexOf("=");
     if (idx === -1) continue;
-    const key = pair.slice(0, idx).trim().toLowerCase();
+    const key = pair.slice(0, idx).trim();
     const value = pair.slice(idx + 1).trim();
-    if (key && value) map[key] = value;
+    // Last writer wins on a case-insensitive key collision; we keep the most
+    // recent original-case spelling so the map never silently merges entries.
+    if (key && value) {
+      const existing = Object.keys(map).find(
+        (k) => k.toLowerCase() === key.toLowerCase()
+      );
+      if (existing) delete map[existing];
+      map[key] = value;
+    }
   }
   return map;
 }
 
+// Case-insensitive lookup of the pm status mapped to a Linear state name, using
+// a status map whose keys retain their original casing. Pure.
+function lookupStatusOverride(
+  statusMap: Record<string, string>,
+  stateName: string
+): string | undefined {
+  const needle = stateName.trim().toLowerCase();
+  for (const [key, value] of Object.entries(statusMap)) {
+    if (key.trim().toLowerCase() === needle) return value;
+  }
+  return undefined;
+}
+
 // Resolve a pm status for an issue, preferring an explicit --status-map entry
-// (matched on the Linear state name) over the built-in heuristic. Pure.
+// (matched case-insensitively on the Linear state name) over the built-in
+// heuristic. Pure.
 export function resolveStatus(
   stateType: string,
   stateName: string,
   statusMap: Record<string, string>
 ): string {
-  const override = statusMap[stateName.trim().toLowerCase()];
+  const override = lookupStatusOverride(statusMap, stateName);
   if (override) return override;
   return mapStatus(stateType, stateName);
 }
@@ -254,8 +279,11 @@ const DEFAULT_PM_TO_LINEAR_STATE: Record<string, string> = {
 export function invertStatusMap(
   statusMap: Record<string, string>
 ): Record<string, string> {
-  // statusMap is { "<linear state name lower>": "<pm status>" }; invert to
-  // { "<pm status>": "<Linear state name>" }. First entry wins on collision.
+  // statusMap is { "<Linear state name, original casing>": "<pm status>" };
+  // invert to { "<pm status>": "<Linear state name, original casing>" }. The
+  // original casing is preserved so the export preview / push target echoes the
+  // state name exactly as the user typed it (e.g. "Backlog", not "backlog").
+  // First entry wins on collision.
   const inverted: Record<string, string> = {};
   for (const [linearName, pmStatus] of Object.entries(statusMap)) {
     const key = pmStatus.trim().toLowerCase();
@@ -786,6 +814,10 @@ export interface ItemPlan {
   tags: string[];
   deadline?: string;
   description: string; // provenance marker
+  // Linear assignee.email (preferred) or .name, written to the pm item via
+  // `pm create/update --assignee`. Omitted when the issue is unassigned or the
+  // `assignee` field is suppressed via --map assignee=ignore.
+  assignee?: string;
 }
 
 export function buildItemPlan(
@@ -817,6 +849,16 @@ export function buildItemPlan(
   // mapped value). De-duplicated against existing label-derived tags.
   const projectTag = resolveProjectTag(issue.project?.name, projectMap);
   if (projectTag && !tags.includes(projectTag)) tags.push(projectTag);
+  // Linear cycle -> a `cycle:<name>` tag. pm has no first-class cycle/sprint
+  // field reachable from a standalone extension's `pm create`, so we encode the
+  // cycle as a namespaced tag (de-duplicated, additive alongside labels). This
+  // keeps the cycle queryable (`pm list --tag "cycle:..."`) without a custom
+  // field setter. Suppressed when --map labels=ignore drops tags entirely.
+  const cycleName = issue.cycle?.name?.trim();
+  if (cycleName && !fieldIsIgnored(fieldMap, "labels")) {
+    const cycleTag = `cycle:${cycleName}`;
+    if (!tags.includes(cycleTag)) tags.push(cycleTag);
+  }
   const plan: ItemPlan = {
     title,
     body,
@@ -826,6 +868,12 @@ export function buildItemPlan(
     description: buildProvenance(issue),
   };
   if (issue.dueDate) plan.deadline = issue.dueDate;
+  // Linear assignee -> pm --assignee (email preferred, else display name).
+  // Honors --map assignee=ignore.
+  if (!fieldIsIgnored(fieldMap, "assignee")) {
+    const assignee = issue.assignee?.email?.trim() || issue.assignee?.name?.trim();
+    if (assignee) plan.assignee = assignee;
+  }
   return plan;
 }
 
@@ -964,6 +1012,7 @@ async function syncLinearIssues(
       if (body) updateArgs.push("--body", body);
       if (tags.length > 0) updateArgs.push("--tags", tags.join(","));
       if (plan.deadline) updateArgs.push("--deadline", plan.deadline);
+      if (plan.assignee) updateArgs.push("--assignee", plan.assignee);
 
       const result = spawnSync("pm", updateArgs, { encoding: "utf-8" });
       if (result.status !== 0) {
@@ -984,6 +1033,7 @@ async function syncLinearIssues(
       if (body) createArgs.push("--body", body);
       if (tags.length > 0) createArgs.push("--tags", tags.join(","));
       if (plan.deadline) createArgs.push("--deadline", plan.deadline);
+      if (plan.assignee) createArgs.push("--assignee", plan.assignee);
 
       const result = spawnSync("pm", createArgs, { encoding: "utf-8" });
       if (result.status !== 0) {
@@ -1681,21 +1731,49 @@ export default defineExtension({
       let created = 0;
       let updated = 0;
       let skipped = 0;
+      // Per-item failure isolation: a single issueCreate/issueUpdate failure
+      // (API error, transient network, etc.) is caught, counted into `skipped`,
+      // and the batch CONTINUES — mirroring the import path's per-item `continue`
+      // — instead of aborting every remaining item. Errors are logged to stderr.
       for (const payload of payloads) {
-        // Map pm status -> a concrete Linear workflow-state id for this team,
-        // when one resolves; otherwise leave the state untouched.
-        const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
-        const stateId = stateName
-          ? teamCtx.statesByName[stateName.trim().toLowerCase()]
-          : undefined;
+        const label = payload.linearId ?? payload.pmId ?? payload.title;
+        try {
+          // Map pm status -> a concrete Linear workflow-state id for this team,
+          // when one resolves; otherwise leave the state untouched.
+          const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
+          const stateId = stateName
+            ? teamCtx.statesByName[stateName.trim().toLowerCase()]
+            : undefined;
 
-        // Resolve pm tags -> existing Linear label ids for this team (symmetric
-        // with the importer's labels->tags mapping). Unknown tags are dropped.
-        const labelIds = resolveLabelIds(payload.labels, teamCtx.labelsByName);
+          // Resolve pm tags -> existing Linear label ids for this team (symmetric
+          // with the importer's labels->tags mapping). Unknown tags are dropped.
+          const labelIds = resolveLabelIds(payload.labels, teamCtx.labelsByName);
 
-        if (payload.alreadyInLinear && payload.linearId) {
-          // Idempotent update of the linked Linear issue.
+          if (payload.alreadyInLinear && payload.linearId) {
+            // Idempotent update of the linked Linear issue.
+            const input: Record<string, unknown> = {
+              title: payload.title,
+              description: payload.description,
+            };
+            if (stateId) input.stateId = stateId;
+            if (typeof payload.priority === "number") input.priority = payload.priority;
+            if (labelIds.length > 0) input.labelIds = labelIds;
+            if (payload.dueDate) input.dueDate = payload.dueDate;
+            const resp: any = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
+              id: payload.linearId,
+              input,
+            });
+            if (resp.errors?.length) {
+              throw new Error(
+                `Linear issueUpdate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
+              );
+            }
+            updated++;
+            continue;
+          }
+
           const input: Record<string, unknown> = {
+            teamId: teamCtx.teamId,
             title: payload.title,
             description: payload.description,
           };
@@ -1703,40 +1781,24 @@ export default defineExtension({
           if (typeof payload.priority === "number") input.priority = payload.priority;
           if (labelIds.length > 0) input.labelIds = labelIds;
           if (payload.dueDate) input.dueDate = payload.dueDate;
-          const resp: any = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
-            id: payload.linearId,
-            input,
-          });
+          const resp: any = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
           if (resp.errors?.length) {
-            throw new CommandError(
-              `Linear issueUpdate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
+            throw new Error(
+              `Linear issueCreate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
             );
           }
-          updated++;
+          created++;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Failed to push item ${label}: ${message}`);
+          skipped++;
           continue;
         }
-
-        const input: Record<string, unknown> = {
-          teamId: teamCtx.teamId,
-          title: payload.title,
-          description: payload.description,
-        };
-        if (stateId) input.stateId = stateId;
-        if (typeof payload.priority === "number") input.priority = payload.priority;
-        if (labelIds.length > 0) input.labelIds = labelIds;
-        if (payload.dueDate) input.dueDate = payload.dueDate;
-        const resp: any = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
-        if (resp.errors?.length) {
-          throw new CommandError(
-            `Linear issueCreate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
-          );
-        }
-        created++;
       }
       console.error(
         `Pushed ${created + updated} issue(s) to Linear team ${team.toUpperCase()} ` +
           `(${created} created, ${updated} updated)` +
-          (skipped > 0 ? ` — ${skipped} skipped` : "")
+          (skipped > 0 ? ` — ${skipped} skipped (see errors above)` : "")
       );
       return { exported: payloads.length, pushed: true, created, updated, skipped };
     });
