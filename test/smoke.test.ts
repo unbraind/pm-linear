@@ -70,15 +70,19 @@ test("extension registers expected capabilities", () => {
   assert.ok(registered.includes("flags"), "should register importer/exporter flags");
 });
 
-test("parseStatusMap parses pairs case-insensitively and ignores junk", () => {
+test("parseStatusMap preserves original key casing and ignores junk", () => {
   assert.deepEqual(parseStatusMap(undefined), {});
   assert.deepEqual(parseStatusMap(""), {});
+  // Keys keep their ORIGINAL casing (matching is done case-insensitively at
+  // lookup time); this is what lets the export preview echo "Backlog"/"In Review".
   assert.deepEqual(
     parseStatusMap("In Review=in_progress,Backlog=open"),
-    { "in review": "in_progress", backlog: "open" }
+    { "In Review": "in_progress", Backlog: "open" }
   );
   // missing "=" segments are skipped
-  assert.deepEqual(parseStatusMap("garbage,Done=closed"), { done: "closed" });
+  assert.deepEqual(parseStatusMap("garbage,Done=closed"), { Done: "closed" });
+  // a case-insensitive key collision keeps the most recent original-case spelling
+  assert.deepEqual(parseStatusMap("Backlog=open,backlog=closed"), { backlog: "closed" });
 });
 
 test("resolveStatus prefers the status map over the heuristic", () => {
@@ -158,9 +162,11 @@ test("invertStatusMap + resolveLinearStateName map pm status -> Linear state", (
   assert.equal(resolveLinearStateName(undefined, {}), undefined);
 
   // A user --status-map "Backlog=open" inverts to open -> Backlog and wins.
+  // The Linear state name keeps its ORIGINAL casing ("Backlog", not "backlog").
   const inverted = invertStatusMap(parseStatusMap("Backlog=open,In Review=in_progress"));
-  assert.equal(inverted["open"], "backlog");
-  assert.equal(resolveLinearStateName("open", inverted), "backlog");
+  assert.equal(inverted["open"], "Backlog", "original casing preserved on invert");
+  assert.equal(inverted["in_progress"], "In Review");
+  assert.equal(resolveLinearStateName("open", inverted), "Backlog");
   // statuses not in the map fall back to the default.
   assert.equal(resolveLinearStateName("closed", inverted), "Done");
 });
@@ -462,6 +468,100 @@ test("buildItemPlan appends the project tag (additive, de-duplicated)", () => {
   const issueDup = { ...SAMPLE_ISSUE, project: { name: "bug" } };
   const plan4 = buildItemPlan(issueDup as any, {}, {}, parseProjectMap(""));
   assert.deepEqual(plan4.tags, ["bug", "p0"]);
+});
+
+test("status-map export preview preserves original Linear state-name casing", () => {
+  // Regression: parseStatusMap used to lower-case keys, so invertStatusMap
+  // echoed "backlog"/"in review" as the target state name. Now the original
+  // casing round-trips.
+  const inverted = invertStatusMap(
+    parseStatusMap("Backlog=open,In Review=in_progress")
+  );
+  assert.equal(resolveLinearStateName("open", inverted), "Backlog");
+  assert.equal(resolveLinearStateName("in_progress", inverted), "In Review");
+
+  // The export mutation plan (what the preview prints as targetStateName) uses
+  // the same path, so it must also carry the original casing.
+  const plan = buildExportMutationPlan(
+    { title: "T", description: "", pmStatus: "open", alreadyInLinear: false },
+    inverted,
+    "eng"
+  );
+  assert.equal(plan.targetStateName, "Backlog");
+  assert.equal((plan.variables as any).input.stateName, "Backlog");
+
+  // Default map (no --status-map) still yields the canonical "Todo"/"In Progress".
+  assert.equal(resolveLinearStateName("open", {}), "Todo");
+  assert.equal(resolveLinearStateName("in_progress", {}), "In Progress");
+  const def = buildExportMutationPlan(
+    { title: "T", description: "", pmStatus: "in_progress", alreadyInLinear: false },
+    {},
+    "eng"
+  );
+  assert.equal(def.targetStateName, "In Progress");
+
+  // Matching remains case-insensitive on the Linear side: a differently-cased
+  // state name still resolves the override.
+  const map = parseStatusMap("In Review=blocked");
+  assert.equal(resolveStatus("started", "in review", map), "blocked");
+  assert.equal(resolveStatus("started", "IN REVIEW", map), "blocked");
+});
+
+test("buildItemPlan persists assignee (email preferred) and cycle as a tag", () => {
+  const issue = {
+    ...SAMPLE_ISSUE,
+    assignee: { name: "Ada Lovelace", email: "ada@acme.com" },
+    cycle: { name: "Sprint 7" },
+  };
+  const plan = buildItemPlan(issue as any, {});
+  assert.equal(plan.assignee, "ada@acme.com", "email preferred over name");
+  assert.ok(plan.tags.includes("cycle:Sprint 7"), "cycle persisted as a namespaced tag");
+  // label tags preserved alongside the cycle tag
+  assert.ok(plan.tags.includes("bug") && plan.tags.includes("p0"));
+
+  // Falls back to the display name when there is no email.
+  const nameOnly = buildItemPlan(
+    { ...SAMPLE_ISSUE, assignee: { name: "Grace Hopper", email: null }, cycle: null } as any,
+    {}
+  );
+  assert.equal(nameOnly.assignee, "Grace Hopper");
+  assert.ok(!nameOnly.tags.some((t) => t.startsWith("cycle:")), "no cycle tag when unassigned cycle");
+});
+
+test("buildItemPlan: unassigned issue and no cycle => no assignee, no cycle tag", () => {
+  const plan = buildItemPlan(
+    { ...SAMPLE_ISSUE, assignee: null, cycle: null } as any,
+    {}
+  );
+  assert.equal(plan.assignee, undefined);
+  assert.ok(!plan.tags.some((t) => t.startsWith("cycle:")));
+});
+
+test("buildItemPlan: --map assignee=ignore suppresses assignee; labels=ignore drops cycle tag", () => {
+  const issue = {
+    ...SAMPLE_ISSUE,
+    assignee: { name: "Ada", email: "ada@acme.com" },
+    cycle: { name: "Sprint 7" },
+  };
+  const noAssignee = buildItemPlan(issue as any, {}, parseFieldMap("assignee=ignore"));
+  assert.equal(noAssignee.assignee, undefined, "assignee suppressed");
+  assert.ok(noAssignee.tags.includes("cycle:Sprint 7"), "cycle still tagged");
+
+  // labels=ignore drops ALL tags (including the cycle tag, which is tag-encoded).
+  const noLabels = buildItemPlan(issue as any, {}, parseFieldMap("labels=ignore"));
+  assert.deepEqual(noLabels.tags, []);
+  assert.equal(noLabels.assignee, "ada@acme.com", "assignee unaffected by labels=ignore");
+});
+
+test("buildItemPlan: cycle tag is de-duplicated against an identical label", () => {
+  const issue = {
+    ...SAMPLE_ISSUE,
+    labels: { nodes: [{ name: "cycle:Sprint 7" }] },
+    cycle: { name: "Sprint 7" },
+  };
+  const plan = buildItemPlan(issue as any, {});
+  const cycleTags = plan.tags.filter((t) => t === "cycle:Sprint 7");
+  assert.equal(cycleTags.length, 1, "cycle tag not duplicated");
 });
 
 test("maskApiKey never leaks the full key", () => {

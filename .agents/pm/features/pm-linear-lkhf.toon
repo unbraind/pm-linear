@@ -1,0 +1,11 @@
+id: pm-linear-lkhf
+title: "Persist Linear assignee+cycle on import, fix --status-map export-preview casing, isolate per-item export-push failures"
+description: ""
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-06-05T04:41:17.715Z"
+updated_at: "2026-06-05T04:41:27.497Z"
+author: codex
+body: "Implements four audited improvements to pm-linear:\n\n1. Persist assignee + cycle on import (previously fetched then dropped). assignee.email (or .name) -> pm --assignee; cycle.name -> a 'cycle:<name>' tag (additive, de-duplicated). Honors --map assignee=ignore; labels=ignore drops the cycle tag.\n\n2. Fix --status-map export-preview lower-casing. parseStatusMap now preserves original key casing (case-insensitive matching retained via lookupStatusOverride); invertStatusMap echoes the Linear state name with original casing (e.g. 'Backlog'/'In Review' instead of 'backlog'/'in review'). Default map still yields 'Todo'/'In Progress'.\n\n3. Per-item failure isolation on export --push. Each issueCreate/issueUpdate is wrapped; a failure is logged, counted into the previously-dead 'skipped' counter, and the batch continues instead of aborting.\n\n4. README reconciled with reality: removed fictional meta.linear_* / idSuffix / todo-wip-done rows; documented real statuses (open/in_progress/closed/blocked), the [linear] provenance marker, and the new assignee/cycle mapping.\n\nTests: 33 pass / 0 fail. No new manifest capabilities (none needed)."

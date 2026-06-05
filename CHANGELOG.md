@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026.6.4 - 2026-06-04
+## Unreleased
+
+### Fixed
+
+- Persist Linear assignee+cycle on import, fix --status-map export-preview casing, isolate per-item export-push failures ([pm-linear-lkhf](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-lkhf.toon))
+
+## 2026.06.04 - 2026-06-04
 
 ### Added
 
