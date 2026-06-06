@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Align package dependencies to pm CLI/SDK 2026.6.6 ([pm-linear-eehh](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-eehh.toon))
+
 ## 2026.06.05 - 2026-06-05
 
 ### Fixed
