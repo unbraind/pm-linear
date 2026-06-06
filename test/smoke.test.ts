@@ -291,10 +291,12 @@ const SAMPLE_ISSUE = {
   title: "Fix login",
   description: "details",
   priority: 1,
+  estimate: 5,
   state: { name: "In Progress", type: "started" },
   labels: { nodes: [{ name: "bug" }, { name: "p0" }] },
   dueDate: "2026-07-01",
   cycle: null,
+  customer: { name: "Acme" },
   url: "https://linear.app/x/issue/ENG-1",
 };
 
@@ -304,7 +306,7 @@ test("buildItemPlan maps a Linear issue to resolved pm fields", () => {
   assert.equal(plan.body, "details");
   assert.equal(plan.status, "in_progress");
   assert.equal(plan.priority, 1);
-  assert.deepEqual(plan.tags, ["bug", "p0"]);
+  assert.deepEqual(plan.tags, ["bug", "p0", "estimate:5", "customer:Acme"]);
   assert.equal(plan.deadline, "2026-07-01");
   assert.ok(plan.description.includes("linear_id=lin-1"));
 });
@@ -314,7 +316,7 @@ test("buildItemPlan honors --map field suppression and status-map", () => {
   const plan = buildItemPlan(SAMPLE_ISSUE as any, {}, fieldMap);
   assert.equal(plan.title, "Fix login", "identifier prefix dropped");
   assert.equal(plan.priority, 3, "priority suppressed -> default medium");
-  assert.deepEqual(plan.tags, [], "labels suppressed");
+  assert.deepEqual(plan.tags, ["estimate:5", "customer:Acme"], "labels suppressed independently");
   // status-map still wins for status
   const statusMap = parseStatusMap("In Progress=blocked");
   const plan2 = buildItemPlan(SAMPLE_ISSUE as any, statusMap);
@@ -481,20 +483,20 @@ test("buildItemPlan appends the project tag (additive, de-duplicated)", () => {
   const issueWithProject = { ...SAMPLE_ISSUE, project: { name: "Mobile App" } };
   // passthrough adds the verbatim project name on top of label tags
   const plan = buildItemPlan(issueWithProject as any, {}, {}, parseProjectMap(""));
-  assert.deepEqual(plan.tags, ["bug", "p0", "Mobile App"]);
+  assert.deepEqual(plan.tags, ["bug", "p0", "Mobile App", "estimate:5", "customer:Acme"]);
 
   // explicit remap
   const plan2 = buildItemPlan(issueWithProject as any, {}, {}, parseProjectMap("Mobile App=mobile"));
-  assert.deepEqual(plan2.tags, ["bug", "p0", "mobile"]);
+  assert.deepEqual(plan2.tags, ["bug", "p0", "mobile", "estimate:5", "customer:Acme"]);
 
   // disabled => unchanged (existing behavior)
   const plan3 = buildItemPlan(issueWithProject as any, {});
-  assert.deepEqual(plan3.tags, ["bug", "p0"]);
+  assert.deepEqual(plan3.tags, ["bug", "p0", "estimate:5", "customer:Acme"]);
 
   // de-dup: a project tag equal to an existing label is not duplicated
   const issueDup = { ...SAMPLE_ISSUE, project: { name: "bug" } };
   const plan4 = buildItemPlan(issueDup as any, {}, {}, parseProjectMap(""));
-  assert.deepEqual(plan4.tags, ["bug", "p0"]);
+  assert.deepEqual(plan4.tags, ["bug", "p0", "estimate:5", "customer:Acme"]);
 });
 
 test("status-map export preview preserves original Linear state-name casing", () => {
@@ -564,20 +566,32 @@ test("buildItemPlan: unassigned issue and no cycle => no assignee, no cycle tag"
   assert.ok(!plan.tags.some((t) => t.startsWith("cycle:")));
 });
 
-test("buildItemPlan: --map assignee=ignore suppresses assignee; labels=ignore drops cycle tag", () => {
+test("buildItemPlan: --map suppresses assignee, labels, estimate, and customer independently", () => {
   const issue = {
     ...SAMPLE_ISSUE,
     assignee: { name: "Ada", email: "ada@acme.com" },
     cycle: { name: "Sprint 7" },
+    estimate: 8,
+    customer: { name: "Globex" },
   };
   const noAssignee = buildItemPlan(issue as any, {}, parseFieldMap("assignee=ignore"));
   assert.equal(noAssignee.assignee, undefined, "assignee suppressed");
   assert.ok(noAssignee.tags.includes("cycle:Sprint 7"), "cycle still tagged");
+  assert.ok(noAssignee.tags.includes("estimate:8"), "estimate still tagged");
+  assert.ok(noAssignee.tags.includes("customer:Globex"), "customer still tagged");
 
   // labels=ignore drops ALL tags (including the cycle tag, which is tag-encoded).
   const noLabels = buildItemPlan(issue as any, {}, parseFieldMap("labels=ignore"));
-  assert.deepEqual(noLabels.tags, []);
+  assert.deepEqual(noLabels.tags, ["estimate:8", "customer:Globex"]);
   assert.equal(noLabels.assignee, "ada@acme.com", "assignee unaffected by labels=ignore");
+
+  const noEstimateCustomer = buildItemPlan(
+    issue as any,
+    {},
+    parseFieldMap("estimate=ignore,customer=ignore")
+  );
+  assert.ok(!noEstimateCustomer.tags.some((t) => t.startsWith("estimate:")));
+  assert.ok(!noEstimateCustomer.tags.some((t) => t.startsWith("customer:")));
 });
 
 test("buildItemPlan: cycle tag is de-duplicated against an identical label", () => {

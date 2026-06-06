@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Import Linear estimate and customer context tags ([pm-linear-82dn](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-82dn.toon))
+
 ### Other
 
 - Align package dependencies to pm CLI/SDK 2026.6.6 ([pm-linear-eehh](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-eehh.toon))
