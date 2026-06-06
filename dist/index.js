@@ -269,7 +269,7 @@ export function resolveProjectTag(projectName, projectMap) {
 // --map priority=ignore to skip priority). Keys are Linear field names; values
 // are pm field names (or the sentinel "ignore" to suppress that field).
 // Recognized Linear keys: title, description, priority, status, labels,
-// assignee, identifier. Pure + exported for unit testing.
+// assignee, identifier, estimate, customer. Pure + exported for unit testing.
 // ---------------------------------------------------------------------------
 const KNOWN_LINEAR_FIELDS = [
     "title",
@@ -279,6 +279,8 @@ const KNOWN_LINEAR_FIELDS = [
     "labels",
     "assignee",
     "identifier",
+    "estimate",
+    "customer",
 ];
 export function parseFieldMap(raw) {
     const map = {};
@@ -380,12 +382,14 @@ ${filterBody}
       title
       description
       priority
+      estimate
       state { name type }
       labels { nodes { name } }
       assignee { name email }
       dueDate
       cycle { name }
       project { name }
+      customer { name }
       url
     }
     pageInfo { hasNextPage endCursor }
@@ -616,6 +620,17 @@ export function buildItemPlan(issue, statusMap, fieldMap = {}, projectMap = { en
         const cycleTag = `cycle:${cycleName}`;
         if (!tags.includes(cycleTag))
             tags.push(cycleTag);
+    }
+    if (typeof issue.estimate === "number" && !fieldIsIgnored(fieldMap, "estimate")) {
+        const estimateTag = `estimate:${issue.estimate}`;
+        if (!tags.includes(estimateTag))
+            tags.push(estimateTag);
+    }
+    const customerName = issue.customer?.name?.trim();
+    if (customerName && !fieldIsIgnored(fieldMap, "customer")) {
+        const customerTag = `customer:${customerName}`;
+        if (!tags.includes(customerTag))
+            tags.push(customerTag);
     }
     const plan = {
         title,
