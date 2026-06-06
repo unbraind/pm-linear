@@ -354,6 +354,15 @@ export function buildIssuesQuery(flags) {
         clauses.push("updatedAt: { gte: $updatedSince }");
         vars.push("$updatedSince: DateTimeOrDuration!");
     }
+    if (flags.state) {
+        // `containsIgnoreCase` preserves the original client-side filter semantics
+        // (`stateName.toLowerCase().includes(filter.toLowerCase())`) — a
+        // case-insensitive SUBSTRING match — so `--state "progress"` still matches
+        // "In Progress". A case-sensitive `eq` here would silently return zero for
+        // any lowercase/substring input (a usability regression).
+        clauses.push("state: { name: { containsIgnoreCase: $state } }");
+        vars.push("$state: String!");
+    }
     const filterBody = clauses.map((c) => `      ${c}`).join("\n");
     return `
 query(${vars.join(", ")}) {
@@ -389,11 +398,13 @@ export function buildImportRequestPlan(team, limit, filters = {}, after = null) 
     const assignee = filters.assignee?.trim();
     const label = filters.label?.trim();
     const updatedSince = filters.updatedSince?.trim();
+    const state = filters.state?.trim();
     const flags = {
         project: Boolean(project),
         assignee: Boolean(assignee),
         label: Boolean(label),
         updatedSince: Boolean(updatedSince),
+        state: Boolean(state),
     };
     const variables = {
         team: team.toUpperCase(),
@@ -408,6 +419,8 @@ export function buildImportRequestPlan(team, limit, filters = {}, after = null) 
         variables.label = label;
     if (flags.updatedSince)
         variables.updatedSince = updatedSince;
+    if (flags.state)
+        variables.state = state;
     return {
         endpoint: "https://api.linear.app/graphql",
         method: "POST",
@@ -629,6 +642,7 @@ function buildImportDryRunPlan(options, pm_root) {
         assignee: options.assignee,
         label: options.label,
         updatedSince: options.updatedSince,
+        state: options.stateFilter,
     });
     // Local-only read; no Linear network call. Reports how many already-linked pm
     // items exist so the preview can hint at create-vs-update without fetching.
@@ -660,6 +674,7 @@ async function syncLinearIssues(options, pm_root) {
         assignee: options.assignee,
         label: options.label,
         updatedSince: options.updatedSince,
+        state: options.stateFilter,
     };
     // --dry-run is fully OFFLINE: build and PRINT the exact GraphQL request that
     // WOULD be sent (query + variables), make NO network call, and report against
@@ -675,6 +690,8 @@ async function syncLinearIssues(options, pm_root) {
         scopeBits.push(`label "${options.label}"`);
     if (options.updatedSince)
         scopeBits.push(`updated since ${options.updatedSince}`);
+    if (options.stateFilter)
+        scopeBits.push(`state "${options.stateFilter}"`);
     const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
     console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
     const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, filters);
@@ -692,7 +709,11 @@ async function syncLinearIssues(options, pm_root) {
     let updated = 0;
     let skipped = 0;
     for (const issue of issues) {
-        // Optional state name filter (applied client-side after fetch)
+        // State name filter. The authoritative constraint is now server-side
+        // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
+        // so `--limit` bounds the MATCHING issues rather than the pre-filter page.
+        // This identical case-insensitive substring check is a harmless backstop —
+        // the server applies the same predicate, so it never drops a server hit.
         if (options.stateFilter) {
             const stateName = issue.state.name.toLowerCase();
             if (!stateName.includes(options.stateFilter.toLowerCase())) {
