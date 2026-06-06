@@ -60,6 +60,7 @@ export interface IssueFilterFlags {
     assignee?: boolean;
     label?: boolean;
     updatedSince?: boolean;
+    state?: boolean;
 }
 export declare function buildIssuesQuery(flags: IssueFilterFlags): string;
 export interface ImportRequestPlan {
@@ -74,6 +75,7 @@ interface FetchFilters {
     assignee?: string;
     label?: string;
     updatedSince?: string;
+    state?: string;
 }
 export declare function backoffDelayMs(attempt: number, retryAfterMs?: number): number;
 interface PmItem {

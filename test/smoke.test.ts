@@ -217,6 +217,18 @@ test("buildIssuesQuery includes the updated-since clause when requested", () => 
   assert.ok(!base.includes("$updatedSince"), "absent when not requested");
 });
 
+test("buildIssuesQuery filters by state server-side when requested", () => {
+  const q = buildIssuesQuery({ state: true });
+  // The state constraint must live in the GraphQL filter (server-side), not be
+  // applied client-side after fetching `--limit` issues, otherwise large teams
+  // under-return matches that page beyond the fetched window.
+  assert.ok(q.includes("state: { name: { containsIgnoreCase: $state } }"));
+  assert.ok(q.includes("$state: String!"));
+  const base = buildIssuesQuery({});
+  assert.ok(!base.includes("$state"), "no state var when not requested");
+  assert.ok(!base.includes("state: { name:"), "no state clause when not requested");
+});
+
 test("parseFieldMap / fieldIsIgnored / resolvePmField", () => {
   assert.deepEqual(parseFieldMap(undefined), {});
   assert.deepEqual(parseFieldMap("Identifier=ignore,Priority=Custom"), {
@@ -256,6 +268,21 @@ test("buildImportRequestPlan builds the literal request with only used vars", ()
   assert.equal(full.variables.label, "bug");
   assert.equal(full.variables.updatedSince, "2026-01-01");
   assert.ok(full.query.includes("updatedAt: { gte: $updatedSince }"));
+  // state absent above -> no state var/clause (zero regression for callers that
+  // do not pass --state)
+  assert.ok(!("state" in full.variables), "no state var when --state absent");
+  assert.ok(!full.query.includes("$state"), "no state clause when --state absent");
+});
+
+test("buildImportRequestPlan wires --state into the server-side filter", () => {
+  const plan = buildImportRequestPlan("ENG", 100, { state: "In Progress" });
+  assert.equal(plan.variables.state, "In Progress");
+  assert.ok(plan.query.includes("state: { name: { containsIgnoreCase: $state } }"));
+  assert.ok(plan.query.includes("$state: String!"));
+  // whitespace-only / absent state adds nothing
+  const blank = buildImportRequestPlan("ENG", 100, { state: "   " });
+  assert.ok(!("state" in blank.variables), "blank state is not a filter");
+  assert.ok(!blank.query.includes("$state"), "blank state adds no clause");
 });
 
 const SAMPLE_ISSUE = {
