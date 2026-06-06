@@ -18,6 +18,7 @@ interface LinearIssue {
     title: string;
     description: string | null;
     priority: number;
+    estimate?: number | null;
     state: LinearState;
     labels: {
         nodes: LinearLabel[];
@@ -26,6 +27,9 @@ interface LinearIssue {
     cycle: LinearCycle | null;
     assignee?: LinearAssignee | null;
     project?: {
+        name: string;
+    } | null;
+    customer?: {
         name: string;
     } | null;
     url?: string | null;

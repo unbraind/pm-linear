@@ -2,7 +2,7 @@
 
 Linear.app issue sync extension for [pm-cli](https://github.com/unbraind/pm-cli).
 
-Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, statuses, labels, due dates, assignees, and cycles in sync. Also provides a native import pipeline (`pm linear import`) and an exporter (`pm linear export`) that renders pm items as Linear issue-create payloads, and declares `linear_id` / `linear_url` provenance fields.
+Fetches issues from a Linear team and upserts them as pm items, keeping identifiers, priorities, estimates, statuses, labels, due dates, assignees, cycles, customer names, and project names in sync. Also provides a native import pipeline (`pm linear import`) and an exporter (`pm linear export`) that renders pm items as Linear issue-create payloads, and declares `linear_id` / `linear_url` provenance fields.
 
 ## Capabilities
 
@@ -101,6 +101,8 @@ import time. The special value `ignore` suppresses a field:
 | `labels=ignore` | Skip label→tag import (also drops the `cycle:<name>` tag) |
 | `status=ignore` | Skip status mapping (pm item stays `open`) |
 | `assignee=ignore` | Skip assignee import (pm item left unassigned) |
+| `estimate=ignore` | Skip the `estimate:<points>` context tag |
+| `customer=ignore` | Skip the `customer:<name>` context tag |
 
 #### `--project-map` project tagging
 

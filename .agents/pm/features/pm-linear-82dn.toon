@@ -1,0 +1,21 @@
+id: pm-linear-82dn
+title: Import Linear estimate and customer context tags
+description: ""
+type: Feature
+status: closed
+priority: 1
+tags[2]: context-management,enhancement
+created_at: "2026-06-06T19:29:28.641Z"
+updated_at: "2026-06-06T19:29:29.757Z"
+author: codex
+files[4]{path,scope,note}:
+  dist/index.d.ts,project,implementation
+  dist/index.js,project,implementation
+  index.ts,project,implementation
+  test/smoke.test.ts,project,implementation
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode,env_set,env_clear,shared_host_safe,assert_stdout_contains,assert_stdout_regex,assert_stderr_contains,assert_stderr_regex,assert_stdout_min_lines,assert_json_field_equals,assert_json_field_gte,note}:
+  PM_PATH=.agents/pm PM_GLOBAL_PATH=.agents/pm npm test,null,project,180,null,null,null,null,null,null,null,null,null,null,null,package TypeScript test suite
+docs[1]{path,scope,note}:
+  README.md,project,Linear import docs cover estimate and customer context tags
+close_reason: Linear imports now preserve estimate and customer context tags with tests.
+body: "Select Linear estimate and customer fields during import and preserve them as estimate:<points> and customer:<name> tags, with independent --map suppression for teams that do not want those tags."

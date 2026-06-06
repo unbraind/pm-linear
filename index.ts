@@ -55,12 +55,14 @@ interface LinearIssue {
   title: string;
   description: string | null;
   priority: number;
+  estimate?: number | null;
   state: LinearState;
   labels: { nodes: LinearLabel[] };
   dueDate: string | null;
   cycle: LinearCycle | null;
   assignee?: LinearAssignee | null;
   project?: { name: string } | null;
+  customer?: { name: string } | null;
   url?: string | null;
 }
 
@@ -373,7 +375,7 @@ export function resolveProjectTag(
 // --map priority=ignore to skip priority). Keys are Linear field names; values
 // are pm field names (or the sentinel "ignore" to suppress that field).
 // Recognized Linear keys: title, description, priority, status, labels,
-// assignee, identifier. Pure + exported for unit testing.
+// assignee, identifier, estimate, customer. Pure + exported for unit testing.
 // ---------------------------------------------------------------------------
 const KNOWN_LINEAR_FIELDS = [
   "title",
@@ -383,6 +385,8 @@ const KNOWN_LINEAR_FIELDS = [
   "labels",
   "assignee",
   "identifier",
+  "estimate",
+  "customer",
 ] as const;
 
 export function parseFieldMap(raw: string | undefined): Record<string, string> {
@@ -510,12 +514,14 @@ ${filterBody}
       title
       description
       priority
+      estimate
       state { name type }
       labels { nodes { name } }
       assignee { name email }
       dueDate
       cycle { name }
       project { name }
+      customer { name }
       url
     }
     pageInfo { hasNextPage endCursor }
@@ -876,6 +882,15 @@ export function buildItemPlan(
   if (cycleName && !fieldIsIgnored(fieldMap, "labels")) {
     const cycleTag = `cycle:${cycleName}`;
     if (!tags.includes(cycleTag)) tags.push(cycleTag);
+  }
+  if (typeof issue.estimate === "number" && !fieldIsIgnored(fieldMap, "estimate")) {
+    const estimateTag = `estimate:${issue.estimate}`;
+    if (!tags.includes(estimateTag)) tags.push(estimateTag);
+  }
+  const customerName = issue.customer?.name?.trim();
+  if (customerName && !fieldIsIgnored(fieldMap, "customer")) {
+    const customerTag = `customer:${customerName}`;
+    if (!tags.includes(customerTag)) tags.push(customerTag);
   }
   const plan: ItemPlan = {
     title,
