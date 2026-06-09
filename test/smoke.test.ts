@@ -30,6 +30,7 @@ import extension, {
   resolveCycleId,
   applyPushDynamicFields,
   resetCycleWarning,
+  resolveTeamSelection,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -233,6 +234,19 @@ test("buildIssuesQuery filters by state server-side when requested", () => {
   const base = buildIssuesQuery({});
   assert.ok(!base.includes("$state"), "no state var when not requested");
   assert.ok(!base.includes("state: { name:"), "no state clause when not requested");
+});
+
+test("resolveTeamSelection prefers --team and falls back to LINEAR_DEFAULT_TEAM", () => {
+  assert.deepEqual(
+    resolveTeamSelection({ team: " ENG " }, "OPS"),
+    { team: "ENG", source: "flag" }
+  );
+  assert.deepEqual(
+    resolveTeamSelection({ team: "   " }, " ops "),
+    { team: "ops", source: "env" }
+  );
+  assert.equal(resolveTeamSelection({}, "  "), undefined);
+  assert.equal(resolveTeamSelection({ team: "   " }, undefined), undefined);
 });
 
 test("parseFieldMap / fieldIsIgnored / resolvePmField", () => {
