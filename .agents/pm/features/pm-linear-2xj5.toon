@@ -2,13 +2,20 @@ id: pm-linear-2xj5
 title: Round-trip Linear estimate and cycle on export
 description: ""
 type: Feature
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-06-09T17:55:39.175Z"
-updated_at: "2026-06-09T17:56:07.249Z"
+updated_at: "2026-06-09T20:58:38.100Z"
 author: codex
 acceptance_criteria: "On 'pm linear export', an item carrying the importer's estimate:<n> tag sets the Linear issue input.estimate (integer), and the cycle:<name> tag resolves to a cycleId and sets input.cycleId; both work for issueCreate and issueUpdate. estimate:/cycle: tags are NOT re-emitted as Linear labels. Unresolvable cycle names are skipped (no crash) with a single stderr warning per push. --map estimate=ignore and --map cycle=ignore opt out. Dry-run/preview output reflects estimate + cycle. Offline-safe; no live API required by tests."
 comments[1]{created_at,author,text}:
   "2026-06-09T17:56:07.249Z",codex,"DESIGN + TRACE (export estimate/cycle round-trip)\n\nWHAT I TRACED:\n- Import side (index.ts buildItemPlan ~895): Linear estimate -> 'estimate:<n>' tag; Linear cycle.name -> 'cycle:<name>' tag. pm has no first-class estimate/cycle field, hence the namespaced-tag encoding.\n- Export side: itemToLinearPayload (now ~1140) builds LinearCreatePayload from item.tags; applyExportFields (offline plan, ~1280) + the real push input builders (~1900 create/update) previously applied ONLY priority/labels/dueDate. estimate + cycle were dropped -> silent round-trip data loss. Linear IssueCreateInput/IssueUpdateInput support 'estimate' (number) and 'cycleId' (string).\n\nWHY CYCLE NEEDS ID RESOLUTION:\nThe tag carries a cycle NAME, but Linear's mutation input wants 'cycleId'. Labels already use the same pattern (resolveLabelIds via the team-context map). I extended resolveTeamContext's TEAM_QUERY to also fetch cycles { id name number } and build cyclesByName (keyed by lower-cased name AND number, since numbered cycles often have no name). resolveCycleId() maps the tag name -> id. Unresolved (offline/dry-run/unknown/workspace-without-cycles) is skipped gracefully with a single stderr warning per push (warnedUnresolvedCycle flag, reset at the top of each --push via resetCycleWarning()), mirroring the 'drop unknown labels' policy so a push never crashes on a cycle the team doesn't model.\n\nIMPLEMENTATION:\n- New pure exported helpers: parseEstimateTag, parseCycleTag, isReservedExportTag, resolveCycleId, applyPushDynamicFields (+resetCycleWarning).\n- itemToLinearPayload(item, fieldMap) parses estimate:/cycle: tags onto payload.estimate / payload.cycleName and EXCLUDES those tags from payload.labels (de-dup; they would be rejected as unknown Linear labels and double-encode otherwise). Honors --map estimate=ignore / cycle=ignore (added 'cycle' to KNOWN_LINEAR_FIELDS; registered --map flag on 'linear export').\n- applyExportFields (offline plan) emits input.estimate + input.cycleName + a '<cycle-id-for:NAME>' cycleId placeholder, symmetric with the existing labelIds placeholder, so --dry-run JSON matches the push.\n- Real push: applyPushDynamicFields sets input.estimate (finite) and resolves input.cycleId via teamCtx.cyclesByName; shared by both issueCreate + issueUpdate paths.\n- No-push preview now shows estimate + cycle.\n\nARCHITECTURE: import type only (no SDK runtime import); only the existing Linear GraphQL client used (one extra field on the already-issued TEAM_QUERY, no new round-trip); tests are fully offline via mocked cyclesByName + injectable warn fn — no token/live API.\n\nTEST RESULTS: npm test => 44 pass / 0 fail (was 36; +8 new). New tests: parseEstimateTag, parseCycleTag, isReservedExportTag, itemToLinearPayload estimate/cycle promotion+label-exclusion, buildExportMutationPlan estimate+cycleId (create+update), applyPushDynamicFields resolve + unresolved-skip-warn-once, --map estimate/cycle=ignore, resolveCycleId. typecheck clean."
+files[3]{path,scope,note}:
+  index.ts,project,null
+  README.md,project,null
+  test/smoke.test.ts,project,null
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode,env_set,env_clear,shared_host_safe,assert_stdout_contains,assert_stdout_regex,assert_stderr_contains,assert_stderr_regex,assert_stdout_min_lines,assert_json_field_equals,assert_json_field_gte,note}:
+  "npm run release:check",null,project,null,null,null,null,null,null,null,null,null,null,null,null,null
+close_reason: Implemented export round-trip for estimate and cycle metadata
 body: ""
