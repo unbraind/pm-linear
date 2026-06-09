@@ -280,6 +280,7 @@ const KNOWN_LINEAR_FIELDS = [
     "assignee",
     "identifier",
     "estimate",
+    "cycle",
     "customer",
 ];
 export function parseFieldMap(raw) {
@@ -806,16 +807,66 @@ async function syncLinearIssues(options, pm_root) {
         issues,
     };
 }
+// Pull a single integer estimate out of pm tags shaped `estimate:<n>` (mirrors
+// the importer's Linear-estimate -> tag mapping). Returns the parsed finite int
+// or undefined. Pure + exported for testing. Last well-formed tag wins.
+export function parseEstimateTag(tags) {
+    let result;
+    for (const t of tags) {
+        const m = /^estimate:(.+)$/i.exec(t.trim());
+        if (!m)
+            continue;
+        const n = Number(m[1].trim());
+        if (Number.isFinite(n))
+            result = n;
+    }
+    return result;
+}
+// Pull a cycle NAME out of pm tags shaped `cycle:<name>` (mirrors the importer's
+// Linear-cycle -> tag mapping). Returns the trimmed name or undefined. Pure +
+// exported for testing. Last non-empty tag wins.
+export function parseCycleTag(tags) {
+    let result;
+    for (const t of tags) {
+        const m = /^cycle:(.+)$/i.exec(t.trim());
+        if (!m)
+            continue;
+        const name = m[1].trim();
+        if (name)
+            result = name;
+    }
+    return result;
+}
+// True when a tag is one of the namespaced round-trip encodings the exporter
+// promotes to first-class issue fields (estimate/cycle) rather than a Linear
+// label. Pure: keeps those tags from being emitted as labels (Linear would
+// reject them as unknown label names anyway).
+export function isReservedExportTag(tag) {
+    const t = tag.trim().toLowerCase();
+    return t.startsWith("estimate:") || t.startsWith("cycle:");
+}
 // Pure transform: pm item -> Linear issue payload. Items that already carry
 // Linear provenance are flagged (and keep their linear id) so `--push` UPDATES
 // them in place instead of creating a duplicate. priority/labels/dueDate mirror
 // the importer's Linear->pm mapping so an exported item round-trips its
 // priority, tags (as labels), and deadline (as dueDate).
-export function itemToLinearPayload(item) {
+export function itemToLinearPayload(item, fieldMap = {}) {
     const provenance = parseProvenance(item.description);
-    const labels = Array.isArray(item.tags)
+    const rawTags = Array.isArray(item.tags)
         ? item.tags.map((t) => String(t).trim()).filter((t) => t.length > 0)
         : [];
+    // Promote the importer's namespaced round-trip tags (estimate:/cycle:) to
+    // first-class Linear fields, honoring --map suppression. The corresponding
+    // tags are then excluded from `labels` so they are NOT (re)emitted as Linear
+    // labels — Linear would reject `estimate:5`/`cycle:Q3` as unknown label names,
+    // and emitting them would be a confusing double-encoding.
+    const estimate = fieldIsIgnored(fieldMap, "estimate")
+        ? undefined
+        : parseEstimateTag(rawTags);
+    const cycleName = fieldIsIgnored(fieldMap, "cycle")
+        ? undefined
+        : parseCycleTag(rawTags);
+    const labels = rawTags.filter((t) => !isReservedExportTag(t));
     const payload = {
         title: item.title ?? "(untitled)",
         description: item.body || (provenance ? "" : item.description || ""),
@@ -827,6 +878,10 @@ export function itemToLinearPayload(item) {
         linearId: provenance?.linear_id || undefined,
         linearUrl: provenance?.linear_url || undefined,
     };
+    if (typeof estimate === "number")
+        payload.estimate = estimate;
+    if (cycleName)
+        payload.cycleName = cycleName;
     const dueDate = normalizeDueDate(item.deadline);
     if (dueDate)
         payload.dueDate = dueDate;
@@ -842,6 +897,7 @@ query($key: String!) {
       id
       states { nodes { id name } }
       labels { nodes { id name } }
+      cycles { nodes { id name number } }
     }
   }
 }
@@ -875,7 +931,18 @@ async function resolveTeamContext(apiKey, teamKey) {
         if (l?.name && l?.id)
             labelsByName[String(l.name).trim().toLowerCase()] = l.id;
     }
-    return { teamId: node.id, statesByName, labelsByName };
+    const cyclesByName = {};
+    for (const c of node.cycles?.nodes ?? []) {
+        if (!c?.id)
+            continue;
+        if (c.name)
+            cyclesByName[String(c.name).trim().toLowerCase()] = c.id;
+        // Numbered cycles often have no name; index by number too so a
+        // `cycle:42` tag still resolves.
+        if (c.number != null)
+            cyclesByName[String(c.number).trim().toLowerCase()] = c.id;
+    }
+    return { teamId: node.id, statesByName, labelsByName, cyclesByName };
 }
 // Resolve pm tags (label names) to existing Linear label ids for this team.
 // Unknown names are silently dropped so a push never fails on a tag the team
@@ -890,6 +957,40 @@ export function resolveLabelIds(labels, labelsByName) {
             ids.push(id);
     }
     return ids;
+}
+// Resolve a Linear cycle NAME (or number) to its concrete cycle id for this
+// team. Returns undefined when the name does not match any cycle (offline,
+// unknown, or a workspace that doesn't model the cycle) so the push can skip
+// the field gracefully rather than crash. Pure + exported for unit testing.
+export function resolveCycleId(cycleName, cyclesByName) {
+    if (!cycleName)
+        return undefined;
+    return cyclesByName[cycleName.trim().toLowerCase()];
+}
+// Apply estimate + (resolved) cycleId onto a REAL push input (issueCreate or
+// issueUpdate). estimate is a finite number copied straight through. cycle is
+// resolved by name to a concrete id via the team context; an unresolvable cycle
+// is skipped (NOT crashed) and warned about once per process so a batch push of
+// many items isn't spammed. Returns the (possibly mutated) input for chaining.
+let warnedUnresolvedCycle = false;
+export function resetCycleWarning() {
+    warnedUnresolvedCycle = false;
+}
+export function applyPushDynamicFields(input, payload, cyclesByName, warn = (m) => console.error(m)) {
+    if (typeof payload.estimate === "number" && Number.isFinite(payload.estimate)) {
+        input.estimate = payload.estimate;
+    }
+    if (payload.cycleName) {
+        const cycleId = resolveCycleId(payload.cycleName, cyclesByName);
+        if (cycleId) {
+            input.cycleId = cycleId;
+        }
+        else if (!warnedUnresolvedCycle) {
+            warnedUnresolvedCycle = true;
+            warn(`Linear cycle "${payload.cycleName}" did not match any cycle on the team; ` +
+                `skipping cycle assignment (further unresolved cycles suppressed).`);
+        }
+    }
 }
 // Apply the priority/labels/dueDate fields onto an issue input, symmetric with
 // the importer. priority is included whenever it resolves to a concrete Linear
@@ -908,6 +1009,18 @@ function applyExportFields(input, payload) {
     }
     if (payload.dueDate)
         input.dueDate = payload.dueDate;
+    // estimate round-trips as a finite integer (mirrors the importer's
+    // `estimate:<n>` tag). 0 is a valid explicit estimate.
+    if (typeof payload.estimate === "number" && Number.isFinite(payload.estimate)) {
+        input.estimate = payload.estimate;
+    }
+    // cycle round-trips by NAME; the concrete cycleId is only knowable with creds
+    // at push time, so the offline plan carries both the name and a self-
+    // documenting `cycleId` placeholder (symmetric with the labelIds placeholder).
+    if (payload.cycleName) {
+        input.cycleName = payload.cycleName;
+        input.cycleId = `<cycle-id-for:${payload.cycleName}>`;
+    }
 }
 export function buildExportMutationPlan(payload, invertedStatusMap, teamKey) {
     const targetStateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap) ?? null;
@@ -1236,6 +1349,7 @@ export default defineExtension({
             { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
             { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push)." },
             { long: "--status-map", value_name: "map", description: "pm-status<->Linear-state map; inverted for the push direction." },
+            { long: "--map", value_name: "map", description: "Suppress export fields, e.g. \"estimate=ignore,cycle=ignore\". Optional." },
             { long: "--dry-run", description: "Print the would-be Linear mutations (no network) — works with or without --push." },
         ]);
         // -----------------------------------------------------------------------
@@ -1300,8 +1414,9 @@ export default defineExtension({
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             const invertedStatusMap = invertStatusMap(parseStatusMap(readStringOption(ctx.options, "status-map")));
             const teamKey = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
+            const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
             const items = readPmItems(ctx.pm_root);
-            const payloads = items.map(itemToLinearPayload);
+            const payloads = items.map((it) => itemToLinearPayload(it, fieldMap));
             // --dry-run: build + print the exact would-be Linear GraphQL mutations
             // (issueCreate / issueUpdate with their variables), OFFLINE — no network,
             // no writes — regardless of --push. This is the symmetric counterpart to
@@ -1337,6 +1452,8 @@ export default defineExtension({
                     priority: p.priority ?? 0,
                     ...(p.labels && p.labels.length ? { labels: p.labels } : {}),
                     ...(p.dueDate ? { dueDate: p.dueDate } : {}),
+                    ...(typeof p.estimate === "number" ? { estimate: p.estimate } : {}),
+                    ...(p.cycleName ? { cycle: p.cycleName } : {}),
                     ...(p.linearId ? { linearId: p.linearId } : {}),
                     ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
                 }));
@@ -1359,6 +1476,9 @@ export default defineExtension({
                 throw new CommandError("--push requires --team <slug> to create issues in Linear.", EXIT_CODE.USAGE);
             }
             const teamCtx = await resolveTeamContext(apiKey, team);
+            // Fresh warn-once budget per push invocation so a later batch isn't muted
+            // by an earlier one in the same process.
+            resetCycleWarning();
             let created = 0;
             let updated = 0;
             let skipped = 0;
@@ -1392,6 +1512,7 @@ export default defineExtension({
                             input.labelIds = labelIds;
                         if (payload.dueDate)
                             input.dueDate = payload.dueDate;
+                        applyPushDynamicFields(input, payload, teamCtx.cyclesByName);
                         const resp = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
                             id: payload.linearId,
                             input,
@@ -1415,6 +1536,7 @@ export default defineExtension({
                         input.labelIds = labelIds;
                     if (payload.dueDate)
                         input.dueDate = payload.dueDate;
+                    applyPushDynamicFields(input, payload, teamCtx.cyclesByName);
                     const resp = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
                     if (resp.errors?.length) {
                         throw new Error(`Linear issueCreate failed: ${resp.errors.map((e) => e.message).join("; ")}`);

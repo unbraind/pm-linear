@@ -166,11 +166,17 @@ the key is missing it exits non-zero with a structured error rather than crashin
 ## `pm linear export`
 
 Renders pm items as Linear issue-create payloads. The exported payload is
-**symmetric with the importer**: a pm item's `priority`, `tags`, and `deadline`
-are carried into the Linear mutation as `priority` (int), `labelIds` (resolved
-from tag names to the team's existing labels at push time), and `dueDate`
-(`YYYY-MM-DD`) respectively — alongside `title`, `description`, and the
-status→state mapping.
+**symmetric with the importer**: a pm item's `priority`, `tags`, `deadline`,
+`estimate:<n>` tag, and `cycle:<name>` tag are carried into the Linear mutation as
+`priority` (int), `labelIds` (resolved from tag names to the team's existing
+labels at push time), `dueDate` (`YYYY-MM-DD`), `estimate` (int), and `cycleId`
+(resolved from the cycle name to the team's cycle at push time) respectively —
+alongside `title`, `description`, and the status→state mapping.
+
+The importer encodes Linear's estimate and cycle as the namespaced tags
+`estimate:<points>` and `cycle:<name>` (pm has no first-class field for either).
+Export promotes those tags back to first-class Linear issue fields and does **not**
+re-emit them as Linear labels, so the round-trip is lossless and clean.
 
 - **Default (no `--push`):** prints the JSON payload to stdout. Safe, read-only, no
   network. Items that already carry Linear provenance are flagged `alreadyInLinear: true`.
@@ -194,7 +200,17 @@ pm linear export --push --team ENG
 |------|------|---------|-------------|
 | `--push` | boolean | `false` | Create the issues in Linear (requires key + `--team`) |
 | `--team` | string | — | Target Linear team slug (required with `--push`) |
+| `--map` | string | — | Suppress export fields, e.g. `"estimate=ignore,cycle=ignore"` |
 | `--dry-run` | boolean | `false` | **Offline** — print the would-be `issueCreate`/`issueUpdate` mutations + variables, no network |
+
+> **Cycle resolution.** The `cycle:<name>` tag carries a cycle **name**; Linear's
+> mutation input needs a `cycleId`. On `--push`, the exporter resolves the name
+> against the team's cycles (fetched alongside its labels/states) and sets
+> `cycleId` when it matches (by cycle name or number, case-insensitively). A cycle
+> name that doesn't resolve — offline, unknown, or a workspace that doesn't model
+> it — is **skipped** (the rest of the issue still pushes) with a single stderr
+> warning per push. Use `--map cycle=ignore` to drop cycle export entirely, or
+> `--map estimate=ignore` to drop estimate.
 
 ```bash
 # Preview the exact Linear mutations that a --push would send (no network)
@@ -327,11 +343,12 @@ fields it carries:
 | `description` | `body` |
 | `stateName` / `stateId` | mapped from `status` (via inverted `--status-map`) |
 | `priority` | `priority` (pm 1–4 → Linear 1–4, else `0` "No priority") |
-| `labelIds` | `tags` (resolved to existing team labels; unknowns dropped) |
+| `labelIds` | `tags` (resolved to existing team labels; unknowns dropped; `estimate:`/`cycle:` tags excluded) |
 | `dueDate` | `deadline` (normalized to `YYYY-MM-DD`) |
+| `estimate` | `estimate:<n>` tag (integer; suppress with `--map estimate=ignore`) |
+| `cycleId` | `cycle:<name>` tag (name resolved to the team's cycle id at push time; skipped if unresolved; suppress with `--map cycle=ignore`) |
 
-> Export does not currently push assignee or cycle back to Linear (those are
-> import-direction only).
+> Export does not currently push assignee back to Linear (import-direction only).
 
 ---
 
