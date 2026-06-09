@@ -67,6 +67,24 @@ function readProjectMapOption(options) {
         return v ? "" : undefined;
     return typeof v === "string" ? v : String(v);
 }
+function normalizeTeam(raw) {
+    if (!raw)
+        return undefined;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+// Resolve the Linear team from --team first, then LINEAR_DEFAULT_TEAM. The
+// source is returned so human + JSON output can explain where the team came
+// from (important for automation/debugging when defaults are injected).
+export function resolveTeamSelection(options, envDefaultTeam = process.env["LINEAR_DEFAULT_TEAM"]) {
+    const fromFlag = normalizeTeam(readStringOption(options, "team"));
+    if (fromFlag)
+        return { team: fromFlag, source: "flag" };
+    const fromEnv = normalizeTeam(envDefaultTeam);
+    if (fromEnv)
+        return { team: fromEnv, source: "env" };
+    return undefined;
+}
 // ---------------------------------------------------------------------------
 // Linear priority → pm priority
 // Linear: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low
@@ -1139,9 +1157,12 @@ function isJsonMode(ctx) {
 // network) and either return the plan object (JSON mode) or print a human
 // preview to stderr. Shared by `linear sync` and the `linear` importer so both
 // dry-run paths are identical and network-free. Returns the JSON-mode payload.
-function renderImportDryRun(ctx, options) {
+function renderImportDryRun(ctx, options, teamSource) {
     const plan = buildImportDryRunPlan(options, ctx.pm_root);
     if (!isJsonMode(ctx)) {
+        if (teamSource === "env") {
+            console.error(`Using LINEAR_DEFAULT_TEAM=${plan.team} (no --team provided).`);
+        }
         console.error("Running in dry-run mode — no Linear network call is made.");
         console.error(`Target team: ${plan.team} (limit: ${options.limit})`);
         console.error(`GraphQL endpoint: ${plan.request.method} ${plan.request.endpoint}`);
@@ -1172,6 +1193,7 @@ function renderImportDryRun(ctx, options) {
         statusMap: plan.statusMap,
         fieldMap: plan.fieldMap,
         projectMap: plan.projectMap,
+        ...(teamSource ? { teamSource } : {}),
     };
 }
 // ---------------------------------------------------------------------------
@@ -1210,13 +1232,14 @@ export default defineExtension({
             intent: "Fetch issues from a Linear team and upsert them as pm items",
             examples: [
                 "pm linear sync --team ENG",
+                "LINEAR_DEFAULT_TEAM=ENG pm linear sync",
                 "pm linear sync --team ENG --state 'In Progress'",
                 "pm linear sync --team ENG --assignee dev@acme.com --label bug",
                 "pm linear sync --team ENG --limit 50",
                 "pm linear sync --team ENG --dry-run",
             ],
             flags: [
-                { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Required." },
+                { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Optional when LINEAR_DEFAULT_TEAM is set." },
                 { long: "--project", value_name: "name", description: "Filter by Linear project name. Optional." },
                 { long: "--state", value_name: "name", description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional." },
                 { long: "--assignee", value_name: "email", description: "Filter by assignee email. Optional." },
@@ -1231,7 +1254,12 @@ export default defineExtension({
             ],
             async run(ctx) {
                 assertPreflightOk(ctx.options);
-                const team = readStringOption(ctx.options, "team");
+                const teamSelection = resolveTeamSelection(ctx.options);
+                if (!teamSelection) {
+                    throw new CommandError("Missing Linear team. Pass --team <slug> or set LINEAR_DEFAULT_TEAM. " +
+                        "Example: pm linear sync --team ENG", EXIT_CODE.USAGE);
+                }
+                const team = teamSelection.team;
                 const project = readStringOption(ctx.options, "project");
                 const stateFilter = readStringOption(ctx.options, "state");
                 const assignee = readStringOption(ctx.options, "assignee");
@@ -1242,16 +1270,16 @@ export default defineExtension({
                 const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
                 const limit = readNumberOption(ctx.options, "limit") ?? 100;
                 const dryRun = readBooleanOption(ctx.options, "dry-run");
-                if (!team) {
-                    throw new CommandError("--team is required. Example: pm linear sync --team ENG", EXIT_CODE.USAGE);
-                }
                 const syncOpts = {
                     team, project, stateFilter, assignee, label, updatedSince,
                     statusMap, fieldMap, projectMap, limit, dryRun,
                 };
                 // --dry-run is fully offline: print the literal GraphQL request, no call.
                 if (dryRun) {
-                    return renderImportDryRun(ctx, syncOpts);
+                    return renderImportDryRun(ctx, syncOpts, teamSelection.source);
+                }
+                if (!isJsonMode(ctx) && teamSelection.source === "env") {
+                    console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
                 }
                 try {
                     const result = await syncLinearIssues(syncOpts, ctx.pm_root);
@@ -1270,6 +1298,7 @@ export default defineExtension({
                         updated: result.updated,
                         skipped: result.skipped,
                         team: result.team.toUpperCase(),
+                        teamSource: teamSelection.source,
                         dryRun: false,
                     };
                 }
@@ -1333,7 +1362,7 @@ export default defineExtension({
         // off ctx.options regardless, but declaring them makes `pm linear import
         // --help` / `pm linear export --help` self-documenting.
         api.registerFlags("linear import", [
-            { long: "--team", value_name: "slug", description: "Linear team slug (or set LINEAR_DEFAULT_TEAM)." },
+            { long: "--team", value_name: "slug", description: "Linear team slug. Optional when LINEAR_DEFAULT_TEAM is set." },
             { long: "--project", value_name: "name", description: "Filter by Linear project name." },
             { long: "--state", value_name: "name", description: "Filter by Linear state name." },
             { long: "--assignee", value_name: "email", description: "Filter by assignee email." },
@@ -1347,7 +1376,7 @@ export default defineExtension({
         ]);
         api.registerFlags("linear export", [
             { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
-            { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push)." },
+            { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push when LINEAR_DEFAULT_TEAM is unset)." },
             { long: "--status-map", value_name: "map", description: "pm-status<->Linear-state map; inverted for the push direction." },
             { long: "--map", value_name: "map", description: "Suppress export fields, e.g. \"estimate=ignore,cycle=ignore\". Optional." },
             { long: "--dry-run", description: "Print the would-be Linear mutations (no network) — works with or without --push." },
@@ -1358,11 +1387,12 @@ export default defineExtension({
         // -----------------------------------------------------------------------
         api.registerImporter("linear", async (ctx) => {
             assertPreflightOk(ctx.options);
-            const team = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
-            if (!team) {
-                throw new CommandError("pm linear import requires --team <slug> (or set LINEAR_DEFAULT_TEAM). " +
+            const teamSelection = resolveTeamSelection(ctx.options);
+            if (!teamSelection) {
+                throw new CommandError("Missing Linear team. Pass --team <slug> or set LINEAR_DEFAULT_TEAM. " +
                     "Example: pm linear import --team ENG", EXIT_CODE.USAGE);
             }
+            const team = teamSelection.team;
             const project = readStringOption(ctx.options, "project");
             const stateFilter = readStringOption(ctx.options, "state");
             const assignee = readStringOption(ctx.options, "assignee");
@@ -1379,8 +1409,11 @@ export default defineExtension({
             };
             // --dry-run is fully offline: emit the literal GraphQL request, no call.
             if (dryRun) {
-                const plan = renderImportDryRun(ctx, syncOpts);
+                const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
                 return { imported: 0, created: 0, updated: 0, skipped: 0, ...plan };
+            }
+            if (!isJsonMode(ctx) && teamSelection.source === "env") {
+                console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
             }
             try {
                 const result = await syncLinearIssues(syncOpts, ctx.pm_root);
@@ -1393,6 +1426,7 @@ export default defineExtension({
                     updated: result.updated,
                     skipped: result.skipped,
                     team: result.team.toUpperCase(),
+                    teamSource: teamSelection.source,
                     dryRun: false,
                 };
             }
@@ -1413,7 +1447,8 @@ export default defineExtension({
             const push = readBooleanOption(ctx.options, "push");
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             const invertedStatusMap = invertStatusMap(parseStatusMap(readStringOption(ctx.options, "status-map")));
-            const teamKey = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
+            const teamSelection = resolveTeamSelection(ctx.options);
+            const teamKey = teamSelection?.team;
             const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
             const items = readPmItems(ctx.pm_root);
             const payloads = items.map((it) => itemToLinearPayload(it, fieldMap));
@@ -1427,6 +1462,10 @@ export default defineExtension({
                 const wouldUpdate = plans.length - wouldCreate;
                 if (!isJsonMode(ctx)) {
                     console.error(`[dry-run] Would push ${plans.length} item(s): ${wouldCreate} create, ${wouldUpdate} update. No network call made.`);
+                    if (!teamKey && wouldCreate > 0) {
+                        console.error("[dry-run] No team resolved for create payloads. Pass --team <slug> " +
+                            "or set LINEAR_DEFAULT_TEAM to render team-specific placeholders.");
+                    }
                     for (const plan of plans) {
                         console.error(`--- ${plan.action} ---`);
                         console.error(plan.mutation);
@@ -1440,6 +1479,7 @@ export default defineExtension({
                     wouldCreate,
                     wouldUpdate,
                     mutations: plans,
+                    ...(teamKey ? { team: teamKey.toUpperCase(), teamSource: teamSelection?.source } : {}),
                 };
             }
             // Default (no --push, no --dry-run): print the read-only payload preview.
@@ -1460,10 +1500,29 @@ export default defineExtension({
                 const wouldCreate = printable.filter((p) => p.action === "create").length;
                 const wouldUpdate = printable.length - wouldCreate;
                 if (isJsonMode(ctx)) {
-                    return { exported: printable.length, pushed: false, dryRun: false, wouldCreate, wouldUpdate, payloads: printable };
+                    return {
+                        exported: printable.length,
+                        pushed: false,
+                        dryRun: false,
+                        wouldCreate,
+                        wouldUpdate,
+                        payloads: printable,
+                        ...(teamKey ? { team: teamKey.toUpperCase(), teamSource: teamSelection?.source } : {}),
+                    };
+                }
+                if (!teamKey && wouldCreate > 0) {
+                    console.error("[preview] No team resolved for create payloads. Pass --team <slug> " +
+                        "or set LINEAR_DEFAULT_TEAM to preview team-specific placeholders.");
                 }
                 console.log(JSON.stringify(printable, null, 2));
-                return { exported: printable.length, pushed: false, dryRun: false, wouldCreate, wouldUpdate };
+                return {
+                    exported: printable.length,
+                    pushed: false,
+                    dryRun: false,
+                    wouldCreate,
+                    wouldUpdate,
+                    ...(teamKey ? { team: teamKey.toUpperCase(), teamSource: teamSelection?.source } : {}),
+                };
             }
             // Real push. Preflight has already validated the key + reachability; the
             // explicit checks below keep the contract self-evident at the call site.
@@ -1471,9 +1530,12 @@ export default defineExtension({
             if (!apiKey) {
                 throw new CommandError("--push requires LINEAR_API_KEY. Get a key at https://linear.app/settings/api", EXIT_CODE.USAGE);
             }
-            const team = readStringOption(ctx.options, "team") ?? process.env["LINEAR_DEFAULT_TEAM"];
-            if (!team) {
-                throw new CommandError("--push requires --team <slug> to create issues in Linear.", EXIT_CODE.USAGE);
+            if (!teamSelection) {
+                throw new CommandError("--push requires --team <slug> (or LINEAR_DEFAULT_TEAM).", EXIT_CODE.USAGE);
+            }
+            const team = teamSelection.team;
+            if (!isJsonMode(ctx) && teamSelection.source === "env") {
+                console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
             }
             const teamCtx = await resolveTeamContext(apiKey, team);
             // Fresh warn-once budget per push invocation so a later batch isn't muted
@@ -1553,16 +1615,27 @@ export default defineExtension({
             console.error(`Pushed ${created + updated} issue(s) to Linear team ${team.toUpperCase()} ` +
                 `(${created} created, ${updated} updated)` +
                 (skipped > 0 ? ` — ${skipped} skipped (see errors above)` : ""));
-            return { exported: payloads.length, pushed: true, created, updated, skipped };
+            return {
+                exported: payloads.length,
+                pushed: true,
+                created,
+                updated,
+                skipped,
+                team: team.toUpperCase(),
+                teamSource: teamSelection.source,
+            };
         });
         // -----------------------------------------------------------------------
         // Importer: linear-sync
         // -----------------------------------------------------------------------
         api.registerImporter("linear-sync", async (ctx) => {
-            const team = readStringOption(ctx.options, "team") ??
-                process.env["LINEAR_DEFAULT_TEAM"];
-            if (!team) {
+            const teamSelection = resolveTeamSelection(ctx.options);
+            if (!teamSelection) {
                 throw new CommandError("linear-sync importer requires a 'team' option or LINEAR_DEFAULT_TEAM env var", EXIT_CODE.USAGE);
+            }
+            const team = teamSelection.team;
+            if (!isJsonMode(ctx) && teamSelection.source === "env") {
+                console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
             }
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const stateFilter = readStringOption(ctx.options, "state");
@@ -1580,6 +1653,7 @@ export default defineExtension({
                 updated: result.updated,
                 skipped: result.skipped,
                 team: result.team.toUpperCase(),
+                teamSource: teamSelection.source,
             };
         });
     },
