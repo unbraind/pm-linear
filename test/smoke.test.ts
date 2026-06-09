@@ -24,6 +24,12 @@ import extension, {
   resolveLabelIds,
   parseProjectMap,
   resolveProjectTag,
+  parseEstimateTag,
+  parseCycleTag,
+  isReservedExportTag,
+  resolveCycleId,
+  applyPushDynamicFields,
+  resetCycleWarning,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -612,4 +618,150 @@ test("maskApiKey never leaks the full key", () => {
   assert.ok(masked.startsWith("lin_"));
   assert.ok(!masked.includes("supersecret"), "must not contain the secret tail");
   assert.ok(masked.includes("chars"));
+});
+
+// ---------------------------------------------------------------------------
+// Export round-trip: Linear estimate + cycle
+// ---------------------------------------------------------------------------
+
+test("parseEstimateTag extracts the integer estimate from estimate:<n> tags", () => {
+  assert.equal(parseEstimateTag(["bug", "estimate:5"]), 5);
+  assert.equal(parseEstimateTag(["estimate:0"]), 0, "0 is a valid explicit estimate");
+  assert.equal(parseEstimateTag(["ESTIMATE:8"]), 8, "case-insensitive prefix");
+  assert.equal(parseEstimateTag(["no", "tags"]), undefined, "absent => undefined");
+  assert.equal(parseEstimateTag(["estimate:abc"]), undefined, "non-numeric => skipped");
+  assert.equal(parseEstimateTag(["estimate:2", "estimate:7"]), 7, "last well-formed wins");
+});
+
+test("parseCycleTag extracts the cycle name from cycle:<name> tags", () => {
+  assert.equal(parseCycleTag(["bug", "cycle:Q3"]), "Q3");
+  assert.equal(parseCycleTag(["cycle:Sprint 7"]), "Sprint 7", "names with spaces preserved");
+  assert.equal(parseCycleTag(["CYCLE:Q1"]), "Q1", "case-insensitive prefix");
+  assert.equal(parseCycleTag(["nope"]), undefined, "absent => undefined");
+  assert.equal(parseCycleTag(["cycle:"]), undefined, "empty name => undefined");
+});
+
+test("isReservedExportTag flags estimate:/cycle: tags only", () => {
+  assert.equal(isReservedExportTag("estimate:5"), true);
+  assert.equal(isReservedExportTag("cycle:Q3"), true);
+  assert.equal(isReservedExportTag("Estimate:5"), true, "case-insensitive");
+  assert.equal(isReservedExportTag("bug"), false);
+  assert.equal(isReservedExportTag("customer:Acme"), false, "customer is not promoted on export");
+});
+
+test("itemToLinearPayload: estimate:5 tag surfaces as payload.estimate and is NOT a label", () => {
+  const p = itemToLinearPayload({
+    id: "pm-1",
+    title: "Pointed",
+    tags: ["bug", "estimate:5", "cycle:Q3"],
+  });
+  assert.equal(p.estimate, 5, "estimate promoted to first-class field");
+  assert.equal(p.cycleName, "Q3", "cycle promoted to first-class field");
+  assert.deepEqual(p.labels, ["bug"], "estimate:/cycle: tags excluded from labels");
+});
+
+test("buildExportMutationPlan includes estimate + cycleId placeholder (create + update)", () => {
+  const fresh = buildExportMutationPlan(
+    {
+      title: "New",
+      description: "",
+      pmStatus: "open",
+      priority: 1,
+      estimate: 5,
+      cycleName: "Q3",
+      alreadyInLinear: false,
+    },
+    {},
+    "eng"
+  );
+  const input = (fresh.variables as any).input;
+  assert.equal(input.estimate, 5, "estimate present in create input");
+  assert.equal(input.cycleName, "Q3", "cycle name carried in offline plan");
+  assert.ok(String(input.cycleId).includes("Q3"), "cycleId placeholder names the cycle");
+
+  const linked = buildExportMutationPlan(
+    {
+      title: "T",
+      description: "D",
+      pmStatus: "in_progress",
+      estimate: 0,
+      cycleName: "Sprint 7",
+      alreadyInLinear: true,
+      linearId: "lin-9",
+    },
+    {}
+  );
+  const up = (linked.variables as any).input;
+  assert.equal(up.estimate, 0, "estimate 0 still present (valid explicit value)");
+  assert.ok(String(up.cycleId).includes("Sprint 7"));
+});
+
+test("applyPushDynamicFields sets estimate + resolved cycleId from a mocked map", () => {
+  resetCycleWarning();
+  const cyclesByName = { q3: "cyc-123" };
+  const input: Record<string, unknown> = {};
+  const warnings: string[] = [];
+  applyPushDynamicFields(
+    input,
+    { title: "x", description: "", estimate: 5, cycleName: "Q3", alreadyInLinear: false } as any,
+    cyclesByName,
+    (m: string) => warnings.push(m)
+  );
+  assert.equal(input.estimate, 5);
+  assert.equal(input.cycleId, "cyc-123", "named cycle resolved to its id");
+  assert.equal(warnings.length, 0, "no warning when cycle resolves");
+});
+
+test("applyPushDynamicFields skips an unresolvable cycle without throwing, warns once", () => {
+  resetCycleWarning();
+  const warnings: string[] = [];
+  const a: Record<string, unknown> = {};
+  assert.doesNotThrow(() =>
+    applyPushDynamicFields(
+      a,
+      { title: "x", description: "", cycleName: "Ghost", alreadyInLinear: false } as any,
+      {},
+      (m: string) => warnings.push(m)
+    )
+  );
+  assert.ok(!("cycleId" in a), "unresolved cycle => cycleId omitted");
+  assert.equal(warnings.length, 1, "warned once");
+
+  // A second unresolved cycle in the same process is suppressed.
+  const b: Record<string, unknown> = {};
+  applyPushDynamicFields(
+    b,
+    { title: "y", description: "", cycleName: "AlsoGhost", alreadyInLinear: false } as any,
+    {},
+    (m: string) => warnings.push(m)
+  );
+  assert.equal(warnings.length, 1, "subsequent unresolved cycles suppressed");
+});
+
+test("--map estimate=ignore omits estimate; cycle=ignore omits cycle", () => {
+  const noEstimate = itemToLinearPayload(
+    { id: "pm-1", title: "x", tags: ["estimate:5", "cycle:Q3"] },
+    parseFieldMap("estimate=ignore")
+  );
+  assert.equal(noEstimate.estimate, undefined, "estimate suppressed by --map");
+  assert.equal(noEstimate.cycleName, "Q3", "cycle still present");
+  // suppressed estimate tag is still stripped from labels (not re-emitted)
+  assert.ok(!noEstimate.labels?.some((t) => t.startsWith("estimate:")));
+
+  const noCycle = itemToLinearPayload(
+    { id: "pm-2", title: "y", tags: ["estimate:5", "cycle:Q3"] },
+    parseFieldMap("cycle=ignore")
+  );
+  assert.equal(noCycle.cycleName, undefined, "cycle suppressed by --map");
+  assert.equal(noCycle.estimate, 5, "estimate still present");
+  assert.ok(!noCycle.labels?.some((t) => t.startsWith("cycle:")));
+});
+
+test("resolveCycleId resolves by name (case-insensitive), undefined when unknown", () => {
+  const byName = { q3: "cyc-1", "42": "cyc-42" };
+  assert.equal(resolveCycleId("Q3", byName), "cyc-1");
+  assert.equal(resolveCycleId("q3", byName), "cyc-1");
+  assert.equal(resolveCycleId("42", byName), "cyc-42", "numbered cycle resolves");
+  assert.equal(resolveCycleId("nope", byName), undefined);
+  assert.equal(resolveCycleId(undefined, byName), undefined);
 });

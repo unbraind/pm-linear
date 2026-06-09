@@ -112,12 +112,20 @@ interface LinearCreatePayload {
     priority?: number;
     labels?: string[];
     dueDate?: string;
+    estimate?: number;
+    cycleName?: string;
     alreadyInLinear: boolean;
     linearId?: string;
     linearUrl?: string;
 }
-export declare function itemToLinearPayload(item: PmItem): LinearCreatePayload;
+export declare function parseEstimateTag(tags: string[]): number | undefined;
+export declare function parseCycleTag(tags: string[]): string | undefined;
+export declare function isReservedExportTag(tag: string): boolean;
+export declare function itemToLinearPayload(item: PmItem, fieldMap?: Record<string, string>): LinearCreatePayload;
 export declare function resolveLabelIds(labels: string[] | undefined, labelsByName: Record<string, string>): string[];
+export declare function resolveCycleId(cycleName: string | undefined, cyclesByName: Record<string, string>): string | undefined;
+export declare function resetCycleWarning(): void;
+export declare function applyPushDynamicFields(input: Record<string, unknown>, payload: LinearCreatePayload, cyclesByName: Record<string, string>, warn?: (msg: string) => void): void;
 export interface ExportMutationPlan {
     action: "create" | "update";
     mutation: string;
