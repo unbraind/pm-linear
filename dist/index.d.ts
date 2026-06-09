@@ -34,6 +34,12 @@ interface LinearIssue {
     } | null;
     url?: string | null;
 }
+type TeamSource = "flag" | "env";
+export interface TeamSelection {
+    team: string;
+    source: TeamSource;
+}
+export declare function resolveTeamSelection(options: Record<string, unknown>, envDefaultTeam?: string | undefined): TeamSelection | undefined;
 export declare function mapPriorityToLinear(pmPriority: number | undefined): number;
 export declare function normalizeDueDate(deadline: string | undefined): string | undefined;
 export declare function parseStatusMap(raw: string | undefined): Record<string, string>;
