@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Round-trip Linear estimate and cycle on export ([pm-linear-2xj5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-2xj5.toon))
+
 ## 2026.06.07 - 2026-06-07
 
 ### Added
