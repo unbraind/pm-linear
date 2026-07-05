@@ -1,12 +1,12 @@
 # Changelog
 
-## 2026.6.9 - 2026-06-09
+## 2026.06.09 - 2026-06-09
 
 ### Added
 
 - Round-trip Linear estimate and cycle on export ([pm-linear-2xj5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-2xj5.toon))
 
-## 2026.6.7 - 2026-06-07
+## 2026.06.07 - 2026-06-07
 
 ### Added
 
@@ -17,26 +17,26 @@
 - Harden release readiness checks ([pm-linear-rrsg](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-rrsg.toon))
 - Align package dependencies to pm CLI/SDK 2026.6.6 ([pm-linear-eehh](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-eehh.toon))
 
-## 2026.6.5 - 2026-06-05
+## 2026.06.05 - 2026-06-05
 
 ### Fixed
 
 - Persist Linear assignee+cycle on import, fix --status-map export-preview casing, isolate per-item export-push failures ([pm-linear-lkhf](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-lkhf.toon))
 
-## 2026.6.4 - 2026-06-04
+## 2026.06.04 - 2026-06-04
 
 ### Added
 
 - Export priority/labels/dueDate + --project-map import tagging ([pm-linear-g0c1](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-g0c1.toon))
 
-## 2026.6.3-1 - 2026-06-03
+## 2026.06.03-1 - 2026-06-03
 
 ### Added
 
 - Deep enhancement: offline dry-run plans, --map field mapping, validate diagnostics, push-on-write hook ([pm-linear-oa21](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-oa21.toon))
 - Unit tests for new pure fns + README + manifest capability review + release ([pm-linear-ced8](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-ced8.toon))
 
-## 2026.6.3 - 2026-06-03
+## 2026.06.03 - 2026-06-03
 
 ### Added
 
@@ -64,19 +64,19 @@
 - Push-on-write hook \(opt-in, hooks capability\) mirroring pm writes to Linear ([pm-linear-wp4n](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-wp4n.toon))
 - Step 0: verify activation healthy \(doctor deep, command run, missing-creds clean\) ([pm-linear-40k5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-40k5.toon))
 
-## 2026.6.2 - 2026-06-02
+## 2026.06.02 - 2026-06-02
 
 ### Added
 
 - Adopt full SDK capability surface \(linear importer/exporter + schema fields + flags\) ([pm-linear-du0a](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-du0a.toon))
 
-## 2026.6.1 - 2026-06-01
+## 2026.06.01 - 2026-06-01
 
 ### Fixed
 
 - linear sync threw plain Error \(no exitCode\) → runtime double-invocation ([pm-linear-sn60](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-sn60.toon))
 
-## 2026.5.29 - 2026-05-29
+## 2026.05.29 - 2026-05-29
 
 ### Added
 
@@ -89,19 +89,19 @@
 - sync failures return {success:false} instead of throwing -\> exit 0 ([pm-linear-da0d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-da0d.toon))
 - dry-run/limit flags read kebab keys; --dry-run silently writes ([pm-linear-g30q](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-g30q.toon))
 
-## 2026.5.28 - 2026-05-28
+## 2026.05.28 - 2026-05-28
 
 ### Added
 
 - Add publish retry + provenance fallback to release workflow ([pm-linear-iowz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-iowz.toon))
 
-## 2026.5.27 - 2026-05-27
+## 2026.05.27 - 2026-05-27
 
 ### Added
 
 - Add bun-install verification to release workflow ([pm-linear-fwwx](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-fwwx.toon))
 
-## 2026.5.26 - 2026-05-26
+## 2026.05.26 - 2026-05-26
 
 ### Fixed
 
