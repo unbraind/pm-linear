@@ -79,6 +79,7 @@ pm linear sync --team <slug> [options]
 | `--team` | string | *(required)* | Linear team slug (e.g. `ENG`, `BACKEND`) |
 | `--project` | string | — | Filter by Linear project name |
 | `--state` | string | — | Filter by state name (e.g. `"In Progress"`) |
+| `--cycle` | string | — | Filter by cycle name (e.g. `"Sprint 7"`, `"Q3"`); case-insensitive substring match, issues with no cycle are excluded |
 | `--assignee` | string | — | Filter by assignee email |
 | `--label` | string | — | Filter by label name |
 | `--updated-since` | string | — | Only issues updated at/after an ISO date or duration (e.g. `2026-01-01`, `-P7D`) |
@@ -130,7 +131,7 @@ pm linear sync --team ENG --project-map "Mobile App=mobile,Web=web"
 pm linear sync --team ENG
 
 # Only sync issues currently In Progress
-pm linear sync --team ENG --state "In Progress"
+pm linear sync --team ENG --state "In Progress" --cycle "Sprint 7"
 
 # Restrict to a single Linear project
 pm linear sync --team ENG --project "Q3 Roadmap"
@@ -150,7 +151,7 @@ pm linear sync --team ENG --dry-run
 ## `pm linear import`
 
 Native import pipeline. Pulls issues from a Linear team (and optional project) via the
-GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`,
+GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`, `--cycle`,
 `--assignee`, `--label`, `--updated-since`, `--status-map`, `--map`, `--project-map`,
 `--limit`, and `--dry-run` flags as `pm linear sync`.
 

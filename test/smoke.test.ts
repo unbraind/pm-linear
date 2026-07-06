@@ -31,6 +31,7 @@ import extension, {
   applyPushDynamicFields,
   resetCycleWarning,
   resolveTeamSelection,
+  AuthHttpError,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -778,4 +779,75 @@ test("resolveCycleId resolves by name (case-insensitive), undefined when unknown
   assert.equal(resolveCycleId("42", byName), "cyc-42", "numbered cycle resolves");
   assert.equal(resolveCycleId("nope", byName), undefined);
   assert.equal(resolveCycleId(undefined, byName), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// --cycle filter: server-side GraphQL clause + request plan wiring
+// ---------------------------------------------------------------------------
+
+test("buildIssuesQuery filters by cycle server-side when requested", () => {
+  const q = buildIssuesQuery({ cycle: true });
+  // The cycle constraint lives in the GraphQL filter (server-side), mirroring
+  // --state, so --limit bounds the MATCHING issues rather than the pre-filter
+  // page (large teams whose matching issues page beyond the fetched window).
+  assert.ok(q.includes("cycle: { name: { containsIgnoreCase: $cycle } }"));
+  assert.ok(q.includes("$cycle: String!"));
+  const base = buildIssuesQuery({});
+  assert.ok(!base.includes("$cycle"), "no cycle var when not requested");
+  assert.ok(!base.includes("cycle: { name:"), "no cycle clause when not requested");
+});
+
+test("buildIssuesQuery composes --state and --cycle together", () => {
+  const q = buildIssuesQuery({ state: true, cycle: true });
+  assert.ok(q.includes("state: { name: { containsIgnoreCase: $state } }"));
+  assert.ok(q.includes("cycle: { name: { containsIgnoreCase: $cycle } }"));
+  assert.ok(q.includes("$state: String!"));
+  assert.ok(q.includes("$cycle: String!"));
+});
+
+test("buildImportRequestPlan wires --cycle into the server-side filter", () => {
+  const plan = buildImportRequestPlan("ENG", 100, { cycle: "Sprint 7" });
+  assert.equal(plan.variables.cycle, "Sprint 7");
+  assert.ok(plan.query.includes("cycle: { name: { containsIgnoreCase: $cycle } }"));
+  assert.ok(plan.query.includes("$cycle: String!"));
+
+  // whitespace-only / absent cycle adds nothing
+  const blank = buildImportRequestPlan("ENG", 100, { cycle: "   " });
+  assert.ok(!("cycle" in blank.variables), "blank cycle is not a filter");
+  assert.ok(!blank.query.includes("$cycle"), "blank cycle adds no clause");
+
+  const absent = buildImportRequestPlan("ENG", 100, {});
+  assert.ok(!("cycle" in absent.variables), "absent cycle adds no var");
+  assert.ok(!absent.query.includes("$cycle"), "absent cycle adds no clause");
+});
+
+test("buildImportRequestPlan composes --state + --cycle + --project", () => {
+  const plan = buildImportRequestPlan("ENG", 50, {
+    project: "Q3",
+    state: "In Progress",
+    cycle: "Sprint 7",
+  });
+  assert.equal(plan.variables.project, "Q3");
+  assert.equal(plan.variables.state, "In Progress");
+  assert.equal(plan.variables.cycle, "Sprint 7");
+  assert.ok(plan.query.includes("project: { name: { eq: $project } }"));
+  assert.ok(plan.query.includes("state: { name: { containsIgnoreCase: $state } }"));
+  assert.ok(plan.query.includes("cycle: { name: { containsIgnoreCase: $cycle } }"));
+});
+
+// ---------------------------------------------------------------------------
+// Auth-failure error type (HTTP 401/403) — non-retriable, typed for clear msgs
+// ---------------------------------------------------------------------------
+
+test("AuthHttpError carries its HTTP status and is non-retriable by name", () => {
+  const e401 = new AuthHttpError(401);
+  assert.equal(e401.status, 401);
+  assert.equal(e401.name, "AuthHttpError");
+  assert.ok(e401.message.includes("401"), "message names the status");
+  // Distinct from RetriableHttpError so the retry wrapper never retries auth.
+  assert.notEqual(e401.name, "RetriableHttpError");
+
+  const e403 = new AuthHttpError(403);
+  assert.equal(e403.status, 403);
+  assert.ok(e403.message.includes("403"));
 });
