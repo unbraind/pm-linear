@@ -71,6 +71,7 @@ export interface IssueFilterFlags {
     label?: boolean;
     updatedSince?: boolean;
     state?: boolean;
+    cycle?: boolean;
 }
 export declare function buildIssuesQuery(flags: IssueFilterFlags): string;
 export interface ImportRequestPlan {
@@ -86,6 +87,11 @@ interface FetchFilters {
     label?: string;
     updatedSince?: string;
     state?: string;
+    cycle?: string;
+}
+export declare class AuthHttpError extends Error {
+    status: number;
+    constructor(status: number);
 }
 export declare function backoffDelayMs(attempt: number, retryAfterMs?: number): number;
 interface PmItem {
