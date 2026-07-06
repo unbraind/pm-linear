@@ -6,11 +6,13 @@ status: closed
 priority: 1
 tags[3]: metadata,node,release-readiness
 created_at: "2026-07-06T00:49:32.304Z"
-updated_at: "2026-07-06T00:50:58.819Z"
+updated_at: "2026-07-06T01:12:28.277Z"
 author: codex-agent
 acceptance_criteria: package.json advertises Node >=22.18.0; package-lock root metadata matches; changelog is regenerated from pm items; release checks pass or any external registry outage is documented.
 resolution: Aligned package engines.node with @unbrained/pm-cli 2026.7.5 runtime support by declaring Node >=22.18.0 and refreshing lockfile metadata.
 expected_result: "Consumers, agents, and CI see a package-level Node engine that matches the pm CLI dependency runtime requirement."
 actual_result: package.json and package-lock metadata now advertise Node >=22.18.0; changelog was regenerated from the package-local pm item.
+comments[1]{created_at,author,text}:
+  "2026-07-06T01:12:28.275Z",codex-agent,"Cubic review follow-up: updated README requirements to Node >=22.18.0 and pm-cli >=2026.7.5 so users do not try Node 20 installs."
 close_reason: Node engine metadata aligned with pm CLI runtime requirement and changelog regenerated.
 body: "Align package engines.node with @unbrained/pm-cli 2026.7.5, which requires Node >=22.18.0, so package metadata matches the actual supported runtime for agent installs and release checks."
