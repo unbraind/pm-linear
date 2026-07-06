@@ -8,6 +8,7 @@
 
 ### Other
 
+- Align Node engine with pm CLI runtime ([pm-linear-g7jd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-g7jd.toon))
 - Regenerate CHANGELOG after pm close item ([pm-linear-jixz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-jixz.toon))
 
 ## 2026.6.9 - 2026-06-09
