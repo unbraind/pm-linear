@@ -39,6 +39,7 @@ export interface TeamSelection {
     team: string;
     source: TeamSource;
 }
+export declare function normalizeCycleFilter(raw: string | undefined): string | undefined;
 export declare function resolveTeamSelection(options: Record<string, unknown>, envDefaultTeam?: string | undefined): TeamSelection | undefined;
 export declare function mapPriorityToLinear(pmPriority: number | undefined): number;
 export declare function normalizeDueDate(deadline: string | undefined): string | undefined;
@@ -71,6 +72,7 @@ export interface IssueFilterFlags {
     label?: boolean;
     updatedSince?: boolean;
     state?: boolean;
+    cycle?: boolean;
 }
 export declare function buildIssuesQuery(flags: IssueFilterFlags): string;
 export interface ImportRequestPlan {
@@ -86,6 +88,11 @@ interface FetchFilters {
     label?: string;
     updatedSince?: string;
     state?: string;
+    cycle?: string;
+}
+export declare class AuthHttpError extends Error {
+    status: number;
+    constructor(status: number);
 }
 export declare function backoffDelayMs(attempt: number, retryAfterMs?: number): number;
 interface PmItem {

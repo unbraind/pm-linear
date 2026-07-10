@@ -73,6 +73,10 @@ function normalizeTeam(raw) {
     const trimmed = raw.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 }
+export function normalizeCycleFilter(raw) {
+    const trimmed = raw?.trim();
+    return trimmed || undefined;
+}
 // Resolve the Linear team from --team first, then LINEAR_DEFAULT_TEAM. The
 // source is returned so human + JSON output can explain where the team came
 // from (important for automation/debugging when defaults are injected).
@@ -384,6 +388,13 @@ export function buildIssuesQuery(flags) {
         clauses.push("state: { name: { containsIgnoreCase: $state } }");
         vars.push("$state: String!");
     }
+    if (flags.cycle) {
+        // Linear's CycleFilter exposes `name: StringComparator`; a case-insensitive
+        // substring match mirrors --state. Issues with no cycle (cycle == null) do
+        // not match, which is the intended semantic for a cycle filter.
+        clauses.push("cycle: { name: { containsIgnoreCase: $cycle } }");
+        vars.push("$cycle: String!");
+    }
     const filterBody = clauses.map((c) => `      ${c}`).join("\n");
     return `
 query(${vars.join(", ")}) {
@@ -422,12 +433,14 @@ export function buildImportRequestPlan(team, limit, filters = {}, after = null) 
     const label = filters.label?.trim();
     const updatedSince = filters.updatedSince?.trim();
     const state = filters.state?.trim();
+    const cycle = filters.cycle?.trim();
     const flags = {
         project: Boolean(project),
         assignee: Boolean(assignee),
         label: Boolean(label),
         updatedSince: Boolean(updatedSince),
         state: Boolean(state),
+        cycle: Boolean(cycle),
     };
     const variables = {
         team: team.toUpperCase(),
@@ -444,6 +457,8 @@ export function buildImportRequestPlan(team, limit, filters = {}, after = null) 
         variables.updatedSince = updatedSince;
     if (flags.state)
         variables.state = state;
+    if (flags.cycle)
+        variables.cycle = cycle;
     return {
         endpoint: "https://api.linear.app/graphql",
         method: "POST",
@@ -495,6 +510,19 @@ class RetriableHttpError extends Error {
         this.retryAfterMs = retryAfterMs;
     }
 }
+// Non-retriable authentication/authorization failure (HTTP 401/403). Surfaced as
+// a distinct type so linearRequest can map it to a clear, actionable CommandError
+// (with a USAGE exit code) instead of the generic "Linear request failed"
+// wrapping or the GraphQL-errors path that 401s never reach (Linear returns 401
+// at the HTTP layer, so the body is never parsed as a GraphQL response).
+export class AuthHttpError extends Error {
+    status;
+    constructor(status) {
+        super(`Linear API rejected credentials (HTTP ${status})`);
+        this.name = "AuthHttpError";
+        this.status = status;
+    }
+}
 // Compute the delay before the next attempt. Pure + exported for testing.
 // `attempt` is zero-based (0 = first retry). Honors an explicit Retry-After.
 export function backoffDelayMs(attempt, retryAfterMs) {
@@ -534,8 +562,16 @@ function linearRequestOnce(apiKey, query, variables) {
             res.on("data", (chunk) => chunks.push(chunk));
             res.on("end", () => {
                 if (status === 429 || (status >= 500 && status <= 599)) {
-                    res.resume();
                     reject(new RetriableHttpError(status, parseRetryAfter(res.headers["retry-after"])));
+                    return;
+                }
+                // 401/403 are permanent auth failures, not transient — never retry.
+                // Linear returns these at the HTTP layer (the body is an error JSON,
+                // not a GraphQL response), so surface a typed error that linearRequest
+                // converts into a clear, actionable message rather than a confusing
+                // "Failed to parse Linear response" / generic wrap.
+                if (status === 401 || status === 403) {
+                    reject(new AuthHttpError(status));
                     return;
                 }
                 try {
@@ -568,6 +604,16 @@ async function linearRequest(apiKey, query, variables) {
                 break;
             await sleep(backoffDelayMs(attempt, err.retryAfterMs));
         }
+    }
+    // A permanent auth failure (HTTP 401/403) gets a clear, actionable message
+    // with a USAGE exit code — "the key is bad/expired/missing scope, fix it" —
+    // rather than the generic "Linear request failed" wrap. AuthHttpError is not
+    // retriable, so the loop broke on the first attempt.
+    if (lastErr instanceof AuthHttpError) {
+        throw new CommandError(`Linear API rejected the API key (HTTP ${lastErr.status}). ` +
+            `LINEAR_API_KEY is missing, invalid, expired, or lacks permission for this ` +
+            `operation. Get a fresh key at https://linear.app/settings/api, then ` +
+            `re-export LINEAR_API_KEY and retry.`, EXIT_CODE.USAGE);
     }
     const msg = lastErr instanceof RetriableHttpError
         ? `Linear API unavailable after ${MAX_RETRIES + 1} attempts (HTTP ${lastErr.status || "timeout"})`
@@ -677,6 +723,7 @@ function buildImportDryRunPlan(options, pm_root) {
         label: options.label,
         updatedSince: options.updatedSince,
         state: options.stateFilter,
+        cycle: options.cycleFilter,
     });
     // Local-only read; no Linear network call. Reports how many already-linked pm
     // items exist so the preview can hint at create-vs-update without fetching.
@@ -709,6 +756,7 @@ async function syncLinearIssues(options, pm_root) {
         label: options.label,
         updatedSince: options.updatedSince,
         state: options.stateFilter,
+        cycle: options.cycleFilter,
     };
     // --dry-run is fully OFFLINE: build and PRINT the exact GraphQL request that
     // WOULD be sent (query + variables), make NO network call, and report against
@@ -726,6 +774,8 @@ async function syncLinearIssues(options, pm_root) {
         scopeBits.push(`updated since ${options.updatedSince}`);
     if (options.stateFilter)
         scopeBits.push(`state "${options.stateFilter}"`);
+    if (options.cycleFilter)
+        scopeBits.push(`cycle "${options.cycleFilter}"`);
     const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
     console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
     const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, filters);
@@ -751,6 +801,19 @@ async function syncLinearIssues(options, pm_root) {
         if (options.stateFilter) {
             const stateName = issue.state.name.toLowerCase();
             if (!stateName.includes(options.stateFilter.toLowerCase())) {
+                skipped++;
+                continue;
+            }
+        }
+        // Cycle name filter. The authoritative constraint is server-side
+        // (`cycle: { name: { containsIgnoreCase: $cycle } }` in buildIssuesQuery),
+        // so `--limit` bounds the MATCHING issues. This identical case-insensitive
+        // substring check is a harmless backstop; the server applies the same
+        // predicate, so it never drops a server hit. An issue with no cycle never
+        // matches a cycle filter (server-side null cycle is excluded too).
+        if (options.cycleFilter) {
+            const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
+            if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
                 skipped++;
                 continue;
             }
@@ -1235,6 +1298,7 @@ export default defineExtension({
                 "LINEAR_DEFAULT_TEAM=ENG pm linear sync",
                 "pm linear sync --team ENG --state 'In Progress'",
                 "pm linear sync --team ENG --assignee dev@acme.com --label bug",
+                "pm linear sync --team ENG --cycle 'Sprint 7' --limit 50",
                 "pm linear sync --team ENG --limit 50",
                 "pm linear sync --team ENG --dry-run",
             ],
@@ -1242,6 +1306,7 @@ export default defineExtension({
                 { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Optional when LINEAR_DEFAULT_TEAM is set." },
                 { long: "--project", value_name: "name", description: "Filter by Linear project name. Optional." },
                 { long: "--state", value_name: "name", description: "Filter by Linear state name (e.g. 'In Progress', 'Todo'). Optional." },
+                { long: "--cycle", value_name: "name", description: "Filter by Linear cycle name (e.g. 'Sprint 7', 'Q3'). Case-insensitive substring match; issues with no cycle are excluded. Optional." },
                 { long: "--assignee", value_name: "email", description: "Filter by assignee email. Optional." },
                 { long: "--label", value_name: "name", description: "Filter by label name. Optional." },
                 { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration (e.g. 2026-01-01, -P7D). Optional." },
@@ -1262,6 +1327,7 @@ export default defineExtension({
                 const team = teamSelection.team;
                 const project = readStringOption(ctx.options, "project");
                 const stateFilter = readStringOption(ctx.options, "state");
+                const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
                 const assignee = readStringOption(ctx.options, "assignee");
                 const label = readStringOption(ctx.options, "label");
                 const updatedSince = readStringOption(ctx.options, "updated-since");
@@ -1271,7 +1337,7 @@ export default defineExtension({
                 const limit = readNumberOption(ctx.options, "limit") ?? 100;
                 const dryRun = readBooleanOption(ctx.options, "dry-run");
                 const syncOpts = {
-                    team, project, stateFilter, assignee, label, updatedSince,
+                    team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
                     statusMap, fieldMap, projectMap, limit, dryRun,
                 };
                 // --dry-run is fully offline: print the literal GraphQL request, no call.
@@ -1365,6 +1431,7 @@ export default defineExtension({
             { long: "--team", value_name: "slug", description: "Linear team slug. Optional when LINEAR_DEFAULT_TEAM is set." },
             { long: "--project", value_name: "name", description: "Filter by Linear project name." },
             { long: "--state", value_name: "name", description: "Filter by Linear state name." },
+            { long: "--cycle", value_name: "name", description: "Filter by Linear cycle name (case-insensitive substring; issues with no cycle are excluded)." },
             { long: "--assignee", value_name: "email", description: "Filter by assignee email." },
             { long: "--label", value_name: "name", description: "Filter by label name." },
             { long: "--updated-since", value_name: "date", description: "Only issues updated at/after this ISO date or duration." },
@@ -1395,6 +1462,7 @@ export default defineExtension({
             const team = teamSelection.team;
             const project = readStringOption(ctx.options, "project");
             const stateFilter = readStringOption(ctx.options, "state");
+            const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");
             const updatedSince = readStringOption(ctx.options, "updated-since");
@@ -1404,7 +1472,7 @@ export default defineExtension({
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const dryRun = readBooleanOption(ctx.options, "dry-run");
             const syncOpts = {
-                team, project, stateFilter, assignee, label, updatedSince,
+                team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
                 statusMap, fieldMap, projectMap, limit, dryRun,
             };
             // --dry-run is fully offline: emit the literal GraphQL request, no call.
@@ -1639,12 +1707,13 @@ export default defineExtension({
             }
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const stateFilter = readStringOption(ctx.options, "state");
+            const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
             const project = readStringOption(ctx.options, "project");
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");
             const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
             const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
-            const result = await syncLinearIssues({ team, project, stateFilter, assignee, label, statusMap, projectMap, limit }, ctx.pm_root);
+            const result = await syncLinearIssues({ team, project, stateFilter, cycleFilter, assignee, label, statusMap, projectMap, limit }, ctx.pm_root);
             console.error(`Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
                 `from Linear team ${result.team.toUpperCase()}`);
             return {
