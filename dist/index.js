@@ -73,6 +73,10 @@ function normalizeTeam(raw) {
     const trimmed = raw.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 }
+export function normalizeCycleFilter(raw) {
+    const trimmed = raw?.trim();
+    return trimmed || undefined;
+}
 // Resolve the Linear team from --team first, then LINEAR_DEFAULT_TEAM. The
 // source is returned so human + JSON output can explain where the team came
 // from (important for automation/debugging when defaults are injected).
@@ -558,7 +562,6 @@ function linearRequestOnce(apiKey, query, variables) {
             res.on("data", (chunk) => chunks.push(chunk));
             res.on("end", () => {
                 if (status === 429 || (status >= 500 && status <= 599)) {
-                    res.resume();
                     reject(new RetriableHttpError(status, parseRetryAfter(res.headers["retry-after"])));
                     return;
                 }
@@ -568,7 +571,6 @@ function linearRequestOnce(apiKey, query, variables) {
                 // converts into a clear, actionable message rather than a confusing
                 // "Failed to parse Linear response" / generic wrap.
                 if (status === 401 || status === 403) {
-                    res.resume();
                     reject(new AuthHttpError(status));
                     return;
                 }
@@ -1325,7 +1327,7 @@ export default defineExtension({
                 const team = teamSelection.team;
                 const project = readStringOption(ctx.options, "project");
                 const stateFilter = readStringOption(ctx.options, "state");
-                const cycleFilter = readStringOption(ctx.options, "cycle");
+                const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
                 const assignee = readStringOption(ctx.options, "assignee");
                 const label = readStringOption(ctx.options, "label");
                 const updatedSince = readStringOption(ctx.options, "updated-since");
@@ -1460,7 +1462,7 @@ export default defineExtension({
             const team = teamSelection.team;
             const project = readStringOption(ctx.options, "project");
             const stateFilter = readStringOption(ctx.options, "state");
-            const cycleFilter = readStringOption(ctx.options, "cycle");
+            const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");
             const updatedSince = readStringOption(ctx.options, "updated-since");
@@ -1705,7 +1707,7 @@ export default defineExtension({
             }
             const limit = readNumberOption(ctx.options, "limit") ?? 100;
             const stateFilter = readStringOption(ctx.options, "state");
-            const cycleFilter = readStringOption(ctx.options, "cycle");
+            const cycleFilter = normalizeCycleFilter(readStringOption(ctx.options, "cycle"));
             const project = readStringOption(ctx.options, "project");
             const assignee = readStringOption(ctx.options, "assignee");
             const label = readStringOption(ctx.options, "label");

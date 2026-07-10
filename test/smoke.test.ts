@@ -32,6 +32,7 @@ import extension, {
   resetCycleWarning,
   resolveTeamSelection,
   AuthHttpError,
+  normalizeCycleFilter,
 } from "../dist/index.js";
 
 test("extension has required shape", () => {
@@ -819,6 +820,12 @@ test("buildImportRequestPlan wires --cycle into the server-side filter", () => {
   const absent = buildImportRequestPlan("ENG", 100, {});
   assert.ok(!("cycle" in absent.variables), "absent cycle adds no var");
   assert.ok(!absent.query.includes("$cycle"), "absent cycle adds no clause");
+});
+
+test("normalizeCycleFilter trims surrounding whitespace and drops blank values", () => {
+  assert.equal(normalizeCycleFilter("  Sprint 7  "), "Sprint 7");
+  assert.equal(normalizeCycleFilter("   "), undefined);
+  assert.equal(normalizeCycleFilter(undefined), undefined);
 });
 
 test("buildImportRequestPlan composes --state + --cycle + --project", () => {

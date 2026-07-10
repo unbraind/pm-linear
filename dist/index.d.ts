@@ -39,6 +39,7 @@ export interface TeamSelection {
     team: string;
     source: TeamSource;
 }
+export declare function normalizeCycleFilter(raw: string | undefined): string | undefined;
 export declare function resolveTeamSelection(options: Record<string, unknown>, envDefaultTeam?: string | undefined): TeamSelection | undefined;
 export declare function mapPriorityToLinear(pmPriority: number | undefined): number;
 export declare function normalizeDueDate(deadline: string | undefined): string | undefined;
