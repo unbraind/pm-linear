@@ -1685,7 +1685,7 @@ function renderImportDryRun(
 // ---------------------------------------------------------------------------
 export default defineExtension({
   name: "pm-linear",
-  version: "2026.7.7",
+  version: "2026.7.10",
 
   activate(api) {
     // -----------------------------------------------------------------------
