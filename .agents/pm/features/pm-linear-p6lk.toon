@@ -6,15 +6,23 @@ status: in_progress
 priority: 1
 tags[3]: ecosystem,ecosystem-pass-2026-06-10,production
 created_at: "2026-06-09T22:38:11.067Z"
-updated_at: "2026-06-09T23:40:45.378Z"
+updated_at: "2026-07-10T11:10:40.558Z"
 assignee: codex-5-3-sweep
 author: codex-5-3-sweep
+comments[1]{created_at,author,text}:
+  "2026-07-10T11:10:40.558Z",codex,"PR #22 independent verification (2026-07-10): npm ci/build passed; full Node suite 51/51 passed after regression fix 1665b5a. Throwaway install + pm --help hang check passed. --cycle dry-runs for linear sync/import emitted server-side containsIgnoreCase filter and cycle=\"Sprint 7\"; surrounding whitespace normalized; missing value exited 2 cleanly. Mocked in-process HTTP 401/403 with fake key (no real Linear API traffic) exited 2 immediately with actionable LINEAR_API_KEY guidance. Default no-cycle dry-run output matched origin/main byte-for-byte (1634 bytes). Six bot threads handled (4 valid +1/addressed, 2 obsolete-parser -1/not applicable). Re-review requested after push."
 files[3]{path,scope,note}:
   dist/index.d.ts,project,Type declarations regenerated
   index.ts,project,Unified team resolution + source metadata
   test/smoke.test.ts,project,Coverage for new team selection helper
-tests[3]{command,path,scope,timeout_seconds,pm_context_mode,env_set,env_clear,shared_host_safe,assert_stdout_contains,assert_stdout_regex,assert_stderr_contains,assert_stderr_regex,assert_stdout_min_lines,assert_json_field_equals,assert_json_field_gte,note}:
-  "npm run release:check",null,project,3600,null,null,null,null,null,null,null,null,null,null,null,null
-  PM_PATH=.agents/pm PM_GLOBAL_PATH=.agents/pm npm test,null,project,null,null,null,null,null,null,null,null,null,null,null,null,Build and full Node test suite
-  rm -rf /tmp/pm-realdata-linear && mkdir -p /tmp/pm-realdata-linear && cd /tmp/pm-realdata-linear && pm init >/dev/null && pm install /home/steve/container/pm-sweep/pm-linear --project >/dev/null && pm linear validate --json > linear-validate.json,null,project,1200,null,null,null,null,null,null,null,null,null,null,null,null
+tests[3]:
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 3600
+  - command: PM_PATH=.agents/pm PM_GLOBAL_PATH=.agents/pm npm test
+    scope: project
+    note: Build and full Node test suite
+  - command: rm -rf /tmp/pm-realdata-linear && mkdir -p /tmp/pm-realdata-linear && cd /tmp/pm-realdata-linear && pm init >/dev/null && pm install /home/steve/container/pm-sweep/pm-linear --project >/dev/null && pm linear validate --json > linear-validate.json
+    scope: project
+    timeout_seconds: 1200
 body: ""
