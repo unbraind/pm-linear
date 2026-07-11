@@ -12,6 +12,7 @@
     "preflight"
   ],
   "pm": {
-    "compatibility": "v2"
+    "compatibility": "v2",
+    "pm_min_version": "2026.7.10"
   }
 }
