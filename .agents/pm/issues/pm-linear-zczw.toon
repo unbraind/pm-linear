@@ -2,11 +2,16 @@ id: pm-linear-zczw
 title: "state filter is applied client-side after --limit, under-returning on large teams"
 description: "The Linear importer state flag was filtered CLIENT-SIDE in syncLinearIssues AFTER fetching limit issues, and buildIssuesQuery had no state clause, so import limit 100 state In Progress fetched 100 issues then dropped non-matching ones locally, under-returning matches beyond the fetched window on large teams. Fix: add server-side state.name.eq clause plus state variable in buildIssuesQuery, threaded through FetchFilters/buildImportRequestPlan/syncLinearIssues."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-06-05T14:52:32.165Z"
-updated_at: "2026-06-05T14:52:48.237Z"
+updated_at: "2026-07-11T00:59:31.337Z"
+closed_at: "2026-07-11T00:59:31.336Z"
 author: codex
 acceptance_criteria: "--state filters server-side via the GraphQL state.name.eq clause + variable; no clause when --state absent (zero regression); pure query-builder unit-tested"
+resolution: buildIssuesQuery now emits the Linear state.name containsIgnoreCase clause and threads the state variable through request planning while preserving the no-filter path.
+expected_result: State filtering occurs server-side before result limiting and is covered by composition and regression tests.
+actual_result: Current main contains state and cycle server-side query clauses with dedicated tests in test/smoke.test.ts.
+close_reason: Server-side Linear state filtering is implemented and covered by query-builder tests
 body: ""

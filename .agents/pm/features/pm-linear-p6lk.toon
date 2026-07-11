@@ -1,19 +1,33 @@
 id: pm-linear-p6lk
 title: Full pm ecosystem production pass for pm-linear
-description: ""
+description: "Consolidate current pm CLI/SDK and TypeScript toolchain updates, validate every registered Linear capability with real installed-package data, harden daily release/changelog contracts, reconcile stale pm context, and verify privacy/history readiness."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[3]: ecosystem,ecosystem-pass-2026-06-10,production
 created_at: "2026-06-09T22:38:11.067Z"
-updated_at: "2026-07-10T11:10:40.558Z"
-assignee: codex-5-3-sweep
+updated_at: "2026-07-11T01:02:04.293Z"
+closed_at: "2026-07-11T01:02:04.102Z"
 author: codex-5-3-sweep
+estimated_minutes: 60
+acceptance_criteria: "Latest pm CLI/SDK, pm-changelog, TypeScript and Node types; checkout v7; manifest and peer compatibility aligned; warning-free installed extension; real validate/import dry-run behavior tested; full release gate and package audit pass; generated dist untracked but packaged; duplicate/stale context reconciled; no secrets or private runtime data in tracked files/history."
+reviewer: greptile
+risk: medium
+confidence: high
+sprint: 2026-07-production
+release: next
+resolution: "Updated pm CLI/SDK and pm-changelog to 2026.7.10, TypeScript to 7.0.2, Node types to 26.1.1, checkout to v7, aligned runtime minimums, stopped tracking generated dist, made changelog generation history-safe, and reconciled stale duplicate/completed pm items."
+expected_result: "Warning-free current extension with complete native Linear registrations, deterministic daily release gates, clean package artifacts, validated project history, and no sensitive tracked data."
+actual_result: 51 tests and full release gate pass; production audit reports zero vulnerabilities; package tarball contains built dist; isolated installed doctor reports zero warnings with commands/importers/exporter/schema/preflight; credential-free validate and fake-key offline state+cycle dry-run behave correctly; secret scans found no matches.
 comments[1]{created_at,author,text}:
   "2026-07-10T11:10:40.558Z",codex,"PR #22 independent verification (2026-07-10): npm ci/build passed; full Node suite 51/51 passed after regression fix 1665b5a. Throwaway install + pm --help hang check passed. --cycle dry-runs for linear sync/import emitted server-side containsIgnoreCase filter and cycle=\"Sprint 7\"; surrounding whitespace normalized; missing value exited 2 cleanly. Mocked in-process HTTP 401/403 with fake key (no real Linear API traffic) exited 2 immediately with actionable LINEAR_API_KEY guidance. Default no-cycle dry-run output matched origin/main byte-for-byte (1634 bytes). Six bot threads handled (4 valid +1/addressed, 2 obsolete-parser -1/not applicable). Re-review requested after push."
-files[3]{path,scope,note}:
-  dist/index.d.ts,project,Type declarations regenerated
+learnings[1]{created_at,author,text}:
+  "2026-07-11T01:02:04.293Z",codex,"When a public repository has rewritten history, full --all-release-tags regeneration cannot reconstruct non-ancestor releases; use the same since-previous-tag prepend window for generation, validation, and release notes."
+files[5]{path,scope,note}:
+  .github/workflows/release.yml,project,Daily release and changelog workflow
   index.ts,project,Unified team resolution + source metadata
+  manifest.json,project,Runtime compatibility contract
+  package.json,project,Current SDK toolchain and release gates
   test/smoke.test.ts,project,Coverage for new team selection helper
 tests[3]:
   - command: "npm run release:check"
@@ -25,4 +39,5 @@ tests[3]:
   - command: rm -rf /tmp/pm-realdata-linear && mkdir -p /tmp/pm-realdata-linear && cd /tmp/pm-realdata-linear && pm init >/dev/null && pm install /home/steve/container/pm-sweep/pm-linear --project >/dev/null && pm linear validate --json > linear-validate.json
     scope: project
     timeout_seconds: 1200
+close_reason: "Current SDK/toolchain, release contracts, installed extension, and project context verified"
 body: ""
