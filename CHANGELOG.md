@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.7.11 - 2026-07-11
+
+### Added
+
+- Full pm ecosystem production pass for pm-linear ([pm-linear-p6lk](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-p6lk.toon))
+
+### Fixed
+
+- state filter is applied client-side after --limit, under-returning on large teams ([pm-linear-zczw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-zczw.toon))
+
+### Other
+
+- Harden release bun-verify so registry-mirror lag cannot block the GitHub release ([pm-linear-oe0z](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-oe0z.toon))
+- Full-cycle hardening wave: pm-linear ([pm-linear-co77](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-co77.toon))
+
 ## 2026.7.6 - 2026-07-06
 
 ### Fixed
