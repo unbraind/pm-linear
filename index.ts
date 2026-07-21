@@ -1476,8 +1476,9 @@ export async function syncLinearIssues(
   // but we still want the preview to report create-vs-update accurately).
   const existingByLinearId = indexItemsByLinearId((dependencies.readItems ?? readPmItems)(pm_root));
 
-  let created = 0;
-  let updated = 0;
+  // `skipped` is shared by both the atomic and legacy paths; `created`/`updated`
+  // are declared with the legacy loop below (the atomic path returns before it
+  // and reports its own counts, so hoisting them here would be a dead store).
   let skipped = 0;
 
   // -------------------------------------------------------------------------
@@ -1590,6 +1591,8 @@ export async function syncLinearIssues(
     };
   }
 
+  let created = 0;
+  let updated = 0;
   for (const issue of issues) {
     // State name filter. The authoritative constraint is now server-side
     // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
