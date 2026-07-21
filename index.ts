@@ -413,21 +413,8 @@ export function resolveProjectTag(
 // --map priority=ignore to skip priority). Keys are Linear field names; values
 // are pm field names (or the sentinel "ignore" to suppress that field).
 // Recognized Linear keys: title, description, priority, status, labels,
-// assignee, identifier, estimate, customer. Pure + exported for unit testing.
+// assignee, identifier, estimate, cycle, customer.
 // ---------------------------------------------------------------------------
-const KNOWN_LINEAR_FIELDS = [
-  "title",
-  "description",
-  "priority",
-  "status",
-  "labels",
-  "assignee",
-  "identifier",
-  "estimate",
-  "cycle",
-  "customer",
-] as const;
-
 export function parseFieldMap(raw: string | undefined): Record<string, string> {
   const map: Record<string, string> = {};
   if (!raw) return map;
@@ -2053,7 +2040,6 @@ function commandMutatesLinear(command: string, options: Record<string, unknown>)
 // Reachability check is skipped when SKIP_NETWORK is requested so unit/offline
 // runs stay deterministic.
 async function preflightLinear(
-  options: Record<string, unknown>,
   checkReachability: boolean
 ): Promise<string | null> {
   const apiKey = process.env["LINEAR_API_KEY"];
@@ -2202,7 +2188,7 @@ export default defineExtension({
         !readBooleanOption(ctx.options, "skip-preflight-network") &&
         !readBooleanOption(ctx.options, "no-preflight-network") &&
         process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
-      const error = await preflightLinear(ctx.options, checkReachability);
+      const error = await preflightLinear(checkReachability);
       if (!error) return {};
       return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
     });
@@ -2354,7 +2340,7 @@ export default defineExtension({
         const checkNetwork = readBooleanOption(ctx.options, "check-network");
         const diag = buildValidationReport();
         if (checkNetwork && diag.apiKeyPresent) {
-          const err = await preflightLinear(ctx.options, true);
+          const err = await preflightLinear(true);
           diag.networkChecked = true;
           diag.networkOk = err === null;
           if (err) diag.networkError = err;
