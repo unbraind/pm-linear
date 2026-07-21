@@ -1,7 +1,13 @@
 import { spawnSync } from "node:child_process";
 import https from "node:https";
+import crypto from "node:crypto";
 
 import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/sdk";
+import type {
+  BulkItemMutation,
+  CommitItemMutationsOptions,
+  CommitItemMutationsResult,
+} from "@unbrained/pm-cli/sdk";
 
 const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
@@ -12,13 +18,13 @@ const defineExtension: typeof defineExtensionType = ((extension: any) => extensi
 // second time and exits with a generic code. We mirror the SDK's EXIT_CODE
 // contract here rather than importing it: standalone-installed extensions load
 // only their own `dist/`, so `@unbrained/pm-cli` is not resolvable at runtime.
-const EXIT_CODE = {
+export const EXIT_CODE = {
   GENERIC_FAILURE: 1,
   USAGE: 2,
   NOT_FOUND: 3,
 } as const;
 
-class CommandError extends Error {
+export class CommandError extends Error {
   exitCode: number;
   constructor(message: string, exitCode: number = EXIT_CODE.GENERIC_FAILURE) {
     super(message);
@@ -49,7 +55,7 @@ interface LinearAssignee {
   email: string | null;
 }
 
-interface LinearIssue {
+export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
@@ -407,21 +413,8 @@ export function resolveProjectTag(
 // --map priority=ignore to skip priority). Keys are Linear field names; values
 // are pm field names (or the sentinel "ignore" to suppress that field).
 // Recognized Linear keys: title, description, priority, status, labels,
-// assignee, identifier, estimate, customer. Pure + exported for unit testing.
+// assignee, identifier, estimate, cycle, customer.
 // ---------------------------------------------------------------------------
-const KNOWN_LINEAR_FIELDS = [
-  "title",
-  "description",
-  "priority",
-  "status",
-  "labels",
-  "assignee",
-  "identifier",
-  "estimate",
-  "cycle",
-  "customer",
-] as const;
-
 export function parseFieldMap(raw: string | undefined): Record<string, string> {
   const map: Record<string, string> = {};
   if (!raw) return map;
@@ -893,6 +886,23 @@ interface SyncOptions {
   projectMap?: ProjectMap;
   limit: number;
   dryRun?: boolean;
+  /** Commit the whole batch as one crash-resumable transaction (pm-cli >=2026.7.20). */
+  atomic?: boolean;
+}
+
+/** Test seams for {@link syncLinearIssues}; each defaults to the live path. */
+export interface SyncRunDependencies {
+  /** Inject the Linear fetch (offline tests). */
+  fetchIssues?: (
+    apiKey: string,
+    team: string,
+    limit: number,
+    filters: FetchFilters,
+  ) => Promise<LinearIssue[]>;
+  /** Inject the local pm item read. */
+  readItems?: (pmRoot: string) => PmItem[];
+  /** Inject the atomic commit (offline/dry-run tests). */
+  commitAtomic?: typeof importLinearAtomic;
 }
 
 interface SyncResult {
@@ -902,6 +912,13 @@ interface SyncResult {
   skipped: number;
   team: string;
   issues: LinearIssue[];
+  // Atomic-only fields. Present when the batch committed as one transaction
+  // (or, for dryRun, when --atomic --dry-run shared the atomic prep path).
+  atomic?: boolean;
+  dryRun?: boolean;
+  transactionId?: string;
+  recovered?: boolean;
+  recoveredItems?: number;
 }
 
 // Index existing pm items by their stored Linear id (parsed from the provenance
@@ -1048,12 +1065,375 @@ function buildImportDryRunPlan(
   };
 }
 
-async function syncLinearIssues(
+// ---------------------------------------------------------------------------
+// Atomic Linear import (pm-cli >= 2026.7.20 commitItemMutations)
+// ---------------------------------------------------------------------------
+//
+// `pm linear import/sync --atomic` commits the ENTIRE batch (creates + updates
+// + closes) as ONE workspace-writer-locked, crash-resumable transaction via the
+// SDK `commitItemMutations` helper. On ordinary failure every applied mutation
+// is compensated in reverse order; if compensation itself is incomplete the
+// tracker MAY hold partial state and the error tells the user to retry the same
+// import to resume the durable journal. The non-atomic path is byte-compatible
+// (unchanged); --atomic --dry-run shares the atomic preparation/matching path
+// and reports create/update/skip counts WITHOUT touching the SDK commit.
+
+const ATOMIC_IMPORT_PREFIX = "linear-import-";
+
+type CommitItemMutations = (
+  options: CommitItemMutationsOptions,
+) => Promise<CommitItemMutationsResult>;
+type NormalizeItemId = (input: string, prefix: string) => string;
+type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
+
+export interface AtomicImportOptions {
+  /** Author attributed to the atomic transaction journal (defaults to `pm-linear`). */
+  atomicAuthor?: string;
+  /** Test seam: inject the SDK commit helper (skips SDK resolution). */
+  commitItemMutations?: CommitItemMutations;
+  /** Test seam: inject normalizeItemId (skips SDK resolution). */
+  normalizeItemId?: NormalizeItemId;
+  /** Test seam: inject readSettings (skips SDK resolution). */
+  readSettings?: ReadSettings;
+}
+
+/** Fully rendered desired state for one Linear issue import. */
+export interface PreparedLinearImport {
+  // The STABLE external key: Linear's human-facing issue identifier (e.g.
+  // "ENG-123"). Never the fetch order or the positional index. The deterministic
+  // managed item id is derived from this so a reordered retry resumes the same
+  // journal, and a prior interrupted attempt's provenance scan finds the item.
+  identifier: string;
+  // Linear's internal UUID. Carried for provenance/dedupe parity (the existing
+  // indexItemsByLinearId match keys on this), but NOT used as the managed id.
+  linearId: string;
+  title: string;
+  status: string;
+  priority: number;
+  description: string; // provenance marker
+  body: string;
+  tags: string[];
+  deadline?: string;
+  assignee?: string;
+  match?: PmItem;
+}
+
+function assertSdkFunction<F extends (...args: never[]) => unknown>(
+  fn: F | undefined,
+  exportName: string,
+): F {
+  if (typeof fn !== "function") {
+    throw new CommandError(
+      `--atomic requires @unbrained/pm-cli>=2026.7.20 with the commitItemMutations SDK primitive, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.7.20.`,
+      EXIT_CODE.USAGE,
+    );
+  }
+  return fn;
+}
+
+async function loadAtomicSdk(
+  importSdk: () => Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> =
+    () => import("@unbrained/pm-cli/sdk"),
+): Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> {
+  try {
+    return await importSdk();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new CommandError(
+      `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
+      EXIT_CODE.USAGE,
+    );
+  }
+}
+
+async function resolveAtomicSdkFunctions(opts: AtomicImportOptions): Promise<{
+  commitItemMutations: CommitItemMutations;
+  normalizeItemId: NormalizeItemId;
+  readSettings: ReadSettings;
+}> {
+  const needsSdk =
+    !opts.commitItemMutations || !opts.normalizeItemId || !opts.readSettings;
+  const mod = needsSdk ? await loadAtomicSdk() : undefined;
+  return {
+    commitItemMutations: opts.commitItemMutations ??
+      assertSdkFunction<CommitItemMutations>(
+        mod?.commitItemMutations,
+        "commitItemMutations",
+      ),
+    normalizeItemId: opts.normalizeItemId ??
+      assertSdkFunction<NormalizeItemId>(mod?.normalizeItemId, "normalizeItemId"),
+    readSettings: opts.readSettings ??
+      assertSdkFunction<ReadSettings>(mod?.readSettings, "readSettings"),
+  };
+}
+
+/**
+ * Derive an order-independent transaction id from the desired import state and
+ * the exact ordered mutation plan. Content or target changes produce a fresh
+ * transaction; a reordered retry of the same plan resumes the durable journal.
+ * Canonical entries are sorted by the STABLE external key (the Linear issue
+ * identifier), never by fetch order.
+ */
+export function deriveAtomicTransactionId(
+  team: string,
+  entries: readonly PreparedLinearImport[],
+  mutations: readonly BulkItemMutation[],
+): string {
+  const canonical = [...entries]
+    .sort((a, b) => (a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0))
+    .map((entry) => ({
+      identifier: entry.identifier,
+      linearId: entry.linearId,
+      title: entry.title,
+      status: entry.status,
+      priority: entry.priority,
+      description: entry.description,
+      body: entry.body,
+      tags: [...entry.tags].sort(),
+      deadline: entry.deadline ?? null,
+      assignee: entry.assignee ?? null,
+    }));
+  const digest = crypto
+    .createHash("sha256")
+    .update(team.toLowerCase())
+    .update("\x1f")
+    .update(JSON.stringify(canonical))
+    .update("\x1f")
+    // Recovery requires the exact ordered step plan. Include targets and
+    // options so a changed id_prefix or provenance match gets a fresh journal
+    // instead of colliding with an incompatible prior attempt.
+    .update(JSON.stringify(mutations))
+    .digest("hex")
+    .slice(0, 16);
+  return `${ATOMIC_IMPORT_PREFIX}${digest}`;
+}
+
+/**
+ * Stable create id keyed by the STABLE external identifier (Linear issue
+ * identifier like "ENG-123"), never by fetch order. The Linear issue
+ * identifier is the most stable, human-meaningful external key and is what a
+ * reordered retry reproduces exactly.
+ */
+export function deriveAtomicItemId(
+  team: string,
+  identifier: string,
+  idPrefix: string,
+  normalizeItemId: (input: string, prefix: string) => string,
+): string {
+  const teamToken = crypto
+    .createHash("sha256")
+    .update(team.toLowerCase())
+    .digest("hex")
+    .slice(0, 12);
+  return normalizeItemId(`linear-${teamToken}-${identifier}`, idPrefix);
+}
+
+/** Map one rendered import entry to its reversible SDK mutation sequence. */
+export function buildAtomicImportMutations(
+  team: string,
+  entry: PreparedLinearImport,
+  idPrefix: string,
+  normalizeItemId: (input: string, prefix: string) => string,
+): { itemId: string; mutations: BulkItemMutation[] } {
+  // `status` is deliberately NOT a shared field. An existing item that is
+  // already closed upstream must keep its closed state on re-sync: spreading a
+  // shared `status: "open"` into the update step would reopen it, and the
+  // follow-up close would re-close it — churning notifications, activity logs,
+  // and webhooks on every run. Each mutation sets status explicitly instead
+  // (create seeds a valid open item; update only carries status for non-closed
+  // entries; the close step owns the closed transition).
+  const sharedOptions: Record<string, unknown> = {
+    title: entry.title,
+    priority: entry.priority,
+    description: entry.description,
+    body: entry.body,
+    // Sort before joining so the mutations slice of the transaction-id hash is
+    // independent of Linear label-node order; a reordered retry resumes the same
+    // journal instead of starting a fresh one (the canonical-entries side in
+    // deriveAtomicTransactionId already sorts tags).
+    tags: [...entry.tags].sort().join(","),
+    ...(entry.deadline ? { deadline: entry.deadline } : {}),
+    ...(entry.assignee ? { assignee: entry.assignee } : {}),
+  };
+
+  const managedItemId = deriveAtomicItemId(
+    team,
+    entry.identifier,
+    idPrefix,
+    normalizeItemId,
+  );
+
+  // A missing match and a match at our deterministic external-key id use the
+  // SAME create+update upsert plan. This is essential for crash recovery: if a
+  // prior attempt stopped after create, the next provenance scan sees that
+  // item, but commitItemMutations must still receive the original plan. The
+  // create step treats an existing stable id as already applied; update then
+  // makes later content-bearing transactions refresh the item normally. The
+  // close transition is a separate mutation so its reason is preserved and it
+  // is reversible independently of the field update.
+  const matchId = entry.match?.id;
+  if (!matchId || matchId === managedItemId) {
+    const mutations: BulkItemMutation[] = [
+      {
+        op: "create",
+        id: managedItemId,
+        options: {
+          ...sharedOptions,
+          // A brand-new item must be created in a valid open state; the close
+          // step below performs the closed transition when required.
+          status: entry.status === "closed" ? "open" : entry.status,
+        },
+      },
+      {
+        op: "update",
+        id: managedItemId,
+        options: {
+          ...sharedOptions,
+          ...(entry.status !== "closed" ? { status: entry.status } : {}),
+        },
+      },
+    ];
+    if (entry.status === "closed") {
+      mutations.push({
+        op: "close",
+        id: managedItemId,
+        reason: `Linear issue ${entry.identifier} closed`,
+      });
+    }
+    return { itemId: managedItemId, mutations };
+  }
+
+  const itemId = matchId;
+  const updateOptions: Record<string, unknown> = { ...sharedOptions };
+  if (entry.status !== "closed") {
+    updateOptions.status = entry.status;
+  }
+  const mutations: BulkItemMutation[] = [
+    { op: "update", id: itemId, options: updateOptions },
+  ];
+  if (entry.status === "closed") {
+    mutations.push({
+      op: "close",
+      id: itemId,
+      reason: `Linear issue ${entry.identifier} closed`,
+    });
+  }
+  return { itemId, mutations };
+}
+
+/** Commit a complete issue-import batch under one crash-resumable transaction. */
+export async function importLinearAtomic(
+  pmRoot: string,
+  team: string,
+  entries: readonly PreparedLinearImport[],
+  opts: AtomicImportOptions = {},
+): Promise<{
+  transactionId: string;
+  recovered: boolean;
+  imported: number;
+  updated: number;
+  recoveredItems?: number;
+  itemIds: Map<string, string>;
+}> {
+  const {
+    commitItemMutations: commit,
+    normalizeItemId,
+    readSettings,
+  } = await resolveAtomicSdkFunctions(opts);
+
+  // The atomic identity — every managed item id AND the durable transaction id
+  // — is derived from id_prefix. readSettings already resolves a missing or
+  // malformed settings file to defaults WITHOUT throwing, so a thrown error
+  // here is a genuine filesystem fault (e.g. EACCES/EIO). Silently falling back
+  // to "pm-" in that case would fork the identity of a retry from the original
+  // run: the resume would key a *different* journal and could duplicate every
+  // item. Fail loudly instead so the operator resolves the fault and re-runs
+  // the same, resumable transaction.
+  let idPrefix = "pm-";
+  try {
+    const settings = await readSettings(pmRoot);
+    if (settings.id_prefix) idPrefix = settings.id_prefix;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new CommandError(
+      `Atomic Linear import could not read workspace settings to resolve id_prefix: ${msg}. ` +
+        `The transaction identity is keyed on id_prefix, so proceeding with a fallback could duplicate items; ` +
+        `resolve the settings read error and retry the same import to resume its durable journal.`,
+      EXIT_CODE.GENERIC_FAILURE,
+    );
+  }
+
+  const mutations: BulkItemMutation[] = [];
+  const itemIds = new Map<string, string>();
+  // The transaction journal fingerprints the ordered step plan. Canonicalize
+  // by the stable Linear identifier so a retry whose API page/order changed
+  // supplies the exact same plan as well as the same transaction id.
+  for (const entry of [...entries].sort((a, b) =>
+    a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0
+  )) {
+    const planned = buildAtomicImportMutations(team, entry, idPrefix, normalizeItemId);
+    itemIds.set(entry.identifier, planned.itemId);
+    mutations.push(...planned.mutations);
+  }
+  const transactionId = deriveAtomicTransactionId(team, entries, mutations);
+
+  try {
+    const result = await commit({
+      pmRoot,
+      transactionId,
+      author: opts.atomicAuthor ?? "pm-linear",
+      mutations,
+      // This option selects how CREATE steps are compensated. The SDK's
+      // commitItemMutations contract independently snapshots and version-
+      // restores every UPDATE and CLOSE step (covered by the mixed rollback
+      // integration test below this implementation).
+      createCompensation: "delete",
+    });
+    // A recovered journal may include work applied by the interrupted process
+    // as well as steps resumed now. The SDK intentionally returns the durable
+    // final results, not a per-invocation delta, so create/update counts cannot
+    // be reconstructed truthfully. Report the recovered batch separately.
+    const recovered = result.recovered;
+    return {
+      transactionId,
+      recovered,
+      imported: recovered ? 0 : entries.filter((e) => !e.match?.id).length,
+      updated: recovered ? 0 : entries.filter((e) => Boolean(e.match?.id)).length,
+      ...(recovered ? { recoveredItems: entries.length } : {}),
+      itemIds,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof AggregateError || /compensation failed/i.test(msg)) {
+      throw new CommandError(
+        `Atomic Linear import failed and compensation was incomplete. The tracker may contain partially applied state; retry the same import to resume transaction ${transactionId}, then inspect its durable journal if recovery still fails. Underlying error: ${msg}`,
+        EXIT_CODE.GENERIC_FAILURE,
+      );
+    }
+    if (err instanceof Error && err.name === "WorkspaceTransactionInterruptedError") {
+      throw new CommandError(
+        `Atomic Linear import was interrupted. Its durable journal is resumable; retry the same import to continue transaction ${transactionId}. Underlying error: ${msg}`,
+        EXIT_CODE.GENERIC_FAILURE,
+      );
+    }
+    throw new CommandError(
+      `Atomic Linear import failed after the SDK completed its normal compensation path; no new partial committed state is expected. Transaction id: ${transactionId}. Underlying error: ${msg}`,
+      EXIT_CODE.GENERIC_FAILURE,
+    );
+  }
+}
+
+export async function syncLinearIssues(
   options: SyncOptions,
-  pm_root: string
+  pm_root: string,
+  dependencies: SyncRunDependencies = {},
 ): Promise<SyncResult> {
   const apiKey = process.env["LINEAR_API_KEY"];
-  if (!apiKey) {
+  // An injected fetchIssues seam (tests/offline) does not need a real key; only
+  // the live fetchAllLinearIssues path requires one. Skip the check when the
+  // caller supplies its own fetch so the atomic prep/dry-run path is exercisable
+  // offline without leaking the requirement onto the test seam.
+  if (!apiKey && !dependencies.fetchIssues) {
     throw new CommandError(
       "LINEAR_API_KEY environment variable is not set. " +
         "Get your API key at https://linear.app/settings/api",
@@ -1085,7 +1465,7 @@ async function syncLinearIssues(
   const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
   console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
 
-  const issues = await fetchAllLinearIssues(apiKey, options.team, options.limit, filters);
+  const issues = await (dependencies.fetchIssues ?? fetchAllLinearIssues)(apiKey ?? "", options.team, options.limit, filters);
 
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
@@ -1098,12 +1478,125 @@ async function syncLinearIssues(
   // UPDATES the matching item rather than creating a duplicate. We only read
   // the workspace when actually writing (dry-run is read-free on Linear's side
   // but we still want the preview to report create-vs-update accurately).
-  const existingByLinearId = indexItemsByLinearId(readPmItems(pm_root));
+  const existingByLinearId = indexItemsByLinearId((dependencies.readItems ?? readPmItems)(pm_root));
+
+  // `skipped` is shared by both the atomic and legacy paths; `created`/`updated`
+  // are declared with the legacy loop below (the atomic path returns before it
+  // and reports its own counts, so hoisting them here would be a dead store).
+  let skipped = 0;
+
+  // -------------------------------------------------------------------------
+  // --atomic: commit the whole batch as ONE crash-resumable transaction via
+  // the SDK commitItemMutations helper. --atomic --dry-run shares this exact
+  // preparation/matching path and reports counts WITHOUT touching the commit.
+  // The non-atomic per-issue loop below stays byte-compatible (unchanged).
+  // -------------------------------------------------------------------------
+  if (options.atomic) {
+    const prepared: PreparedLinearImport[] = [];
+    for (const issue of issues) {
+      // Reuse the same server-side state/cycle backstop filters as the legacy
+      // path so `--atomic` skips the same issues and reports the same counts.
+      if (options.stateFilter) {
+        const stateName = issue.state.name.toLowerCase();
+        if (!stateName.includes(options.stateFilter.toLowerCase())) {
+          skipped++;
+          continue;
+        }
+      }
+      if (options.cycleFilter) {
+        const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
+        if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
+          skipped++;
+          continue;
+        }
+      }
+      const plan = buildItemPlan(
+        issue,
+        statusMap,
+        options.fieldMap ?? {},
+        options.projectMap ?? { enabled: false, passthrough: false, map: {} }
+      );
+      prepared.push({
+        identifier: issue.identifier,
+        linearId: issue.id,
+        title: plan.title,
+        status: plan.status,
+        priority: plan.priority,
+        description: plan.description,
+        body: plan.body,
+        tags: plan.tags,
+        ...(plan.deadline ? { deadline: plan.deadline } : {}),
+        ...(plan.assignee ? { assignee: plan.assignee } : {}),
+        match: existingByLinearId[issue.id],
+      });
+    }
+
+    if (options.dryRun) {
+      const wouldCreate = prepared.filter((e) => !e.match?.id).length;
+      const wouldUpdate = prepared.length - wouldCreate;
+      console.error(
+        `[dry-run] Atomic plan would import ${wouldCreate}, update ${wouldUpdate}, skip ${skipped}.`
+      );
+      return {
+        synced: wouldCreate + wouldUpdate,
+        created: wouldCreate,
+        updated: wouldUpdate,
+        skipped,
+        team: options.team,
+        issues: [],
+        atomic: true,
+        dryRun: true,
+      };
+    }
+
+    // All-skipped (e.g. every issue filtered out by --state/--cycle): return a
+    // successful zero-sync result BEFORE touching the SDK, matching the legacy
+    // non-atomic path, which never errors on an all-filtered batch. `skipped`
+    // counts issues dropped by a filter — an expected, common state for a
+    // scheduled sync — not failures, so throwing here would break cron/CI jobs.
+    if (prepared.length === 0) {
+      console.error(
+        `No Linear issues to import after filters (skipped ${skipped}); nothing to commit.`
+      );
+      return {
+        synced: 0,
+        created: 0,
+        updated: 0,
+        skipped,
+        team: options.team,
+        issues: [],
+        atomic: true,
+      };
+    }
+
+    const atomicResult = await (dependencies.commitAtomic ?? importLinearAtomic)(pm_root, options.team, prepared);
+    if (atomicResult.recovered) {
+      console.error(
+        `Atomic import recovered transaction ${atomicResult.transactionId} covering ${atomicResult.recoveredItems ?? prepared.length} item(s).`
+      );
+    } else {
+      console.error(
+        `Atomically imported ${atomicResult.imported} new, updated ${atomicResult.updated} existing, skipped ${skipped}.`
+      );
+    }
+    return {
+      synced: atomicResult.imported + atomicResult.updated,
+      created: atomicResult.imported,
+      updated: atomicResult.updated,
+      skipped,
+      team: options.team,
+      issues: [],
+      atomic: true,
+      transactionId: atomicResult.transactionId,
+      recovered: atomicResult.recovered,
+      ...(atomicResult.recoveredItems !== undefined
+        ? { recoveredItems: atomicResult.recoveredItems }
+        : {}),
+    };
+  }
 
   let created = 0;
   let updated = 0;
-  let skipped = 0;
-
   for (const issue of issues) {
     // State name filter. The authoritative constraint is now server-side
     // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
@@ -1554,7 +2047,6 @@ function commandMutatesLinear(command: string, options: Record<string, unknown>)
 // Reachability check is skipped when SKIP_NETWORK is requested so unit/offline
 // runs stay deterministic.
 async function preflightLinear(
-  options: Record<string, unknown>,
   checkReachability: boolean
 ): Promise<string | null> {
   const apiKey = process.env["LINEAR_API_KEY"];
@@ -1703,7 +2195,7 @@ export default defineExtension({
         !readBooleanOption(ctx.options, "skip-preflight-network") &&
         !readBooleanOption(ctx.options, "no-preflight-network") &&
         process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
-      const error = await preflightLinear(ctx.options, checkReachability);
+      const error = await preflightLinear(checkReachability);
       if (!error) return {};
       return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
     });
@@ -1723,6 +2215,7 @@ export default defineExtension({
         "pm linear sync --team ENG --cycle 'Sprint 7' --limit 50",
         "pm linear sync --team ENG --limit 50",
         "pm linear sync --team ENG --dry-run",
+        "pm linear sync --team ENG --atomic",
       ],
       flags: [
         { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Optional when LINEAR_DEFAULT_TEAM is set." },
@@ -1736,6 +2229,7 @@ export default defineExtension({
         { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore,priority=ignore\". Optional." },
         { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
+        { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
         { long: "--dry-run", description: "Preview the exact GraphQL request without any network call or writes" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
@@ -1762,14 +2256,18 @@ export default defineExtension({
         const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
         const limit = readNumberOption(ctx.options, "limit") ?? 100;
         const dryRun = readBooleanOption(ctx.options, "dry-run");
+        const atomic = readBooleanOption(ctx.options, "atomic");
 
         const syncOpts: SyncOptions = {
           team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
-          statusMap, fieldMap, projectMap, limit, dryRun,
+          statusMap, fieldMap, projectMap, limit, dryRun, atomic,
         };
 
         // --dry-run is fully offline: print the literal GraphQL request, no call.
-        if (dryRun) {
+        // --atomic --dry-run is NOT offline: it fetches issues, shares the atomic
+        // preparation/matching path, and reports create/update/skip counts
+        // WITHOUT committing — handled inside syncLinearIssues.
+        if (dryRun && !atomic) {
           return renderImportDryRun(ctx, syncOpts, teamSelection.source);
         }
 
@@ -1779,6 +2277,24 @@ export default defineExtension({
 
         try {
           const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+
+          if (result.atomic) {
+            // syncLinearIssues already printed the atomic summary line.
+            return {
+              success: true,
+              synced: result.synced,
+              created: result.created,
+              updated: result.updated,
+              skipped: result.skipped,
+              team: result.team.toUpperCase(),
+              teamSource: teamSelection.source,
+              atomic: true,
+              dryRun: Boolean(result.dryRun),
+              ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+              ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+              ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+            };
+          }
 
           const summary =
             `Synced ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
@@ -1831,7 +2347,7 @@ export default defineExtension({
         const checkNetwork = readBooleanOption(ctx.options, "check-network");
         const diag = buildValidationReport();
         if (checkNetwork && diag.apiKeyPresent) {
-          const err = await preflightLinear(ctx.options, true);
+          const err = await preflightLinear(true);
           diag.networkChecked = true;
           diag.networkOk = err === null;
           if (err) diag.networkError = err;
@@ -1870,6 +2386,7 @@ export default defineExtension({
       { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore\"." },
       { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
+      { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
       { long: "--dry-run", description: "Print the exact GraphQL request offline (no network, no writes)." },
     ]);
     api.registerFlags("linear export", [
@@ -1906,14 +2423,17 @@ export default defineExtension({
       const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
       const limit = readNumberOption(ctx.options, "limit") ?? 100;
       const dryRun = readBooleanOption(ctx.options, "dry-run");
+      const atomic = readBooleanOption(ctx.options, "atomic");
 
       const syncOpts: SyncOptions = {
         team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
-        statusMap, fieldMap, projectMap, limit, dryRun,
+        statusMap, fieldMap, projectMap, limit, dryRun, atomic,
       };
 
       // --dry-run is fully offline: emit the literal GraphQL request, no call.
-      if (dryRun) {
+      // --atomic --dry-run shares the atomic prep/matching path (fetches issues,
+      // reports counts, no commit) - handled inside syncLinearIssues.
+      if (dryRun && !atomic) {
         const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
         return { imported: 0, created: 0, updated: 0, skipped: 0, ...plan };
       }
@@ -1924,11 +2444,13 @@ export default defineExtension({
 
       try {
         const result = await syncLinearIssues(syncOpts, ctx.pm_root);
-        console.error(
-          `Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
-            `from Linear team ${result.team.toUpperCase()}` +
-            (result.skipped > 0 ? ` (${result.skipped} skipped)` : "")
-        );
+        if (!result.atomic) {
+          console.error(
+            `Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
+              `from Linear team ${result.team.toUpperCase()}` +
+              (result.skipped > 0 ? ` (${result.skipped} skipped)` : "")
+          );
+        }
         return {
           imported: result.synced,
           created: result.created,
@@ -1936,7 +2458,11 @@ export default defineExtension({
           skipped: result.skipped,
           team: result.team.toUpperCase(),
           teamSource: teamSelection.source,
-          dryRun: false,
+          dryRun: Boolean(result.dryRun),
+          ...(result.atomic ? { atomic: true } : {}),
+          ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+          ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+          ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
         };
       } catch (err: unknown) {
         if (err instanceof CommandError) throw err;
@@ -2178,16 +2704,40 @@ export default defineExtension({
       const label = readStringOption(ctx.options, "label");
       const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
       const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
+      const dryRun = readBooleanOption(ctx.options, "dry-run");
+      const atomic = readBooleanOption(ctx.options, "atomic");
 
-      const result = await syncLinearIssues(
-        { team, project, stateFilter, cycleFilter, assignee, label, statusMap, projectMap, limit },
-        ctx.pm_root
-      );
+      const syncOpts: SyncOptions = {
+        team, project, stateFilter, cycleFilter, assignee, label,
+        statusMap, projectMap, limit, dryRun, atomic,
+      };
 
-      console.error(
-        `Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
-          `from Linear team ${result.team.toUpperCase()}`
-      );
+      // --dry-run is fully offline: emit the literal GraphQL request, no call
+      // and no writes. --atomic --dry-run shares the atomic prep/matching path
+      // (fetches issues, reports counts, no commit) handled inside
+      // syncLinearIssues, so dryRun is forwarded below. Without this guard,
+      // syncLinearIssues would see dryRun=false and turn a requested preview
+      // into a real workspace write.
+      if (dryRun && !atomic) {
+        const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
+        return {
+          synced: 0,
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          teamSource: teamSelection.source,
+          ...plan,
+        };
+      }
+
+      const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+
+      if (!result.atomic) {
+        console.error(
+          `Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
+            `from Linear team ${result.team.toUpperCase()}`
+        );
+      }
 
       return {
         synced: result.synced,
@@ -2196,6 +2746,11 @@ export default defineExtension({
         skipped: result.skipped,
         team: result.team.toUpperCase(),
         teamSource: teamSelection.source,
+        dryRun: Boolean(result.dryRun),
+        ...(result.atomic ? { atomic: true } : {}),
+        ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+        ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+        ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
       };
     });
   },
