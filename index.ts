@@ -1245,9 +1245,15 @@ export function buildAtomicImportMutations(
   idPrefix: string,
   normalizeItemId: (input: string, prefix: string) => string,
 ): { itemId: string; mutations: BulkItemMutation[] } {
+  // `status` is deliberately NOT a shared field. An existing item that is
+  // already closed upstream must keep its closed state on re-sync: spreading a
+  // shared `status: "open"` into the update step would reopen it, and the
+  // follow-up close would re-close it — churning notifications, activity logs,
+  // and webhooks on every run. Each mutation sets status explicitly instead
+  // (create seeds a valid open item; update only carries status for non-closed
+  // entries; the close step owns the closed transition).
   const sharedOptions: Record<string, unknown> = {
     title: entry.title,
-    status: entry.status === "closed" ? "open" : entry.status,
     priority: entry.priority,
     description: entry.description,
     body: entry.body,
@@ -1277,7 +1283,16 @@ export function buildAtomicImportMutations(
   // is reversible independently of the field update.
   if (!entry.match?.id || entry.match.id === managedItemId) {
     const mutations: BulkItemMutation[] = [
-      { op: "create", id: managedItemId, options: { ...sharedOptions } },
+      {
+        op: "create",
+        id: managedItemId,
+        options: {
+          ...sharedOptions,
+          // A brand-new item must be created in a valid open state; the close
+          // step below performs the closed transition when required.
+          status: entry.status === "closed" ? "open" : entry.status,
+        },
+      },
       {
         op: "update",
         id: managedItemId,
@@ -1335,13 +1350,26 @@ export async function importLinearAtomic(
     readSettings,
   } = await resolveAtomicSdkFunctions(opts);
 
+  // The atomic identity — every managed item id AND the durable transaction id
+  // — is derived from id_prefix. readSettings already resolves a missing or
+  // malformed settings file to defaults WITHOUT throwing, so a thrown error
+  // here is a genuine filesystem fault (e.g. EACCES/EIO). Silently falling back
+  // to "pm-" in that case would fork the identity of a retry from the original
+  // run: the resume would key a *different* journal and could duplicate every
+  // item. Fail loudly instead so the operator resolves the fault and re-runs
+  // the same, resumable transaction.
   let idPrefix = "pm-";
   try {
     const settings = await readSettings(pmRoot);
     if (settings?.id_prefix) idPrefix = String(settings.id_prefix);
-  } catch {
-    // Match normal import resilience: an unreadable optional setting falls
-    // back to the canonical prefix; the mutation still validates the tracker.
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new CommandError(
+      `Atomic Linear import could not read workspace settings to resolve id_prefix: ${msg}. ` +
+        `The transaction identity is keyed on id_prefix, so proceeding with a fallback could duplicate items; ` +
+        `resolve the settings read error and retry the same import to resume its durable journal.`,
+      EXIT_CODE.GENERIC_FAILURE,
+    );
   }
 
   const mutations: BulkItemMutation[] = [];
@@ -1529,13 +1557,24 @@ export async function syncLinearIssues(
       };
     }
 
-    // All-skipped (e.g. every issue filtered out): throw the SAME error shape
-    // the legacy path uses for a failed batch, BEFORE touching the SDK commit.
+    // All-skipped (e.g. every issue filtered out by --state/--cycle): return a
+    // successful zero-sync result BEFORE touching the SDK, matching the legacy
+    // non-atomic path, which never errors on an all-filtered batch. `skipped`
+    // counts issues dropped by a filter — an expected, common state for a
+    // scheduled sync — not failures, so throwing here would break cron/CI jobs.
     if (prepared.length === 0) {
-      throw new CommandError(
-        `Imported 0 issue(s); ${skipped} failed.`,
-        EXIT_CODE.GENERIC_FAILURE
+      console.error(
+        `No Linear issues to import after filters (skipped ${skipped}); nothing to commit.`
       );
+      return {
+        synced: 0,
+        created: 0,
+        updated: 0,
+        skipped,
+        team: options.team,
+        issues: [],
+        atomic: true,
+      };
     }
 
     const atomicResult = await (dependencies.commitAtomic ?? importLinearAtomic)(pm_root, options.team, prepared);
@@ -2672,12 +2711,33 @@ export default defineExtension({
       const label = readStringOption(ctx.options, "label");
       const statusMap = parseStatusMap(readStringOption(ctx.options, "status-map"));
       const projectMap = parseProjectMap(readProjectMapOption(ctx.options));
+      const dryRun = readBooleanOption(ctx.options, "dry-run");
       const atomic = readBooleanOption(ctx.options, "atomic");
 
-      const result = await syncLinearIssues(
-        { team, project, stateFilter, cycleFilter, assignee, label, statusMap, projectMap, limit, atomic },
-        ctx.pm_root
-      );
+      const syncOpts: SyncOptions = {
+        team, project, stateFilter, cycleFilter, assignee, label,
+        statusMap, projectMap, limit, dryRun, atomic,
+      };
+
+      // --dry-run is fully offline: emit the literal GraphQL request, no call
+      // and no writes. --atomic --dry-run shares the atomic prep/matching path
+      // (fetches issues, reports counts, no commit) handled inside
+      // syncLinearIssues, so dryRun is forwarded below. Without this guard,
+      // syncLinearIssues would see dryRun=false and turn a requested preview
+      // into a real workspace write.
+      if (dryRun && !atomic) {
+        const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
+        return {
+          synced: 0,
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          teamSource: teamSelection.source,
+          ...plan,
+        };
+      }
+
+      const result = await syncLinearIssues(syncOpts, ctx.pm_root);
 
       if (!result.atomic) {
         console.error(
@@ -2693,6 +2753,7 @@ export default defineExtension({
         skipped: result.skipped,
         team: result.team.toUpperCase(),
         teamSource: teamSelection.source,
+        dryRun: Boolean(result.dryRun),
         ...(result.atomic ? { atomic: true } : {}),
         ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
         ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),

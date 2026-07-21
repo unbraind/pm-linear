@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import {
+import extension, {
   CommandError,
   EXIT_CODE,
   buildAtomicImportMutations,
@@ -366,6 +366,23 @@ test("create ids are stable external-key ids and mutation planning handles trans
     closedNew.mutations.map((mutation) => mutation.op),
     ["create", "update", "close"],
   );
+  // The create seeds a valid OPEN item (the close step owns the transition);
+  // the intermediate update must not re-assert a status.
+  const closedNewCreate = closedNew.mutations.find((m) => m.op === "create") as
+    | { options: Record<string, unknown> }
+    | undefined;
+  assert.strictEqual(
+    closedNewCreate?.options.status,
+    "open",
+    "a closed new item is created open; the close step performs the transition",
+  );
+  const closedNewUpdate = closedNew.mutations.find((m) => m.op === "update") as
+    | { options: Record<string, unknown> }
+    | undefined;
+  assert.ok(
+    closedNewUpdate && !("status" in closedNewUpdate.options),
+    "the update for a closed new item must not carry status",
+  );
 
   // An existing legacy item closed upstream: update + close (no create).
   const closed = buildAtomicImportMutations(
@@ -375,6 +392,18 @@ test("create ids are stable external-key ids and mutation planning handles trans
     fakeNormalize,
   );
   assert.deepStrictEqual(closed.mutations.map((mutation) => mutation.op), ["update", "close"]);
+  // Regression guard (Gemini review): the update for an already-closed upstream
+  // item must NOT carry `status`. Carrying `status: "open"` would reopen the
+  // existing item before the close step re-closes it — churning notifications,
+  // activity logs, and webhooks on every sync.
+  const closedUpdate = closed.mutations.find((m) => m.op === "update") as
+    | { options: Record<string, unknown> }
+    | undefined;
+  assert.ok(closedUpdate, "closed existing item still issues an update for its fields");
+  assert.ok(
+    closedUpdate && !("status" in closedUpdate.options),
+    "the update for a closed upstream item must not carry status (no reopen churn)",
+  );
 
   // An existing legacy item reopened: a single update carrying the new status.
   const reopened = buildAtomicImportMutations(
@@ -440,37 +469,35 @@ test("atomic dry-run shares the prep path, reports counts, and never commits", a
 });
 
 // ---------------------------------------------------------------------------
-// 5. all-skipped non-dry atomic import → throws the same error shape as
-//    legacy, before commit
+// 5. all-skipped non-dry atomic import → SUCCESS zero-sync (legacy parity),
+//    before commit
 // ---------------------------------------------------------------------------
-test("atomic all-skipped imports fail with the legacy error shape before commit", async () => {
+test("atomic all-skipped imports succeed with a zero-sync result before commit", async () => {
   let sdkCalls = 0;
   // Every fetched issue is dropped by the state backstop filter, so the
-  // prepared set is empty. The atomic path must throw the SAME error shape the
-  // legacy path uses for a failed batch, BEFORE touching the SDK commit.
-  await assert.rejects(
-    () =>
-      syncLinearIssues(
-        { team: "ENG", limit: 100, atomic: true, stateFilter: "nonexistent-state" },
-        "/unused-all-skipped-workspace",
-        {
-          fetchIssues: async () => [
-            makeIssue("ENG-1", "Filtered out", { stateName: "In Progress", stateType: "started" }),
-          ],
-          readItems: () => [],
-          commitAtomic: async () => {
-            sdkCalls++;
-            throw new Error("must not commit an empty plan");
-          },
-        },
-      ),
-    (err: unknown) => {
-      assert.ok(err instanceof CommandError);
-      assert.strictEqual((err as CommandError).exitCode, EXIT_CODE.GENERIC_FAILURE);
-      assert.match((err as Error).message, /Imported 0 issue\(s\); 1 failed/);
-      return true;
+  // prepared set is empty. Filtered-out issues are an expected, common state
+  // for a scheduled sync (not failures), so the atomic path must return a
+  // successful zero-sync result — matching the legacy non-atomic path, which
+  // never errors on an all-filtered batch — WITHOUT touching the SDK commit.
+  const result = await syncLinearIssues(
+    { team: "ENG", limit: 100, atomic: true, stateFilter: "nonexistent-state" },
+    "/unused-all-skipped-workspace",
+    {
+      fetchIssues: async () => [
+        makeIssue("ENG-1", "Filtered out", { stateName: "In Progress", stateType: "started" }),
+      ],
+      readItems: () => [],
+      commitAtomic: async () => {
+        sdkCalls++;
+        throw new Error("must not commit an empty plan");
+      },
     },
   );
+  assert.strictEqual(result.synced, 0);
+  assert.strictEqual(result.created, 0);
+  assert.strictEqual(result.updated, 0);
+  assert.strictEqual(result.skipped, 1, "the filtered issue is counted as skipped, not failed");
+  assert.strictEqual(result.atomic, true);
   assert.strictEqual(sdkCalls, 0, "an all-skipped atomic import never reaches the SDK commit");
 });
 
@@ -583,6 +610,107 @@ test("atomic update and close commit together", async () => {
     assert.strictEqual(item?.title, "Completed upstream");
     assert.strictEqual(item?.status, "closed");
     assert.ok(validateOk(root));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// a hard settings read fault aborts before commit (never forks tx identity)
+// ---------------------------------------------------------------------------
+test("a settings read fault aborts before commit rather than forking identity", async () => {
+  let sdkCalls = 0;
+  // readSettings resolves a missing/malformed settings file to defaults WITHOUT
+  // throwing, so a thrown error is a genuine fault (e.g. EACCES/EIO). Because
+  // both the managed item ids and the durable transaction id are derived from
+  // id_prefix, silently falling back to "pm-" here would fork a retry's
+  // identity from the original run and could duplicate every item. The atomic
+  // path must abort loudly BEFORE any SDK commit instead.
+  await assert.rejects(
+    () =>
+      importLinearAtomic(
+        "/unused-settings-fault-workspace",
+        "ENG",
+        [entry("ENG-60", "Needs prefix")],
+        {
+          commitItemMutations: async () => {
+            sdkCalls++;
+            throw new Error("commit must not run when settings cannot be read");
+          },
+          normalizeItemId: fakeNormalize,
+          readSettings: async () => {
+            const err = new Error(
+              "EACCES: permission denied, open settings.json",
+            ) as NodeJS.ErrnoException;
+            err.code = "EACCES";
+            throw err;
+          },
+        },
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof CommandError);
+      assert.strictEqual((err as CommandError).exitCode, EXIT_CODE.GENERIC_FAILURE);
+      assert.match((err as Error).message, /could not read workspace settings/i);
+      assert.match((err as Error).message, /id_prefix/);
+      return true;
+    },
+  );
+  assert.strictEqual(sdkCalls, 0, "a settings fault must abort before any SDK commit");
+});
+
+// ---------------------------------------------------------------------------
+// the linear-sync importer honors --dry-run (never turns a preview into a write)
+// ---------------------------------------------------------------------------
+function captureImporter(name: string): (ctx: any) => Promise<any> {
+  let handler: ((ctx: any) => Promise<any>) | undefined;
+  const noop = (): void => {};
+  const api: any = {
+    registerCommand: noop,
+    registerParser: noop,
+    registerPreflight: noop,
+    registerService: noop,
+    registerFlags: noop,
+    registerItemFields: noop,
+    registerItemTypes: noop,
+    registerMigration: noop,
+    registerRenderer: noop,
+    registerImporter: (registeredName: string, registeredHandler: any) => {
+      if (registeredName === name) handler = registeredHandler;
+    },
+    registerExporter: noop,
+    registerSearchProvider: noop,
+    registerVectorStoreAdapter: noop,
+    hooks: {
+      beforeCommand: noop,
+      afterCommand: noop,
+      onWrite: noop,
+      onRead: noop,
+      onIndex: noop,
+    },
+  };
+  extension.activate(api);
+  assert.ok(handler, `expected importer "${name}" to be registered`);
+  return handler as (ctx: any) => Promise<any>;
+}
+
+test("linear-sync importer honors --dry-run and never writes", async () => {
+  const importer = captureImporter("linear-sync");
+  const root = freshTracker();
+  try {
+    // Plain --dry-run must take the offline preview path: no network, and no
+    // workspace write. Before the fix, the importer dropped dryRun and fell
+    // through to syncLinearIssues, which writes one pm item per issue.
+    const result = await importer({
+      options: { team: "ENG", "dry-run": true },
+      pm_root: root,
+      global: { json: true },
+    });
+    assert.strictEqual(result.dryRun, true, "dry-run result must be flagged");
+    assert.strictEqual(
+      itemCount(root),
+      0,
+      "a --dry-run linear-sync import must not write any items",
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
