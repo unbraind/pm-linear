@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.7.21 - 2026-07-21
+
+### Added
+
+- Add opt-in --atomic to linear import/sync via SDK commitItemMutations ([pm-linear-nvt5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-nvt5.toon))
+
 ## 2026.7.11 - 2026-07-11
 
 ### Added
