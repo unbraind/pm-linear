@@ -1118,14 +1118,17 @@ export interface PreparedLinearImport {
   match?: PmItem;
 }
 
-function assertSdkFunction<F>(fn: unknown, exportName: string): F {
+function assertSdkFunction<F extends (...args: never[]) => unknown>(
+  fn: F | undefined,
+  exportName: string,
+): F {
   if (typeof fn !== "function") {
     throw new CommandError(
       `--atomic requires @unbrained/pm-cli>=2026.7.20 with the commitItemMutations SDK primitive, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.7.20.`,
       EXIT_CODE.USAGE,
     );
   }
-  return fn as F;
+  return fn;
 }
 
 async function loadAtomicSdk(
@@ -1349,7 +1352,7 @@ export async function importLinearAtomic(
   let idPrefix = "pm-";
   try {
     const settings = await readSettings(pmRoot);
-    if (settings?.id_prefix) idPrefix = String(settings.id_prefix);
+    if (settings.id_prefix) idPrefix = settings.id_prefix;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new CommandError(
@@ -1390,7 +1393,7 @@ export async function importLinearAtomic(
     // as well as steps resumed now. The SDK intentionally returns the durable
     // final results, not a per-invocation delta, so create/update counts cannot
     // be reconstructed truthfully. Report the recovered batch separately.
-    const recovered = Boolean(result?.recovered);
+    const recovered = result.recovered;
     return {
       transactionId,
       recovered,
