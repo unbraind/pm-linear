@@ -1268,7 +1268,8 @@ export function buildAtomicImportMutations(
   // makes later content-bearing transactions refresh the item normally. The
   // close transition is a separate mutation so its reason is preserved and it
   // is reversible independently of the field update.
-  if (!entry.match?.id || entry.match.id === managedItemId) {
+  const matchId = entry.match?.id;
+  if (!matchId || matchId === managedItemId) {
     const mutations: BulkItemMutation[] = [
       {
         op: "create",
@@ -1299,7 +1300,7 @@ export function buildAtomicImportMutations(
     return { itemId: managedItemId, mutations };
   }
 
-  const itemId = entry.match.id;
+  const itemId = matchId;
   const updateOptions: Record<string, unknown> = { ...sharedOptions };
   if (entry.status !== "closed") {
     updateOptions.status = entry.status;
