@@ -36,7 +36,7 @@ tests[3]:
   - command: PM_PATH=.agents/pm PM_GLOBAL_PATH=.agents/pm npm test
     scope: project
     note: Build and full Node test suite
-  - command: rm -rf /tmp/pm-realdata-linear && mkdir -p /tmp/pm-realdata-linear && cd /tmp/pm-realdata-linear && pm init >/dev/null && pm install /home/steve/container/pm-sweep/pm-linear --project >/dev/null && pm linear validate --json > linear-validate.json
+  - command: rm -rf /tmp/pm-realdata-linear && mkdir -p /tmp/pm-realdata-linear && cd /tmp/pm-realdata-linear && pm init >/dev/null && pm install /workspace/pm-sweep/pm-linear --project >/dev/null && pm linear validate --json > linear-validate.json
     scope: project
     timeout_seconds: 1200
 close_reason: "Current SDK/toolchain, release contracts, installed extension, and project context verified"
