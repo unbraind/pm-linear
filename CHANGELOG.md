@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.7.22 - 2026-07-22
+
+### Other
+
+- Adopt pm field-aware merge driver for multi-agent branch-merge safety ([pm-linear-1llj](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1llj.toon))
+
 ## 2026.7.21 - 2026-07-21
 
 ### Added
