@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([pm-linear-3ifi](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-3ifi.toon))
+
 ### Other
 
 - Adopt pm field-aware merge driver for multi-agent branch-merge safety ([pm-linear-1llj](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1llj.toon))
