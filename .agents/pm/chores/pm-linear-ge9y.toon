@@ -6,10 +6,11 @@ status: in_progress
 priority: 2
 tags[3]: changelog,fleet-consistency,release-hygiene
 created_at: "2026-07-24T21:30:43.895Z"
-updated_at: "2026-07-24T21:30:44.743Z"
+updated_at: "2026-07-24T21:43:06.075Z"
 assignee: claude
 author: claude
 acceptance_criteria: "changelog, changelog:full, changelog:check and release:notes all pass --respect-item-release; pm-changelog devDependency is ^2026.7.24; npm run changelog:check is green; CHANGELOG.md content is unchanged by the flag for this repo (no item declares a release yet)"
-notes[1]{created_at,author,text}:
+notes[2]{created_at,author,text}:
   "2026-07-24T21:30:44.742Z",claude,"Verified in this repo: pm-changelog 2026.7.24 installed; npm run changelog:full regenerated CHANGELOG.md with the flag active and produced a ZERO-line diff, confirming the flag is a safe no-op until an item declares a release; npm run changelog:check exits 0."
+  "2026-07-24T21:43:06.074Z",claude,"Greptile review finding adopted: the daily release workflow invokes pm-changelog DIRECTLY (npx pm-changelog, three times) rather than through the npm scripts, so patching only package.json left the generation path that actually produces the published CHANGELOG.md and RELEASE_NOTES.md without the flag while release:check validated with it. Added --respect-item-release to all three release.yml invocations so generation and validation agree. YAML re-validated."
 body: ""
