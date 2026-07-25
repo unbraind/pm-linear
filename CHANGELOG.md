@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([pm-linear-0iye](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-0iye.toon))
+
 ## 2026.7.23 - 2026-07-23
 
 ### Fixed
