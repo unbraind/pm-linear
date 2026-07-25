@@ -54,6 +54,11 @@ Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
 pm install npm:pm-linear --global
 ```
 
+> The `npm:` prefix is required. A bare `pm install pm-linear` resolves only a local
+> directory or a bundled alias, never the registry, and a
+> `github.com/unbraind/pm-linear` source cannot work either — pm copies a GitHub
+> source as-is without building it, and this repository does not commit `dist/`.
+
 Or install per-project:
 
 ```bash
