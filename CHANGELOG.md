@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Documented install command fails: pm install github.com/unbraind/pm-linear cannot resolve an entry file ([pm-linear-ga1c](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ga1c.toon))
+
 ### Other
 
 - Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([pm-linear-0iye](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-0iye.toon))
