@@ -51,13 +51,13 @@ Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
 ### 3. Install the extension
 
 ```bash
-pm install github.com/unbraind/pm-linear --global
+pm install npm:pm-linear --global
 ```
 
 Or install per-project:
 
 ```bash
-pm install github.com/unbraind/pm-linear --project
+pm install npm:pm-linear --project
 ```
 
 ---
