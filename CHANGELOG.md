@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Adopt pm-cli 2026.7.26 typed authoring contracts and remove the any-cast defineExtension shim ([pm-linear-9j2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-9j2g.toon))
+
 ## 2026.7.26 - 2026-07-26
 
 ### Fixed
