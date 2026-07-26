@@ -2,6 +2,12 @@
 
 ## 2026.7.26 - 2026-07-26
 
+### Removed
+
+- Adopt pm-cli 2026.7.26 typed authoring contracts and remove the any-cast defineExtension shim ([pm-linear-9j2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-9j2g.toon))
+
+## 2026.7.26 - 2026-07-26
+
 ### Fixed
 
 - Documented install command fails: pm install github.com/unbraind/pm-linear cannot resolve an entry file ([pm-linear-ga1c](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ga1c.toon))
