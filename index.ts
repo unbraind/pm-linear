@@ -1,15 +1,14 @@
+import type { ExtensionApi, ExtensionModule } from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
 import https from "node:https";
 import crypto from "node:crypto";
 
-import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/sdk";
 import type {
   BulkItemMutation,
   CommitItemMutationsOptions,
   CommitItemMutationsResult,
 } from "@unbrained/pm-cli/sdk";
 
-const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
 // pm's extension command runtime only treats a thrown error as a cleanly
 // handled non-zero exit when the error carries a numeric `exitCode` property
@@ -2175,11 +2174,21 @@ function renderImportDryRun(
 // ---------------------------------------------------------------------------
 // Extension definition
 // ---------------------------------------------------------------------------
+/**
+ * Local stand-in for the SDK's `defineExtension` identity helper.
+ *
+ * Declared here rather than imported so this package keeps a type-only
+ * dependency on `@unbrained/pm-cli` and adds no runtime module edge. The
+ * generic constraint is the SDK's own, so the extension object is contract-
+ * checked against {@link ExtensionModule} exactly as the imported helper would.
+ */
+const defineExtension = <TModule extends ExtensionModule>(module: TModule): TModule => module;
+
 export default defineExtension({
   name: "pm-linear",
   version: "2026.7.26",
 
-  activate(api) {
+  activate(api: ExtensionApi) {
     // -----------------------------------------------------------------------
     // preflight — validate credentials + reachability before any mutating
     // Linear command runs. On failure it injects a sentinel option (it cannot

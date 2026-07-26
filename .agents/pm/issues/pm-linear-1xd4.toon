@@ -1,0 +1,12 @@
+id: pm-linear-1xd4
+title: "Four atomic workspace-transaction tests fail locally but pass in CI: compensation aborts with TOON item document is not valid TOON"
+description: "test/atomic.test.ts spawns the pm binary from PATH rather than node_modules, so local runs exercise whatever pm version the host has installed. Four atomic tests fail identically on main under both pm 2026.7.25 and 2026.7.26, while CI on main is green, which points at a host-environment difference rather than a package or CLI-version regression. Underlying error: Workspace transaction failed and compensation failed - TOON item document is not valid TOON."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-07-26T06:18:41.741Z"
+updated_at: "2026-07-26T06:18:41.741Z"
+author: codex
+acceptance_criteria: "Root cause of the local-only failure identified and documented; Either the test is made host-independent by resolving pm from node_modules, or the environmental prerequisite is documented"
+body: ""
