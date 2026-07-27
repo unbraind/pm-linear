@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Adopt pm-cli 2026.7.27 ([pm-linear-zntu](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-zntu.toon))
+
 ## 2026.7.27 - 2026-07-27
 
 ### Removed
