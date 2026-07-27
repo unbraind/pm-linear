@@ -1,0 +1,15 @@
+id: pm-linear-pfmo
+title: Eliminate all source any with real Linear GraphQL and SDK handler types
+description: "Remove the 11 remaining any annotations in index.ts: (A) type the four Linear GraphQL response sites (team query, viewer probe, issue create/update mutations) with a generic LinearResponse<T> envelope plus per-operation data types, and (B) replace the any handler/context params (isJsonMode, renderImportDryRun, registerPreflight callback) with the real SDK types CommandHandlerContext, ImportExportContext, and PreflightOverrideContext from @unbrained/pm-cli/sdk/authoring. Mirrors the pm-github PR #18 precedent. Typing refactor only: behaviour must not change, all gates (build, test, typecheck, changelog check, zero-any grep) must pass, plus real activation proof in a throwaway workspace."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-07-27T21:38:19.988Z"
+updated_at: "2026-07-27T21:42:26.676Z"
+closed_at: "2026-07-27T21:42:26.675Z"
+author: pi-agent
+notes[1]{created_at,author,text}:
+  "2026-07-27T21:42:18.672Z",pi-agent,"Two clusters fixed. (A) Linear GraphQL: LinearResponse is now generic LinearResponse<TData> { data?: TData; errors?: LinearGraphQLError[] }; linearRequest/linearRequestOnce take a type parameter. New data types: LinearIssuesData (paginated issues query), LinearTeamData + LinearTeamNode (TEAM_QUERY), LinearViewerData (viewer{id} credential probe). The issueCreate/issueUpdate mutation sites read only the error envelope, so they are typed linearRequest<unknown> (no invented schema mirror). JSON.parse wire boundary keeps its single deserialization cast, now as LinearResponse<TData>. (B) SDK contexts: isJsonMode and renderImportDryRun now take CommandHandlerContext | ImportExportContext, registerPreflight callback takes PreflightOverrideContext; all imported type-only from @unbrained/pm-cli/sdk/authoring (same subpath as the existing ExtensionApi/ExtensionModule imports, so no runtime module edge). --json stays read from ctx.global.json (correct contract); defensive ?. chains kept. Gates: build ok, npm test 63/63 pass, tsc --noEmit clean, changelog:check ok, zero-any grep empty. Activation proof in /tmp/pm-linear-proof: pm linear --help exit=0 listing export/import/sync/validate; pm linear sync --help exit=0 with full flags; pm list --json exit=0; pm health exit=0; pm linear validate exit=0 (stderr text) and --json exit=0 (structured object); pm linear sync --team ENG --dry-run --skip-preflight-network exit=0 printing the offline GraphQL plan."
+close_reason: "All 11 source any eliminated with real Linear GraphQL + SDK types; build/test(63)/typecheck/changelog gates green; zero-any grep empty; real activation proof in throwaway workspace (pm linear --help exit 0 with all subcommands, host commands intact, validate + dry-run paths exercised, JSON and stderr modes correct)."
+body: ""
