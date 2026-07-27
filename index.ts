@@ -89,11 +89,13 @@ interface LinearGraphQLError {
 /**
  * Linear's GraphQL response envelope, generic over the per-operation `data`
  * payload so each call site types exactly the selection set it reads instead
- * of casting the whole response to `any`. `data` is optional because Linear
- * can return `errors` with a partial (or absent) payload.
+ * of casting the whole response to `any`. `data` is optional AND nullable
+ * because the GraphQL spec permits both an omitted `data` field and an explicit
+ * `data: null` root payload alongside `errors` — modelling only the omitted case
+ * would be unsound for any consumer that reads `data` without optional chaining.
  */
 interface LinearResponse<TData> {
-  data?: TData;
+  data?: TData | null;
   errors?: LinearGraphQLError[];
 }
 
