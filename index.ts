@@ -1,4 +1,10 @@
-import type { ExtensionApi, ExtensionModule } from "@unbrained/pm-cli/sdk/authoring";
+import type {
+  CommandHandlerContext,
+  ExtensionApi,
+  ExtensionModule,
+  ImportExportContext,
+  PreflightOverrideContext,
+} from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
 import https from "node:https";
 import crypto from "node:crypto";
@@ -71,14 +77,44 @@ export interface LinearIssue {
   url?: string | null;
 }
 
-interface LinearResponse {
-  data?: {
-    issues?: {
-      nodes: LinearIssue[];
-      pageInfo?: { hasNextPage: boolean; endCursor: string | null };
-    };
+/**
+ * One entry of Linear's top-level `errors` array. Linear reports GraphQL
+ * failures out-of-band (HTTP 200 + `errors`), so every caller checks this
+ * envelope field before trusting `data`; only `message` is ever read.
+ */
+interface LinearGraphQLError {
+  message: string;
+}
+
+/**
+ * Linear's GraphQL response envelope, generic over the per-operation `data`
+ * payload so each call site types exactly the selection set it reads instead
+ * of casting the whole response to `any`. `data` is optional because Linear
+ * can return `errors` with a partial (or absent) payload.
+ */
+interface LinearResponse<TData> {
+  data?: TData;
+  errors?: LinearGraphQLError[];
+}
+
+/**
+ * The `data` payload of the paginated issues query: only the connection
+ * fields `fetchAllLinearIssues` actually reads while following cursors.
+ */
+interface LinearIssuesData {
+  issues?: {
+    nodes: LinearIssue[];
+    pageInfo?: { hasNextPage: boolean; endCursor: string | null };
   };
-  errors?: Array<{ message: string }>;
+}
+
+/**
+ * The `data` payload of the `viewer { id }` credential probe. Only the
+ * viewer id is read: its presence proves the API key is accepted, so the
+ * preflight can distinguish "key rejected" from "reachable but unscoped".
+ */
+interface LinearViewerData {
+  viewer?: { id?: string };
 }
 
 // Linear's GraphQL API caps `first` at 250 per page; request at most that and
@@ -657,7 +693,7 @@ async function fetchAllLinearIssues(
     // it caps `first` at the page size. Pass `remaining` so the last page does
     // not over-fetch.
     const plan = buildImportRequestPlan(team, remaining, filters, after);
-    const response: LinearResponse = await linearRequest(
+    const response = await linearRequest<LinearIssuesData>(
       apiKey,
       plan.query,
       plan.variables
@@ -734,11 +770,11 @@ function parseRetryAfter(header: string | string[] | undefined): number | undefi
   return undefined;
 }
 
-function linearRequestOnce(
+function linearRequestOnce<TData>(
   apiKey: string,
   query: string,
   variables: Record<string, unknown>
-): Promise<LinearResponse> {
+): Promise<LinearResponse<TData>> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query, variables });
 
@@ -776,7 +812,11 @@ function linearRequestOnce(
           }
           try {
             const raw = Buffer.concat(chunks).toString("utf8");
-            resolve(JSON.parse(raw) as LinearResponse);
+            // Wire-boundary deserialization: the body cannot be validated
+            // field-by-field cheaply, so the envelope is trusted per the
+            // operation's selection set and every reader still defends with
+            // optional chaining (Linear may return partial data + errors).
+            resolve(JSON.parse(raw) as LinearResponse<TData>);
           } catch (err) {
             reject(new Error(`Failed to parse Linear response: ${String(err)}`));
           }
@@ -796,15 +836,15 @@ function linearRequestOnce(
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-async function linearRequest(
+async function linearRequest<TData>(
   apiKey: string,
   query: string,
   variables: Record<string, unknown>
-): Promise<LinearResponse> {
+): Promise<LinearResponse<TData>> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await linearRequestOnce(apiKey, query, variables);
+      return await linearRequestOnce<TData>(apiKey, query, variables);
     } catch (err) {
       lastErr = err;
       if (!(err instanceof RetriableHttpError) || attempt === MAX_RETRIES) break;
@@ -1833,6 +1873,24 @@ mutation($id: String!, $input: IssueUpdateInput!) {
 }
 `.trim();
 
+/**
+ * The single team node TEAM_QUERY selects, restricted to the fields
+ * resolveTeamContext reads. Every field is optional: Linear may return a
+ * partial node alongside GraphQL `errors`, and the resolver treats each
+ * nested value as suspect until it has been checked (hence the `?.` guards).
+ */
+interface LinearTeamNode {
+  id?: string;
+  states?: { nodes: Array<{ id?: string; name?: string }> };
+  labels?: { nodes: Array<{ id?: string; name?: string }> };
+  cycles?: { nodes: Array<{ id?: string; name?: string | null; number?: number | null }> };
+}
+
+/** The `data` payload of TEAM_QUERY: the team-key lookup connection. */
+interface LinearTeamData {
+  teams?: { nodes: LinearTeamNode[] };
+}
+
 interface TeamContext {
   teamId: string;
   // Linear state name (lower-cased) -> state id, for status push.
@@ -1849,10 +1907,10 @@ interface TeamContext {
 }
 
 async function resolveTeamContext(apiKey: string, teamKey: string): Promise<TeamContext> {
-  const resp: any = await linearRequest(apiKey, TEAM_QUERY, { key: teamKey.toUpperCase() });
+  const resp = await linearRequest<LinearTeamData>(apiKey, TEAM_QUERY, { key: teamKey.toUpperCase() });
   if (resp.errors?.length) {
     throw new CommandError(
-      `Linear API error resolving team ${teamKey}: ${resp.errors.map((e: any) => e.message).join("; ")}`
+      `Linear API error resolving team ${teamKey}: ${resp.errors.map((e) => e.message).join("; ")}`
     );
   }
   const node = resp.data?.teams?.nodes?.[0];
@@ -2057,9 +2115,9 @@ async function preflightLinear(
   }
   if (!checkReachability) return null;
   try {
-    const resp: any = await linearRequest(apiKey, "query { viewer { id } }", {});
+    const resp = await linearRequest<LinearViewerData>(apiKey, "query { viewer { id } }", {});
     if (resp.errors?.length) {
-      return `Linear API rejected the credentials: ${resp.errors.map((e: any) => e.message).join("; ")}`;
+      return `Linear API rejected the credentials: ${resp.errors.map((e) => e.message).join("; ")}`;
     }
     if (!resp.data?.viewer?.id) {
       return "Linear API reachable but returned no viewer; check the API key scope.";
@@ -2111,9 +2169,12 @@ function assertPreflightOk(options: Record<string, unknown>): void {
 }
 
 // True when the caller passed the GLOBAL --json flag. pm exposes it on
-// ctx.global.json; in JSON mode handlers return the object and must NOT write
-// their own stdout (the runtime serializes the return value).
-function isJsonMode(ctx: any): boolean {
+// ctx.global.json (NOT ctx.options); in JSON mode handlers return the object
+// and must NOT write their own stdout (the runtime serializes the return
+// value). Both command and importer/exporter contexts carry `global`, hence
+// the union; the `?.` chain stays because it costs nothing and keeps the
+// helper safe against a host that hands through a partial context.
+function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
   return Boolean(ctx?.global?.json);
 }
 
@@ -2122,7 +2183,7 @@ function isJsonMode(ctx: any): boolean {
 // preview to stderr. Shared by `linear sync` and the `linear` importer so both
 // dry-run paths are identical and network-free. Returns the JSON-mode payload.
 function renderImportDryRun(
-  ctx: any,
+  ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
   teamSource?: TeamSource
 ): Record<string, unknown> {
@@ -2194,7 +2255,7 @@ export default defineExtension({
     // Linear command runs. On failure it injects a sentinel option (it cannot
     // abort by throwing) that the handlers convert into a clean USAGE error.
     // -----------------------------------------------------------------------
-    api.registerPreflight(async (ctx: any) => {
+    api.registerPreflight(async (ctx: PreflightOverrideContext) => {
       if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
       // Reachability uses the network; allow opting out (CI/offline/tests).
       // pm strips a leading `--no-` as boolean negation, so the user-facing flag
@@ -2636,13 +2697,16 @@ export default defineExtension({
             if (labelIds.length > 0) input.labelIds = labelIds;
             if (payload.dueDate) input.dueDate = payload.dueDate;
             applyPushDynamicFields(input, payload, teamCtx.cyclesByName);
-            const resp: any = await linearRequest(apiKey, ISSUE_UPDATE_MUTATION, {
+            // Only the error envelope is consumed here — the mutation's
+            // `success`/`issue` payload is never read, so the data type is
+            // honestly `unknown` rather than an invented schema mirror.
+            const resp = await linearRequest<unknown>(apiKey, ISSUE_UPDATE_MUTATION, {
               id: payload.linearId,
               input,
             });
             if (resp.errors?.length) {
               throw new Error(
-                `Linear issueUpdate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
+                `Linear issueUpdate failed: ${resp.errors.map((e) => e.message).join("; ")}`
               );
             }
             updated++;
@@ -2659,10 +2723,11 @@ export default defineExtension({
           if (labelIds.length > 0) input.labelIds = labelIds;
           if (payload.dueDate) input.dueDate = payload.dueDate;
           applyPushDynamicFields(input, payload, teamCtx.cyclesByName);
-          const resp: any = await linearRequest(apiKey, ISSUE_CREATE_MUTATION, { input });
+          // Same contract as the update above: only `errors` is read.
+          const resp = await linearRequest<unknown>(apiKey, ISSUE_CREATE_MUTATION, { input });
           if (resp.errors?.length) {
             throw new Error(
-              `Linear issueCreate failed: ${resp.errors.map((e: any) => e.message).join("; ")}`
+              `Linear issueCreate failed: ${resp.errors.map((e) => e.message).join("; ")}`
             );
           }
           created++;
