@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Adopt --respect-item-release in changelog scripts and bump pm-changelog to 2026.7.24 ([pm-linear-ge9y](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-ge9y.toon))
+
 ## 2026.7.28 - 2026-07-28
 
 ### Other
