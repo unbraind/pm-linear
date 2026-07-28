@@ -15,6 +15,7 @@ import extension, {
   syncLinearIssues,
 } from "../dist/index.js";
 import type { PreparedLinearImport, LinearIssue } from "../dist/index.js";
+import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 const PM_BIN = process.platform === "win32" ? "pm.cmd" : "pm";
 const PM_SPAWN_OPTS = {
@@ -661,51 +662,34 @@ test("a settings read fault aborts before commit rather than forking identity", 
 // ---------------------------------------------------------------------------
 // the linear-sync importer honors --dry-run (never turns a preview into a write)
 // ---------------------------------------------------------------------------
-function captureImporter(name: string): (ctx: any) => Promise<any> {
-  let handler: ((ctx: any) => Promise<any>) | undefined;
-  const noop = (): void => {};
-  const api: any = {
-    registerCommand: noop,
-    registerParser: noop,
-    registerPreflight: noop,
-    registerService: noop,
-    registerFlags: noop,
-    registerItemFields: noop,
-    registerItemTypes: noop,
-    registerMigration: noop,
-    registerRenderer: noop,
-    registerImporter: (registeredName: string, registeredHandler: any) => {
-      if (registeredName === name) handler = registeredHandler;
-    },
-    registerExporter: noop,
-    registerSearchProvider: noop,
-    registerVectorStoreAdapter: noop,
-    hooks: {
-      beforeCommand: noop,
-      afterCommand: noop,
-      onWrite: noop,
-      onRead: noop,
-      onIndex: noop,
-    },
-  };
-  extension.activate(api);
-  assert.ok(handler, `expected importer "${name}" to be registered`);
-  return handler as (ctx: any) => Promise<any>;
+// Activated once through pm's REAL engine via createExtensionTestHarness so the
+// importer is exercised through real dispatch (runImporter), not a hand-rolled
+// api double that registers the handler and then never evaluates it.
+let atomicHarness: ExtensionTestHarness | undefined;
+async function getAtomicHarness(): Promise<ExtensionTestHarness> {
+  if (!atomicHarness) {
+    atomicHarness = await createExtensionTestHarness(extension, {
+      name: "pm-linear",
+      capabilities: ["commands", "schema", "importers", "preflight"],
+    });
+    assert.deepEqual(atomicHarness.activation.failed, [], "activation must not fail");
+  }
+  return atomicHarness;
 }
 
 test("linear-sync importer honors --dry-run and never writes", async () => {
-  const importer = captureImporter("linear-sync");
+  const harness = await getAtomicHarness();
   const root = freshTracker();
   try {
     // Plain --dry-run must take the offline preview path: no network, and no
     // workspace write. Before the fix, the importer dropped dryRun and fell
     // through to syncLinearIssues, which writes one pm item per issue.
-    const result = await importer({
+    const { result } = await harness.runImporter({
+      importer: "linear-sync",
       options: { team: "ENG", "dry-run": true },
-      pm_root: root,
-      global: { json: true },
+      pmRoot: root,
     });
-    assert.strictEqual(result.dryRun, true, "dry-run result must be flagged");
+    assert.strictEqual((result as any).dryRun, true, "dry-run result must be flagged");
     assert.strictEqual(
       itemCount(root),
       0,

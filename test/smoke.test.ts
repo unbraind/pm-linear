@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
+
 import extension, {
   parseStatusMap,
   resolveStatus,
@@ -43,40 +45,34 @@ test("extension has required shape", () => {
   assert.strictEqual(typeof extension.activate, "function", "activate should be a function");
 });
 
-test("extension registers expected capabilities", () => {
-  const registered: string[] = [];
-  // Mirror the full ExtensionApi the activate() body actually touches; a partial
-  // mock would throw TypeError when the extension calls an absent method.
-  const api = {
-    registerCommand: () => { registered.push("command"); },
-    registerParser: () => { registered.push("parser"); },
-    registerPreflight: () => { registered.push("preflight"); },
-    registerService: () => { registered.push("service"); },
-    registerFlags: () => { registered.push("flags"); },
-    registerItemFields: () => { registered.push("itemFields"); },
-    registerItemTypes: () => { registered.push("itemTypes"); },
-    registerMigration: () => { registered.push("migration"); },
-    registerRenderer: () => { registered.push("renderer"); },
-    registerImporter: () => { registered.push("importer"); },
-    registerExporter: () => { registered.push("exporter"); },
-    registerSearchProvider: () => { registered.push("search"); },
-    registerVectorStoreAdapter: () => { registered.push("vector"); },
-    hooks: {
-      beforeCommand: () => { registered.push("beforeCommand"); },
-      afterCommand: () => { registered.push("afterCommand"); },
-      onWrite: () => { registered.push("onWrite"); },
-      onRead: () => { registered.push("onRead"); },
-      onIndex: () => { registered.push("onIndex"); },
-    },
-  };
-  extension.activate(api as any);
-  // sync command, schema fields, the new linear importer/exporter, legacy importer
-  assert.ok(registered.includes("command"), "should register the sync command");
-  assert.ok(registered.includes("itemFields"), "should register item fields");
-  assert.ok(registered.includes("importer"), "should register importer(s)");
-  assert.ok(registered.includes("exporter"), "should register the exporter");
-  assert.ok(registered.includes("preflight"), "should register the preflight guard");
-  assert.ok(registered.includes("flags"), "should register importer/exporter flags");
+// ---------------------------------------------------------------------------
+// Activation proof: drive the extension through pm's REAL registration
+// validation and activation engine via createExtensionTestHarness, so a host
+// rejection (e.g. a host-owned flag collision that aborts command registration)
+// fails this suite instead of staying green against a hand-rolled api double.
+// ---------------------------------------------------------------------------
+
+let linearHarness: ExtensionTestHarness;
+
+test("extension activates cleanly and registers expected capabilities", async () => {
+  linearHarness = await createExtensionTestHarness(extension, {
+    name: "pm-linear",
+    capabilities: ["commands", "schema", "importers", "preflight"],
+  });
+  assert.deepEqual(linearHarness.activation.failed, [], "activation must not fail");
+  // sync + validate commands
+  linearHarness.assertCommandContract({ command: "linear sync" });
+  linearHarness.assertCommandContract({ command: "linear validate" });
+  // schema item fields
+  linearHarness.assertItemField({ field: "linear_id", type: "string" });
+  linearHarness.assertItemField({ field: "linear_url", type: "string" });
+  // native + legacy importers, exporter, preflight guard, importer/exporter flags
+  linearHarness.assertImporter({ importer: "linear" });
+  linearHarness.assertImporter({ importer: "linear-sync" });
+  linearHarness.assertExporter({ exporter: "linear" });
+  linearHarness.assertPreflightOverride();
+  linearHarness.assertFlags({ targetCommand: "linear import", flags: ["--team", "--dry-run"] });
+  linearHarness.assertFlags({ targetCommand: "linear export", flags: ["--push", "--dry-run"] });
 });
 
 test("parseStatusMap preserves original key casing and ignores junk", () => {
