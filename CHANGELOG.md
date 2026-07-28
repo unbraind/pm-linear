@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2026.7.28 - 2026-07-28
 
 ### Other
 
+- Eliminate all source any with real Linear GraphQL and SDK handler types ([pm-linear-pfmo](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-pfmo.toon))
 - Adopt pm-cli 2026.7.27 ([pm-linear-zntu](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-zntu.toon))
 
 ## 2026.7.27 - 2026-07-27
