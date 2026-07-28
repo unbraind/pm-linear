@@ -13,8 +13,8 @@ import extension, {
   deriveAtomicTransactionId,
   importLinearAtomic,
   syncLinearIssues,
-} from "../dist/index.js";
-import type { PreparedLinearImport, LinearIssue } from "../dist/index.js";
+} from "../index.ts";
+import type { PreparedLinearImport, LinearIssue } from "../index.ts";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 const PM_BIN = process.platform === "win32" ? "pm.cmd" : "pm";

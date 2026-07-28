@@ -35,7 +35,7 @@ import extension, {
   resolveTeamSelection,
   AuthHttpError,
   normalizeCycleFilter,
-} from "../dist/index.js";
+} from "../index.ts";
 
 test("extension has required shape", () => {
   assert.ok(extension, "module should export a default value");
