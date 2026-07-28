@@ -4,6 +4,7 @@
 
 ### Other
 
+- Adopt pm-cli 2026.7.28 and migrate activation tests to the real SDK harness ([pm-linear-itg9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-itg9.toon))
 - Eliminate all source any with real Linear GraphQL and SDK handler types ([pm-linear-pfmo](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-pfmo.toon))
 - Adopt pm-cli 2026.7.27 ([pm-linear-zntu](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-zntu.toon))
 
