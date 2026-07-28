@@ -2,15 +2,18 @@ id: pm-linear-ge9y
 title: Adopt --respect-item-release in changelog scripts and bump pm-changelog to 2026.7.24
 description: "pm-changelog 2026.7.24 adds --respect-item-release, which makes the single-window generation path (--since-previous-tag --until-release-tag, changelog:check, release notes) honour an item's declared release field instead of trusting closed_at. Without it, closing a tracker whose fix shipped in an earlier release dates months-old work as new, which is why shipped-but-unclosed trackers accumulate: closing them corrupts the changelog. Adopting the flag fleet-wide makes late tracker closure safe and keeps every package's generation path in agreement with --all-release-tags."
 type: Chore
-status: in_progress
+status: closed
 priority: 2
 tags[3]: changelog,fleet-consistency,release-hygiene
 created_at: "2026-07-24T21:30:43.895Z"
-updated_at: "2026-07-24T21:43:06.075Z"
-assignee: claude
+updated_at: "2026-07-28T11:30:04.626Z"
+closed_at: "2026-07-28T11:14:16.606Z"
 author: claude
 acceptance_criteria: "changelog, changelog:full, changelog:check and release:notes all pass --respect-item-release; pm-changelog devDependency is ^2026.7.24; npm run changelog:check is green; CHANGELOG.md content is unchanged by the flag for this repo (no item declares a release yet)"
-notes[2]{created_at,author,text}:
+release: 2026.7.25
+notes[3]{created_at,author,text}:
   "2026-07-24T21:30:44.742Z",claude,"Verified in this repo: pm-changelog 2026.7.24 installed; npm run changelog:full regenerated CHANGELOG.md with the flag active and produced a ZERO-line diff, confirming the flag is a safe no-op until an item declares a release; npm run changelog:check exits 0."
   "2026-07-24T21:43:06.074Z",claude,"Greptile review finding adopted: the daily release workflow invokes pm-changelog DIRECTLY (npx pm-changelog, three times) rather than through the npm scripts, so patching only package.json left the generation path that actually produces the published CHANGELOG.md and RELEASE_NOTES.md without the flag while release:check validated with it. Added --respect-item-release to all three release.yml invocations so generation and validation agree. YAML re-validated."
+  "2026-07-28T11:30:04.625Z",claude-code,"Correction to the close reason, raised by CodeRabbit on pm-ts-starter#43: the phrase pinned at 2026.7.24 or later is imprecise, because the manifest declares a caret RANGE rather than a pin. Exact verified values for this repo on 2026-07-28: package.json declares pm-changelog ^2026.7.25, the lockfile resolves it to 2026.7.25, and 4 changelog scripts pass --respect-item-release. The substance of the closure is unchanged; only the wording was loose. Original record preserved rather than rewritten."
+close_reason: "Shipped and verified 2026-07-28: all four changelog scripts in package.json pass --respect-item-release and pm-changelog is pinned at 2026.7.24 or later. Closing so the tracker stops advertising completed work as in flight."
 body: ""
