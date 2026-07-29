@@ -25,7 +25,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 ## Requirements
 
-- pm-cli `>=2026.7.5`
+- pm-cli `>=2026.7.29`
 - Node.js `>=22.18.0`
 - A Linear API key with read access to the relevant teams (only for **live**
   paths; every `--dry-run` and offline `validate` works without one)
