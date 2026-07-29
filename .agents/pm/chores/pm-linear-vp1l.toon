@@ -1,0 +1,16 @@
+id: pm-linear-vp1l
+title: Adopt pm-cli 2026.7.29
+description: "Bump pm-cli dependency to 2026.7.29, update peerDependency, audit for removed --all flag, audit for fixed upstream workarounds (GH-651, GH-672, GH-676, GH-785/792, GH-794), pass all quality gates."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-07-29T04:43:33.761Z"
+updated_at: "2026-07-29T04:44:29.861Z"
+closed_at: "2026-07-29T04:44:29.850Z"
+completed_at: "2026-07-29T04:44:29.850Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-07-29T04:43:54.917Z",pi-agent,"Bumped @unbrained/pm-cli devDependency to 2026.7.29, set peerDependency to >=2026.7.29. Audited for 'list --all' and 'list -a': no hits found. Upstream workaround audit: GH-651/672/785/792/794 - no hits. GH-676 (list --tag CSV) - two hits in index.ts comment and README.md showing pm list --tag with a single tag value (not CSV), just documentation of the cycle tag feature. No workarounds to remove."
+close_reason: "Bumped @unbrained/pm-cli to 2026.7.29 (devDep + peerDep >=2026.7.29). No 'list --all' hits found. No upstream workarounds to remove. All quality gates pass: 63 tests, coverage lines 70.53% (threshold 70), branches 80.42% (threshold 80), functions 80.43% (threshold 80). Changelog check and audit:prod clean."
+body: ""

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Enforce a real coverage gate by running tests against TypeScript sources ([pm-linear-v618](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-v618.toon))
+
+### Other
+
+- Adopt pm-cli 2026.7.29 ([pm-linear-vp1l](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-vp1l.toon))
+
 ## 2026.7.28 - 2026-07-28
 
 ### Other
