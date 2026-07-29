@@ -12,6 +12,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmitOnError": false,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
     "types": [
       "node"
     ]
