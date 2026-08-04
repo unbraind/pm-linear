@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.8.4 - 2026-08-04
+
+### Other
+
+- Resolve pm-changelog to the release that derives release dates in UTC ([pm-linear-hrda](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-hrda.toon))
+
 ## 2026.7.29 - 2026-07-29
 
 ### Added
