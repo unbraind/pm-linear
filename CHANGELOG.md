@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Gate CI on pm health for tracker integrity (does not cover discarded peer edits, see pm-cli 922) ([pm-linear-9848](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-9848.toon))
+
 ## 2026.8.4 - 2026-08-04
 
 ### Other
