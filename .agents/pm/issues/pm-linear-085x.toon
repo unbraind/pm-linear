@@ -1,0 +1,19 @@
+id: pm-linear-085x
+title: Adopt the canonical pm-ops docstring gate and document all source declarations
+description: "Wire the fleet's canonical pm-ops/docstrings analyzer into pm-linear as a mandatory release gate and document every source declaration it requires, rather than copying a weaker fork."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-08T23:51:28.810Z"
+updated_at: "2026-08-08T23:53:15.572Z"
+closed_at: "2026-08-08T23:53:15.546Z"
+completed_at: "2026-08-08T23:53:15.546Z"
+author: pi-agent
+acceptance_criteria: "The canonical pm-ops/docstrings analyzer is adopted via a thin scripts/docstring-gate.ts launcher that imports analyzeDocstringCoverage; no docstring-gate fork is copied; npm run docstring is added and inserted into release:check and the CI workflow so a release cannot ship undocumented declarations; The violation count is driven from 34 to 0 against the canonical analyzer; A test covers the gate's clean and violation paths plus the main/isMainInvocation entry points"
+notes[3]{created_at,author,text}:
+  "2026-08-08T23:51:48.557Z",pi-agent,"Before (canonical pm-ops/docstrings analyzer @2026.8.8): files=2, declarations_checked=37, violations=34 (8% documented). Violations spanned index.ts only: EXIT_CODE, CommandError(+exitCode), LinearIssue, readNumberOption, readBooleanOption, readProjectMapOption, TeamSelection, invertStatusMap, resolveLinearStateName, ProjectMap, buildProvenance, parseProvenance, IssueFilterFlags, AuthHttpError(+status), backoffDelayMs, parseRetryAfter, linearRequestOnce, linearRequest, readPmItems, AtomicImportOptions, resolveTeamContext, resolveLabelIds, resolveCycleId, resetCycleWarning, applyPushDynamicFields, ExportMutationPlan, commandMutatesLinear, preflightLinear, maskApiKey, buildValidationReport, assertPreflightOk, renderImportDryRun."
+  "2026-08-08T23:51:50.396Z",pi-agent,"After: npm run docstring -> docstring-gate: 4 file(s), 42 declaration(s) documented. (0 violations; coverageGate reports scripts/ excluded from the measured source set, so the gate scripts add no coverage burden)."
+  "2026-08-08T23:51:51.437Z",pi-agent,"Adoption: copied pm-rl's scripts/docstring-gate.ts (thin launcher importing analyzeDocstringCoverage from pm-ops/docstrings, pure runGate + main that sets process.exitCode) and scripts/script-launcher.ts verbatim. Added pm-ops@^2026.8.8 to devDependencies; added the 'docstring' script and inserted it into release:check and ci.yml (after Build, before the coverage gate). NO fork copied; pm-ops itself unchanged."
+close_reason: "Adopted the canonical pm-ops/docstrings analyzer (pm-ops@^2026.8.8) via a thin scripts/docstring-gate.ts launcher; documented all 34 previously-undocumented declarations (37->0 violations, 42 declarations now documented across 4 files); wired npm run docstring into release:check and ci.yml; added test/docstring-gate.test.ts. No fork copied; typecheck/build/test/coverage/docstring/audit/pack all green."
+body: ""

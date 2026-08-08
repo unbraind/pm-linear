@@ -16,20 +16,33 @@ import type {
 } from "@unbrained/pm-cli/sdk";
 
 
-// pm's extension command runtime only treats a thrown error as a cleanly
-// handled non-zero exit when the error carries a numeric `exitCode` property
-// (see @unbrained/pm-cli runCommandHandler). A plain `Error` makes the runtime
-// fall through to its "unhandled" path, which RE-INVOKES the command handler a
-// second time and exits with a generic code. We mirror the SDK's EXIT_CODE
-// contract here rather than importing it: standalone-installed extensions load
-// only their own `dist/`, so `@unbrained/pm-cli` is not resolvable at runtime.
+/**
+ * Numeric process exit codes the extension mirrors from the pm SDK contract.
+ *
+ * The command runtime only treats a thrown error as a cleanly handled non-zero
+ * exit when the error carries a numeric `exitCode` property (see
+ * `@unbrained/pm-cli` runCommandHandler); a plain `Error` falls through to the
+ * "unhandled" path, which RE-INVOKES the handler a second time and exits with a
+ * generic code. The SDK constant is mirrored locally rather than imported
+ * because standalone-installed extensions load only their own `dist/`, so
+ * `@unbrained/pm-cli` is not resolvable at runtime.
+ */
 export const EXIT_CODE = {
   GENERIC_FAILURE: 1,
   USAGE: 2,
   NOT_FOUND: 3,
 } as const;
 
+/**
+ * Error a command handler throws to exit with a specific, recoverable code.
+ *
+ * Carries an {@link exitCode} the pm runtime reads to distinguish a handled
+ * usage or not-found failure (USAGE, NOT_FOUND) from an unexpected crash
+ * (GENERIC_FAILURE), so a bad flag or a missing team reports cleanly instead of
+ * surfacing as an unhandled exception that re-invokes the handler.
+ */
 export class CommandError extends Error {
+  /** Numeric code the pm runtime propagates as the process exit status. */
   exitCode: number;
   constructor(message: string, exitCode: number = EXIT_CODE.GENERIC_FAILURE) {
     super(message);
@@ -60,6 +73,14 @@ interface LinearAssignee {
   email: string | null;
 }
 
+/**
+ * One Linear issue as the issues query selects it, mirroring the GraphQL nodes.
+ *
+ * Holds only the fields the importer and exporter read (identifier, title,
+ * state, labels, cycle, project, assignee, estimate, dueDate, url) so a change
+ * to the selection set is a deliberate edit here rather than a silent shape
+ * drift between the fetched payload and the mapped pm item.
+ */
 export interface LinearIssue {
   id: string;
   identifier: string;
@@ -142,6 +163,17 @@ function readStringOption(
   return typeof v === "string" ? v : v === undefined ? undefined : String(v);
 }
 
+/**
+ * Read a numeric flag value, tolerating both kebab-case and camelCase keys.
+ *
+ * The pm CLI normalizes loose flags to camelCase, so reading only the kebab key
+ * would yield undefined and silently default a `--limit 50` to its fallback.
+ * Coerces a numeric string and rejects NaN/Infinity by returning undefined.
+ *
+ * @param options - Raw flag bag from the command context.
+ * @param kebab - The user-facing kebab-case flag name (e.g. `limit`).
+ * @returns The parsed finite number, or undefined when the flag is absent.
+ */
 function readNumberOption(
   options: Record<string, unknown>,
   kebab: string
@@ -152,6 +184,17 @@ function readNumberOption(
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Read a boolean flag, accepting kebab-case and camelCase plus loose spellings.
+ *
+ * A bare `--flag` arrives as `true`; `--flag false`, `0`, `no`, and an empty
+ * string all collapse to the conventional truthiness a command expects, so a
+ * kebab-only read never mis-defaults a boolean switch.
+ *
+ * @param options - Raw flag bag from the command context.
+ * @param kebab - The user-facing kebab-case flag name.
+ * @returns The resolved boolean (never undefined; defaults to false).
+ */
 function readBooleanOption(
   options: Record<string, unknown>,
   kebab: string
@@ -165,11 +208,15 @@ function readBooleanOption(
   return Boolean(v);
 }
 
-// Read --project-map, preserving the "absent vs bare-flag" distinction that a
-// plain readStringOption would lose. Returns undefined when the flag was not
-// passed at all; "" (passthrough) when passed as a bare boolean flag; otherwise
-// the string value. This lets `--project-map` (no value) mean "tag with the
-// verbatim project name" while still supporting `--project-map "A=x,B=y"`.
+/**
+ * Read the `--project-map` flag, preserving the absent-versus-bare distinction.
+ *
+ * A plain string read would lose the difference between "not passed" and "passed
+ * as a bare flag": undefined means the feature is off entirely, the empty string
+ * means passthrough (tag with the verbatim project name), and any other value is
+ * an explicit `A=x,B=y` remap. Without that split, `--project-map` with no value
+ * could be mistaken for "absent" and silently disable project tagging.
+ */
 function readProjectMapOption(options: Record<string, unknown>): string | undefined {
   const v = options["project-map"] ?? options[camelKey("project-map")];
   if (v === undefined) return undefined;
@@ -179,6 +226,14 @@ function readProjectMapOption(options: Record<string, unknown>): string | undefi
 
 type TeamSource = "flag" | "env";
 
+/**
+ * A resolved Linear team slug together with where it came from.
+ *
+ * The source is carried alongside the value so human and JSON output can explain
+ * whether the team came from `--team` or from the `LINEAR_DEFAULT_TEAM` fallback
+ * — important for automation where an injected default should be visible, not
+ * silent.
+ */
 export interface TeamSelection {
   team: string;
   source: TeamSource;
@@ -353,6 +408,15 @@ const DEFAULT_PM_TO_LINEAR_STATE: Record<string, string> = {
   closed: "Done",
 };
 
+/**
+ * Reverse a `--status-map` into a pm-status-keyed lookup for the exporter.
+ *
+ * The user-facing map is `Linear state name -> pm status` (original casing
+ * preserved); the export direction needs the inverse, keyed by pm status, so the
+ * same flag round-trips both ways. The original Linear casing survives the flip
+ * so the push echoes the state name exactly as authored. First entry wins on a
+ * pm-status collision.
+ */
 export function invertStatusMap(
   statusMap: Record<string, string>
 ): Record<string, string> {
@@ -369,6 +433,18 @@ export function invertStatusMap(
   return inverted;
 }
 
+/**
+ * Pick the Linear workflow-state name a pm status should push toward.
+ *
+ * Prefers a user-supplied inverted status map entry for the status, then falls
+ * back to the conventional default names every Linear team ships with ("Todo",
+ * "In Progress", "Done"). Returns undefined when neither matches so the caller
+ * can leave the issue's current state untouched rather than guessing.
+ *
+ * @param pmStatus - The pm status string (matched case-insensitively).
+ * @param invertedMap - A pm-status-keyed map from `invertStatusMap`.
+ * @returns The target Linear state name, or undefined when none resolves.
+ */
 export function resolveLinearStateName(
   pmStatus: string | undefined,
   invertedMap: Record<string, string>
@@ -394,6 +470,14 @@ export function resolveLinearStateName(
 //
 // parseProjectMap returns { passthrough, map }. Pure + exported for testing.
 // ---------------------------------------------------------------------------
+/**
+ * Parsed shape of the `--project-map` flag: whether it is on, its mode, and any
+ * explicit remap entries.
+ *
+ * `enabled` is false only when the flag is absent; `passthrough` tags each item
+ * with its own verbatim project name; an explicit `map` remaps matched projects
+ * and lets a value of `ignore` suppress a single project's tag.
+ */
 export interface ProjectMap {
   enabled: boolean;
   passthrough: boolean;
@@ -492,6 +576,16 @@ export function resolvePmField(
 // ---------------------------------------------------------------------------
 const PROVENANCE_MARKER = "[linear]";
 
+/**
+ * Encode Linear provenance into the stable marker written to a pm description.
+ *
+ * A standalone extension cannot write registerItemFields custom fields via
+ * `pm create`, so the Linear id and url are stored behind a machine-parseable
+ * marker that `parseProvenance` reads back to keep re-import idempotent.
+ *
+ * @param issue - The Linear issue to record (id, identifier, and optional url).
+ * @returns The provenance marker string to store in the item description.
+ */
 export function buildProvenance(issue: {
   id: string;
   identifier: string;
@@ -501,8 +595,15 @@ export function buildProvenance(issue: {
   return `${PROVENANCE_MARKER} linear_id=${issue.id} linear_url=${url}`;
 }
 
-// Extract { linear_id, linear_url } from a pm item's description, if present.
-// Returns undefined when the item has no Linear provenance. Pure + exported.
+/**
+ * Extract the stored Linear id and url from a pm item's description.
+ *
+ * Reads back what `buildProvenance` wrote so a re-import can match an existing
+ * item by its Linear id and update it instead of creating a duplicate.
+ *
+ * @param description - The pm item description text to scan.
+ * @returns The `{ linear_id, linear_url }` pair, or undefined when absent.
+ */
 export function parseProvenance(
   description: string | undefined
 ): { linear_id: string; linear_url: string } | undefined {
@@ -519,8 +620,13 @@ export function parseProvenance(
 // ---------------------------------------------------------------------------
 // GraphQL query
 // ---------------------------------------------------------------------------
-// Which server-side filter clauses to include. Each is omitted entirely when
-// absent — a `null`/empty filter clause matches nothing rather than "any".
+/**
+ * Toggles for which server-side filter clauses the issues query should include.
+ *
+ * Each clause is omitted from the query entirely when its flag is false: a
+ * `null` or empty filter would match nothing rather than "any", so building the
+ * clause only when a value is present keeps an absent filter a true no-op.
+ */
 export interface IssueFilterFlags {
   project?: boolean;
   assignee?: boolean;
@@ -740,12 +846,17 @@ class RetriableHttpError extends Error {
   }
 }
 
-// Non-retriable authentication/authorization failure (HTTP 401/403). Surfaced as
-// a distinct type so linearRequest can map it to a clear, actionable CommandError
-// (with a USAGE exit code) instead of the generic "Linear request failed"
-// wrapping or the GraphQL-errors path that 401s never reach (Linear returns 401
-// at the HTTP layer, so the body is never parsed as a GraphQL response).
+/**
+ * Permanent, non-retriable rejection of the supplied credentials (HTTP 401/403).
+ *
+ * Surfaced as a distinct type rather than a generic request failure because
+ * Linear returns these at the HTTP layer — the body is an error JSON, not a
+ * GraphQL response — so `linearRequest` maps it to a clear, actionable
+ * `CommandError` with a USAGE exit code instead of looping on retries or
+ * mis-reporting a parse failure.
+ */
 export class AuthHttpError extends Error {
+  /** HTTP status code Linear returned (401 or 403), surfaced in the message. */
   status: number;
   constructor(status: number) {
     super(`Linear API rejected credentials (HTTP ${status})`);
@@ -754,14 +865,33 @@ export class AuthHttpError extends Error {
   }
 }
 
-// Compute the delay before the next attempt. Pure + exported for testing.
-// `attempt` is zero-based (0 = first retry). Honors an explicit Retry-After.
+/**
+ * Compute the backoff delay, in milliseconds, before the next retry attempt.
+ *
+ * Honors an explicit Retry-After when the server supplied one; otherwise uses an
+ * exponential schedule (250ms, 500ms, 1s, 2s…) capped at eight seconds so a
+ * sustained outage backs off without unbounded growth.
+ *
+ * @param attempt - Zero-based retry index (0 is the first retry after the initial failure).
+ * @param retryAfterMs - Optional Retry-After value, in milliseconds, to honor directly.
+ * @returns The delay to wait before the next attempt.
+ */
 export function backoffDelayMs(attempt: number, retryAfterMs?: number): number {
   if (typeof retryAfterMs === "number" && retryAfterMs >= 0) return retryAfterMs;
   // 250ms, 500ms, 1s, 2s … capped at 8s.
   return Math.min(250 * 2 ** attempt, 8_000);
 }
 
+/**
+ * Interpret a Retry-After response header into a delay in milliseconds.
+ *
+ * The header may be delta-seconds (`120`) or an HTTP-date; both forms are parsed
+ * and normalized to milliseconds from now, so a retry loop never has to special-
+ * case the wire format. Returns undefined when the header is absent or gibberish.
+ *
+ * @param header - The raw `retry-after` header value (string or string array).
+ * @returns The delay in milliseconds, or undefined when unparseable.
+ */
 function parseRetryAfter(header: string | string[] | undefined): number | undefined {
   if (!header) return undefined;
   const raw = Array.isArray(header) ? header[0] : header;
@@ -772,6 +902,19 @@ function parseRetryAfter(header: string | string[] | undefined): number | undefi
   return undefined;
 }
 
+/**
+ * Send one Linear GraphQL request, with no retry of its own.
+ *
+ * Enforces a per-request timeout and classifies the HTTP outcome so the retry
+ * wrapper can decide: 429 and 5xx reject as a retriable failure, 401/403 reject
+ * as a permanent `AuthHttpError`, and everything else resolves the parsed
+ * envelope (which may still carry GraphQL `errors`).
+ *
+ * @param apiKey - The Linear API key sent as the Authorization header.
+ * @param query - The GraphQL query document.
+ * @param variables - The GraphQL variables for the query.
+ * @returns The parsed response envelope.
+ */
 function linearRequestOnce<TData>(
   apiKey: string,
   query: string,
@@ -838,6 +981,19 @@ function linearRequestOnce<TData>(
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Send a Linear GraphQL request with bounded exponential-backoff retry.
+ *
+ * Retries only transient failures (429 and 5xx, surfaced as RetriableHttpError)
+ * up to `MAX_RETRIES` attempts, honoring Retry-After. Permanent auth failures
+ * and GraphQL errors are converted into actionable `CommandError` instances with
+ * specific exit codes rather than opaque rejections.
+ *
+ * @param apiKey - The Linear API key sent as the Authorization header.
+ * @param query - The GraphQL query document.
+ * @param variables - The GraphQL variables for the query.
+ * @returns The parsed response envelope.
+ */
 async function linearRequest<TData>(
   apiKey: string,
   query: string,
@@ -890,6 +1046,17 @@ interface PmItem {
 
 const PM_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 
+/**
+ * Read the local pm item list via the `pm list --json` subprocess.
+ *
+ * Shells out with a large buffer because a full workspace dump can exceed the
+ * default maxBuffer; a non-zero exit or unparseable stdout is turned into a
+ * `CommandError` rather than returning an empty list that would look like a
+ * clean sync of zero items.
+ *
+ * @param pmRoot - The workspace root passed to `pm --path`.
+ * @returns The parsed pm items.
+ */
 function readPmItems(pmRoot: string): PmItem[] {
   const result = spawnSync(
     "pm",
@@ -1127,6 +1294,14 @@ type CommitItemMutations = (
 type NormalizeItemId = (input: string, prefix: string) => string;
 type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
 
+/**
+ * Optional inputs to an atomic Linear import: author attribution and test seams.
+ *
+ * Every field is optional; the live path resolves the SDK helpers itself, while
+ * the seams let a test inject `commitItemMutations`, `normalizeItemId`, and
+ * `readSettings` so the crash-recovery and compensation branches run offline
+ * without touching the real workspace transaction journal.
+ */
 export interface AtomicImportOptions {
   /** Author attributed to the atomic transaction journal (defaults to `pm-linear`). */
   atomicAuthor?: string;
@@ -1908,6 +2083,18 @@ interface TeamContext {
   cyclesByName: Record<string, string>;
 }
 
+/**
+ * Fetch the team id and its state/label/cycle id maps for push operations.
+ *
+ * Linear has no fixed global state, label, or cycle ids — they are per-team —
+ * so the exporter resolves them once up front and indexes each by lower-cased
+ * name. An unknown name simply resolves to nothing and is skipped at push time,
+ * so a tag or cycle the team does not model never fails the batch.
+ *
+ * @param apiKey - The Linear API key.
+ * @param teamKey - The team slug (upper-cased to match Linear's key convention).
+ * @returns The team id plus the name-to-id lookup maps.
+ */
 async function resolveTeamContext(apiKey: string, teamKey: string): Promise<TeamContext> {
   const resp = await linearRequest<LinearTeamData>(apiKey, TEAM_QUERY, { key: teamKey.toUpperCase() });
   if (resp.errors?.length) {
@@ -1938,9 +2125,17 @@ async function resolveTeamContext(apiKey: string, teamKey: string): Promise<Team
   return { teamId: node.id, statesByName, labelsByName, cyclesByName };
 }
 
-// Resolve pm tags (label names) to existing Linear label ids for this team.
-// Unknown names are silently dropped so a push never fails on a tag the team
-// doesn't model. Pure + exported for unit testing.
+/**
+ * Resolve pm tag names to their existing Linear label ids for a team.
+ *
+ * Names not present in the team's label map are silently dropped rather than
+ * crashing the push, so a tag the workspace does not model is simply ignored.
+ * Duplicates are de-duplicated so a repeated label yields one id.
+ *
+ * @param labels - The pm tag names to resolve.
+ * @param labelsByName - A lower-cased-name-to-id map from `resolveTeamContext`.
+ * @returns The resolved, de-duplicated label ids.
+ */
 export function resolveLabelIds(
   labels: string[] | undefined,
   labelsByName: Record<string, string>
@@ -1954,10 +2149,17 @@ export function resolveLabelIds(
   return ids;
 }
 
-// Resolve a Linear cycle NAME (or number) to its concrete cycle id for this
-// team. Returns undefined when the name does not match any cycle (offline,
-// unknown, or a workspace that doesn't model the cycle) so the push can skip
-// the field gracefully rather than crash. Pure + exported for unit testing.
+/**
+ * Resolve a Linear cycle name or number to its concrete id for a team.
+ *
+ * Returns undefined when the value matches no cycle — offline, unknown, or a
+ * workspace that does not model cycles — so the push skips the field gracefully
+ * rather than failing the whole batch.
+ *
+ * @param cycleName - The cycle name or number to resolve.
+ * @param cyclesByName - A lower-cased-name/number-to-id map from `resolveTeamContext`.
+ * @returns The cycle id, or undefined when no cycle matches.
+ */
 export function resolveCycleId(
   cycleName: string | undefined,
   cyclesByName: Record<string, string>
@@ -1972,9 +2174,29 @@ export function resolveCycleId(
 // is skipped (NOT crashed) and warned about once per process so a batch push of
 // many items isn't spammed. Returns the (possibly mutated) input for chaining.
 let warnedUnresolvedCycle = false;
+/**
+ * Reset the once-per-process unresolved-cycle suppression flag.
+ *
+ * Restores the initial state so a subsequent push warns again about the first
+ * cycle that does not resolve; intended for tests that exercise the warning
+ * branch repeatedly within one process.
+ */
 export function resetCycleWarning(): void {
   warnedUnresolvedCycle = false;
 }
+/**
+ * Apply estimate and cycle onto a real Linear push input in place.
+ *
+ * A finite estimate is copied straight through; the cycle name is resolved to a
+ * concrete id via the team map and written when it resolves. An unresolvable
+ * cycle is skipped, not crashed, and warned about once per process (see
+ * `resetCycleWarning`) so a large batch push is not flooded with repeats.
+ *
+ * @param input - The mutation input object mutated in place.
+ * @param payload - The export payload carrying estimate and cycleName.
+ * @param cyclesByName - A name-to-id map from `resolveTeamContext`.
+ * @param warn - Sink for the unresolved-cycle warning (defaults to stderr).
+ */
 export function applyPushDynamicFields(
   input: Record<string, unknown>,
   payload: LinearCreatePayload,
@@ -2006,6 +2228,14 @@ export function applyPushDynamicFields(
 // is resolved by NAME offline; the concrete stateId is only knowable with creds
 // at push time, so the plan reports the resolved name. Pure + exported.
 // ---------------------------------------------------------------------------
+/**
+ * The offline Linear mutation a single pm item would produce on export.
+ *
+ * Carries the mutation document, its variables, and the resolved target state
+ * name. The concrete stateId and label/cycle ids are only knowable with
+ * credentials at push time, so the plan carries names (and self-documenting
+ * placeholder ids) to stay readable and network-free.
+ */
 export interface ExportMutationPlan {
   action: "create" | "update";
   mutation: string;
@@ -2088,8 +2318,17 @@ export function buildExportMutationPlan(
 // ---------------------------------------------------------------------------
 const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
 
-// Commands that actually mutate Linear/the workspace and therefore need a key.
-// `linear export` is gated only when --push is present.
+/**
+ * Whether a command writes to Linear and so requires a credential preflight.
+ *
+ * `sync` and `import` mutate unless run with `--dry-run`; `export` mutates only
+ * when `--push` is present. Every other command is read-only and skips the key
+ * check, so a `list` or `validate` never demands an API key it does not need.
+ *
+ * @param command - The full command string (e.g. `linear sync`).
+ * @param options - The raw flag bag, inspected for `--dry-run` and `--push`.
+ * @returns True when the command needs a valid Linear API key.
+ */
 function commandMutatesLinear(command: string, options: Record<string, unknown>): boolean {
   const cmd = command.trim().toLowerCase();
   if (cmd === "linear sync" || cmd === "linear import") {
@@ -2101,10 +2340,16 @@ function commandMutatesLinear(command: string, options: Record<string, unknown>)
   return false;
 }
 
-// Validate that the credential needed for a mutating Linear call is present and
-// (best-effort) that the API is reachable. Returns an error string or null.
-// Reachability check is skipped when SKIP_NETWORK is requested so unit/offline
-// runs stay deterministic.
+/**
+ * Validate the Linear credential, and optionally reachability, before a write.
+ *
+ * Returns a human-readable error string when the API key is missing or the
+ * reachability probe fails, or null when everything checks out. The network
+ * probe is gated behind a flag so offline and CI runs stay deterministic.
+ *
+ * @param checkReachability - Whether to also probe the Linear API over the network.
+ * @returns An error message, or null when the credential is acceptable.
+ */
 async function preflightLinear(
   checkReachability: boolean
 ): Promise<string | null> {
@@ -2130,8 +2375,16 @@ async function preflightLinear(
   }
 }
 
-// Mask an API key for diagnostics: never reveal more than a short prefix.
-// Pure + exported for testing. "" / undefined -> "".
+/**
+ * Redact a credential to a short prefix plus its length for safe diagnostics.
+ *
+ * Never reveals more than the first four characters, so a log line or error can
+ * confirm a key was present and roughly how long it was without leaking the
+ * secret. An absent or empty input collapses to an empty string.
+ *
+ * @param key - The raw API key to redact.
+ * @returns The masked form, e.g. `lin_…(42 chars)`.
+ */
 export function maskApiKey(key: string | undefined): string {
   if (!key) return "";
   const head = key.slice(0, 4);
@@ -2149,6 +2402,15 @@ interface ValidationReport {
   networkError?: string;
 }
 
+/**
+ * Build an offline readiness report from the current environment.
+ *
+ * Captures whether the API key and default team are configured (without leaking
+ * the key — see `maskApiKey`) so `linear validate` can report readiness. The
+ * network fields are left unchecked here; a live probe is opt-in elsewhere.
+ *
+ * @returns The structured validation report.
+ */
 function buildValidationReport(): ValidationReport {
   const key = process.env["LINEAR_API_KEY"];
   const apiKeyPresent = Boolean(key);
@@ -2162,7 +2424,16 @@ function buildValidationReport(): ValidationReport {
   };
 }
 
-// Read + clear the sentinel a preflight may have injected; throw if present.
+/**
+ * Throw a clean USAGE error if a preflight injected its failure sentinel.
+ *
+ * The preflight override cannot abort by throwing (a throw cancels the override,
+ * not the command), so it stashes its error on a private option key; the command
+ * handler reads and clears that sentinel here to turn the failure into a
+ * `CommandError` at the point a write is about to happen.
+ *
+ * @param options - The command option bag that may carry the sentinel.
+ */
 function assertPreflightOk(options: Record<string, unknown>): void {
   const err = options[PREFLIGHT_ERROR_OPTION];
   if (typeof err === "string" && err) {
@@ -2180,10 +2451,19 @@ function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
   return Boolean(ctx?.global?.json);
 }
 
-// Render an offline import dry-run: build the literal GraphQL request (no
-// network) and either return the plan object (JSON mode) or print a human
-// preview to stderr. Shared by `linear sync` and the `linear` importer so both
-// dry-run paths are identical and network-free. Returns the JSON-mode payload.
+/**
+ * Render an offline import dry-run, making no Linear network call.
+ *
+ * Builds the literal GraphQL request the import would send and either returns it
+ * as the JSON payload or prints a human preview to stderr. Shared by the
+ * `linear sync` command and the `linear` importer so both dry-run paths are byte-
+ * identical and never touch the network.
+ *
+ * @param ctx - The command or import context (carries `pm_root` and JSON mode).
+ * @param options - The resolved sync options.
+ * @param teamSource - Where the team came from, for an explanatory log line.
+ * @returns The JSON-mode payload object.
+ */
 function renderImportDryRun(
   ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
