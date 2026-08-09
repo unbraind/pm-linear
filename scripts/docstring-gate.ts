@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import { analyzeDocstringCoverage } from "pm-ops/docstrings";
 
-import { type GateResult, isMainInvocation, runIfMain } from "./script-launcher.ts";
+import { type GateResult, runIfMain } from "./script-launcher.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
 
