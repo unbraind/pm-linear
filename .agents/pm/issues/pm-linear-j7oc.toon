@@ -1,0 +1,23 @@
+id: pm-linear-j7oc
+title: "Release workflow publishes to npm before advancing protected main, desyncing npm from git"
+description: "The daily release workflow runs Publish npm package before it advances git main. With main now a protected branch, the post-publish git push origin HEAD:main is rejected with GH006, so npm serves a version git main never reached and no tag exists for it. npm versions are immutable, so the only safe ordering is: advance main first (through a protected PR), verify it, then publish."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-09T12:48:02.960Z"
+updated_at: "2026-08-09T12:54:20.896Z"
+closed_at: "2026-08-09T12:54:20.880Z"
+completed_at: "2026-08-09T12:54:20.880Z"
+author: pi-agent
+resolution: "Added 'Merge release metadata through protected PR' and 'Verify merged release' steps between Check release ref and Publish npm package; replaced 'Push release tag and main' with tag-only 'Push release tag'; added pull-requests: write permission and a base_sha Decide output. Verify git-diff list adapted to this repo's committed release files (package.json package-lock.json manifest.json index.ts CHANGELOG.md)."
+expected_result: "npm publish runs only after git main already contains the verified release commit, so a GH006 protected-branch push rejection can never again leave npm ahead of git."
+actual_result: "release.yml step order is now Commit release files -> Check release ref -> Merge release metadata through protected PR -> Verify merged release -> Publish npm package -> Push release tag -> Verify bun install -> Create GitHub release. Local quality gates (npm ci, build, test 69 pass, release:check) all green."
+affected_version: 2026.8.9
+notes[1]{created_at,author,text}:
+  "2026-08-09T12:53:32.271Z",pi-agent,"Fixed the inverted release ordering in .github/workflows/release.yml. Ported pm-changelog's invariant so an immutable npm artifact is never published before git main contains the release: added a 'Merge release metadata through protected PR' step (pushes release/<ver>, opens/reuses a PR, merges via the API with merge_method=rebase and the pinned release commit sha) and a 'Verify merged release' step (refetches origin/main, asserts the merged sha + package version, re-runs release:check, and git-diffs the touched files). Replaced 'Push release tag and main' (which did git push origin HEAD:main and hit GH006) with a tag-only 'Push release tag'. Added pull-requests: write to the workflow permissions and a base_sha output to the Decide step. The Verify git-diff list is package.json package-lock.json manifest.json index.ts CHANGELOG.md -- the files this repo's Commit release files step actually stages (dist/ is gitignored, src/ does not exist). Reference: fleet/pm-changelog/.github/workflows/release.yml."
+files[2]{path,scope}:
+  .github/workflows/release.yml,project
+  project,project
+close_reason: "Reordered the daily release workflow so git main advances through a protected release PR and is re-verified BEFORE npm publish; the post-publish step is now tag-only instead of pushing HEAD:main. Ports pm-changelog's invariant into pm-linear."
+body: ""
