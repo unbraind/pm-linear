@@ -1,0 +1,19 @@
+id: pm-linear-33nf
+title: Reconcile git main to the 2026.8.9 release npm already serves
+description: "On 2026-08-09 the daily release published pm-linear@2026.8.9 to npm, but the protected-branch push was rejected (GH006) so git main is still at 2026.8.7 with no v2026.08.09 tag. Bring package.json/package-lock.json, manifest.json, the index.ts version literal, and CHANGELOG.md up to 2026.8.9 so git matches the immutable npm release. Do not create or push the git tag; the orchestrator tags it after the PR merges."
+type: Task
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-09T12:48:10.930Z"
+updated_at: "2026-08-09T12:54:53.170Z"
+closed_at: "2026-08-09T12:54:53.138Z"
+completed_at: "2026-08-09T12:54:53.138Z"
+author: pi-agent
+resolution: "Set package.json/package-lock.json/manifest.json/index.ts version literal to 2026.8.9 (npm version --no-git-tag-version + manifest/index edits); regenerated CHANGELOG.md via npm run changelog (adds 2026.8.9 section with pm-linear-085x); rebuilt dist locally (gitignored, not committed)."
+expected_result: git main package version and changelog match npm's immutable 2026.8.9 once this PR merges and the orchestrator tags v2026.08.09.
+actual_result: "package.json=2026.8.9, package-lock.json=2026.8.9, manifest.json=2026.8.9, index.ts version literal=2026.8.9; CHANGELOG.md has a 2026.8.9 section; npm ci (0 vulns)/build/test (69 pass)/release:check (coverage at configured thresholds, changelog:check up to date) all green. No git tag created."
+notes[1]{created_at,author,text}:
+  "2026-08-09T12:53:51.653Z",pi-agent,"Reconciled git main to the 2026.8.9 release npm already serves (npm: 2026.8.9; git main was 2026.8.7 with no tag after the 2026-08-09 ~04:40 GH006 protected-branch push rejection). Bumped package.json + package-lock.json (npm version --no-git-tag-version), manifest.json, and the index.ts version literal to 2026.8.9; regenerated CHANGELOG.md with npm run changelog (adds a 2026.8.9 section containing pm-linear-085x); rebuilt dist locally (dist/ is gitignored, so not committed). The v2026.08.09 git tag is intentionally NOT created here -- the orchestrator tags it after the PR merges. Gates on this branch: npm ci (0 vulns), npm run build, npm test (69 pass), npm run release:check (typecheck, docstring, coverage at configured thresholds, audit, pack:dry-run of pm-linear@2026.8.9, changelog:check) all green."
+close_reason: Reconciled git main to the 2026.8.9 release npm already serves (npm had 2026.8.9 while git main sat at 2026.8.7 with no tag after the 2026-08-09 GH006 rejection). Bumped versions and regenerated the changelog; the v2026.08.09 tag is intentionally left to the orchestrator.
+body: ""

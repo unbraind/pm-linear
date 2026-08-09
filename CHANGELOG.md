@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.8.9 - 2026-08-09
+
+### Fixed
+
+- Release workflow publishes to npm before advancing protected main, desyncing npm from git ([pm-linear-j7oc](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-j7oc.toon))
+- Adopt the canonical pm-ops docstring gate and document all source declarations ([pm-linear-085x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-085x.toon))
+
+### Other
+
+- Reconcile git main to the 2026.8.9 release npm already serves ([pm-linear-33nf](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-33nf.toon))
+
 ## 2026.8.7 - 2026-08-07
 
 ### Other
