@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Converge changelog generation and verification on replace mode ([pm-linear-semp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-semp.toon))
+- The release merge-wait read branch protection which the workflow token can never read ([pm-linear-0u8d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-0u8d.toon))
+
 ## 2026.8.9 - 2026-08-09
 
 ### Fixed
