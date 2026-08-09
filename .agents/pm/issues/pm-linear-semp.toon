@@ -1,0 +1,19 @@
+id: pm-linear-semp
+title: Converge changelog generation and verification on replace mode
+description: ""
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-09T20:03:44.114Z"
+updated_at: "2026-08-09T20:04:33.622Z"
+closed_at: "2026-08-09T20:04:33.611Z"
+completed_at: "2026-08-09T20:04:33.611Z"
+author: pi-agent
+resolution: "Switched changelog:check to npm run changelog:full -- --check and changed release.yml CHANGELOG.md generate+check lines to --mode replace --all-release-tags."
+expected_result: "npm run changelog:check passes against a replace-mode CHANGELOG.md; generation and verification use the same mode."
+actual_result: "build, check, 69 tests pass; changelog:full regenerates idempotently; changelog:check passes."
+notes[1]{created_at,author,text}:
+  "2026-08-09T20:04:06.342Z",pi-agent,"Converging changelog generation/verification on replace mode. package.json changelog:check now runs `npm run changelog:full -- --check`. release.yml CHANGELOG.md generate+check lines switched from --mode prepend --since-previous-tag --until-release-tag to --mode replace --all-release-tags; release notes --stdout line left windowed. changelog:full already used replace mode."
+close_reason: Converged changelog generation and verification on replace mode.
+body: ""
