@@ -138,3 +138,22 @@ test("docstring gate main writes a success line to stdout and exits 0", () => {
   assert.equal(observedExitCode, 0);
   assert.match(stdout, /docstring-gate:.*documented\.\n$/);
 });
+
+test("docstring gate isMainInvocation throws rather than skipping the gate when a path cannot be resolved", () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-linear-docstring-unresolvable-"));
+  try {
+    const script = join(root, "docstring-gate.ts");
+    writeFileSync(script, "");
+    const url = pathToFileURL(script).href;
+    // Returning false here would make the caller treat the script as a library
+    // import and skip main, so a required release check exits 0 having done
+    // nothing. Crashing is the safe outcome, so assert it is what happens.
+    assert.throws(
+      () => isMainInvocation([process.execPath, join(root, "does-not-exist.ts")], url),
+      /ENOENT/,
+      "an unresolvable entry must propagate, not silently decline to run the gate",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

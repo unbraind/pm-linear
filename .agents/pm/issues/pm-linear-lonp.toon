@@ -1,0 +1,14 @@
+id: pm-linear-lonp
+title: The shared script launcher skipped every gate it guarded when a path could not be resolved
+description: "isMainInvocation caught a realpathSync failure and returned false, which makes runIfMain treat a direct invocation as a library import and skip main, so a required release check exits zero having done nothing."
+type: Issue
+status: open
+priority: 1
+tags[3]: docstrings,gate,release
+created_at: "2026-08-10T06:06:04.494Z"
+updated_at: "2026-08-10T06:06:31.150Z"
+author: claude
+notes[2]{created_at,author,text}:
+  "2026-08-10T06:06:30.695Z",claude,"The refactor into script-launcher.ts is why the fleet-wide sweep missed this repo. A survey that grepped scripts/docstring-gate.ts for realpathSync found nothing here, because the guard had moved into the shared launcher and the gate merely re-exports it. Factoring a defect out of the file people search makes it invisible to the search."
+  "2026-08-10T06:06:31.150Z",claude,"Unlike the copies in other repositories this variant resolves both sides through realpathSync, deliberately, to normalise Windows drive-letter casing. That reasoning is sound and was kept. Only the catch was removed, so the fix does not reintroduce the casing bug the both-sides comparison exists to prevent."
+body: ""
