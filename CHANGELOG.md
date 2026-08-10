@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- The shared script launcher skipped every gate it guarded when a path could not be resolved ([pm-linear-lonp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-lonp.toon))
 - Converge changelog generation and verification on replace mode ([pm-linear-semp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-semp.toon))
 - The release merge-wait queried branch protection, which the workflow token can never read ([pm-linear-0u8d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-0u8d.toon))
 
