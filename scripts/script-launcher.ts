@@ -22,22 +22,30 @@ import { fileURLToPath } from "node:url";
  * return a different drive-letter casing than the URL form, so an exact href
  * comparison would treat a direct invocation as a library import and silently
  * skip `main`. Resolving both sides through `realpathSync` after converting the
- * URL back to a path removes that casing and symlink ambiguity. A release
- * script that no-ops without erroring is worse than one that throws, so fail
- * closed if either path cannot be resolved.
+ * URL back to a path removes that casing and symlink ambiguity.
+ *
+ * An unresolvable path **propagates** rather than returning false. The two
+ * outcomes are not equally safe: returning false makes the caller treat the
+ * script as a library import and skip `main`, so a required release check
+ * exits 0 having done nothing — the one failure these gates exist to prevent.
+ * Letting `realpathSync` throw turns that into a loud non-zero exit. Either
+ * path failing to resolve after Node has already loaded the module means the
+ * environment is broken, and a broken environment must not silently satisfy a
+ * gate.
+ *
+ * A genuinely different entry path still returns false, which is how a test
+ * importing a script declines to run it.
  *
  * @param argv - The process argv slice to inspect.
  * @param moduleUrl - The `import.meta.url` of the module that might be main.
- * @returns True when `argv[1]` resolves to this module's own real path.
+ * @returns True when `argv[1]` resolves to this module's own real path, false
+ *          when it resolves to a different one.
+ * @throws Whatever `realpathSync` throws when either path cannot be resolved.
  */
 export function isMainInvocation(argv: readonly string[], moduleUrl: string): boolean {
   const entry = argv[1];
   if (entry === undefined) return false;
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
-  } catch {
-    return false;
-  }
+  return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
 }
 
 /**
