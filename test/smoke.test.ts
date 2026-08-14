@@ -75,6 +75,26 @@ test("extension activates cleanly and registers expected capabilities", async ()
   linearHarness.assertFlags({ targetCommand: "linear export", flags: ["--push", "--dry-run"] });
 });
 
+test("preflight override is scoped to pm-linear's owned command paths", async () => {
+  // The override MUST register as a scoped object (commands + run), not a bare
+  // function: a global (unscoped) override collides pairwise with every other
+  // installed package's preflight override (pm health reports
+  // extension_preflight_override_collision). The runtime matches a command
+  // against `commands` by exact normalized path, so the array lists the full
+  // mutating command paths commandMutatesLinear recognizes.
+  const override = linearHarness.assertPreflightOverride();
+  assert.deepEqual(
+    override.commands,
+    ["linear sync", "linear import", "linear export"],
+    "preflight override must be scoped to exactly pm-linear's owned mutating command paths",
+  );
+  assert.equal(
+    typeof override.run,
+    "function",
+    "scoped preflight override must expose a run function",
+  );
+});
+
 test("parseStatusMap preserves original key casing and ignores junk", () => {
   assert.deepEqual(parseStatusMap(undefined), {});
   assert.deepEqual(parseStatusMap(""), {});

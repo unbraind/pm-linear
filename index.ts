@@ -2534,22 +2534,29 @@ export default defineExtension({
   activate(api: ExtensionApi) {
     // -----------------------------------------------------------------------
     // preflight — validate credentials + reachability before any mutating
-    // Linear command runs. On failure it injects a sentinel option (it cannot
-    // abort by throwing) that the handlers convert into a clean USAGE error.
+    // Linear command runs, scoped to the command paths pm-linear owns so it
+    // cannot contend with another package's preflight override (an unscoped /
+    // global override collides pairwise with every other installed package's
+    // override; pm health reports extension_preflight_override_collision). On
+    // failure it injects a sentinel option (it cannot abort by throwing) that
+    // the handlers convert into a clean USAGE error.
     // -----------------------------------------------------------------------
-    api.registerPreflight(async (ctx: PreflightOverrideContext) => {
-      if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
-      // Reachability uses the network; allow opting out (CI/offline/tests).
-      // pm strips a leading `--no-` as boolean negation, so the user-facing flag
-      // is `--skip-preflight-network` (the legacy `no-preflight-network` key is
-      // still honored for back-compat with any existing scripts/config).
-      const checkReachability =
-        !readBooleanOption(ctx.options, "skip-preflight-network") &&
-        !readBooleanOption(ctx.options, "no-preflight-network") &&
-        process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
-      const error = await preflightLinear(checkReachability);
-      if (!error) return {};
-      return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+    api.registerPreflight({
+      commands: ["linear sync", "linear import", "linear export"],
+      run: async (ctx: PreflightOverrideContext) => {
+        if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
+        // Reachability uses the network; allow opting out (CI/offline/tests).
+        // pm strips a leading `--no-` as boolean negation, so the user-facing flag
+        // is `--skip-preflight-network` (the legacy `no-preflight-network` key is
+        // still honored for back-compat with any existing scripts/config).
+        const checkReachability =
+          !readBooleanOption(ctx.options, "skip-preflight-network") &&
+          !readBooleanOption(ctx.options, "no-preflight-network") &&
+          process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
+        const error = await preflightLinear(checkReachability);
+        if (!error) return {};
+        return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+      },
     });
 
     // -----------------------------------------------------------------------
