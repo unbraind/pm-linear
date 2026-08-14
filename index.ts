@@ -2329,9 +2329,14 @@ const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
  * @param options - The raw flag bag, inspected for `--dry-run` and `--push`.
  * @returns True when the command needs a valid Linear API key.
  */
-function commandMutatesLinear(command: string, options: Record<string, unknown>): boolean {
+export function commandMutatesLinear(command: string, options: Record<string, unknown>): boolean {
   const cmd = command.trim().toLowerCase();
-  if (cmd === "linear sync" || cmd === "linear import") {
+  // `linear-sync import` is the deprecated importer alias. It reaches the same
+  // write path as `linear import`, so it has to be classified as mutating here
+  // too -- scoping the preflight override to a command list made this omission
+  // load-bearing, where the previously global registration had covered it by
+  // accident.
+  if (cmd === "linear sync" || cmd === "linear import" || cmd === "linear-sync import") {
     return !readBooleanOption(options, "dry-run");
   }
   if (cmd === "linear export") {
@@ -2542,7 +2547,7 @@ export default defineExtension({
     // the handlers convert into a clean USAGE error.
     // -----------------------------------------------------------------------
     api.registerPreflight({
-      commands: ["linear sync", "linear import", "linear export"],
+      commands: ["linear sync", "linear import", "linear export", "linear-sync import"],
       run: async (ctx: PreflightOverrideContext) => {
         if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
         // Reachability uses the network; allow opting out (CI/offline/tests).
@@ -3047,6 +3052,11 @@ export default defineExtension({
     // Importer: linear-sync
     // -----------------------------------------------------------------------
     api.registerImporter("linear-sync", async (ctx) => {
+      // The deprecated alias reaches the same write path as `linear import`,
+      // so it must clear the same credential gate. The runtime swallows throws
+      // from a preflight override, which is why every mutating handler asserts
+      // here rather than relying on the registration alone.
+      assertPreflightOk(ctx.options);
       const teamSelection = resolveTeamSelection(ctx.options);
       if (!teamSelection) {
         throw new CommandError(

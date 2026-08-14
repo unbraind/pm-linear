@@ -1,0 +1,20 @@
+id: pm-linear-ydo4
+title: The deprecated linear-sync importer alias loses its credential gate when the preflight override is scoped
+description: "Scoping registerPreflight to a command list narrows which commands the override runs for. The scope listed linear sync, linear import and linear export, but registerImporter also exposes the deprecated linear-sync alias, which reaches the same write path. The previously global registration covered it by accident. Under the scoped form the alias ran with no credential validation, and its handler did not call assertPreflightOk either, so a mutating legacy import could bypass the gate entirely. The alias is now in the scope list, classified as mutating by commandMutatesLinear on the same dry-run terms as linear import, and its handler asserts the preflight sentinel like every other mutating handler. A test binds the scope list to the classifier so the two cannot drift apart again."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-14T06:44:19.151Z"
+updated_at: "2026-08-14T06:44:21.393Z"
+closed_at: "2026-08-14T06:44:21.377Z"
+completed_at: "2026-08-14T06:44:21.377Z"
+author: claude
+resolution: "linear-sync import added to the preflight scope and to commandMutatesLinear, and the legacy importer handler now calls assertPreflightOk."
+expected_result: "A mutating legacy linear-sync import refuses without credentials, exactly as linear import does."
+actual_result: "Scope, classifier and handler all cover the alias; a loop test asserts every scoped command is classified mutating so the lists cannot drift."
+files[2]{path,scope}:
+  index.ts,project
+  test/smoke.test.ts,project
+close_reason: completed
+body: ""

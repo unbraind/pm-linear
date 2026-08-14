@@ -4,6 +4,7 @@ import test from "node:test";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
+  commandMutatesLinear,
   parseStatusMap,
   resolveStatus,
   buildProvenance,
@@ -85,7 +86,7 @@ test("preflight override is scoped to pm-linear's owned command paths", async ()
   const override = linearHarness.assertPreflightOverride();
   assert.deepEqual(
     override.commands,
-    ["linear sync", "linear import", "linear export"],
+    ["linear sync", "linear import", "linear export", "linear-sync import"],
     "preflight override must be scoped to exactly pm-linear's owned mutating command paths",
   );
   assert.equal(
@@ -93,6 +94,18 @@ test("preflight override is scoped to pm-linear's owned command paths", async ()
     "function",
     "scoped preflight override must expose a run function",
   );
+  // Bind the scope to the classifier. Narrowing the override to a command list
+  // means an entry missing here is a command that silently loses its credential
+  // gate, so every path the classifier calls mutating must also be in scope.
+  // `linear export` is excluded because it only mutates with --push.
+  for (const command of override.commands ?? []) {
+    if (command === "linear export") continue;
+    assert.strictEqual(
+      commandMutatesLinear(command, {}),
+      true,
+      `${command} is in the preflight scope but the classifier does not treat it as mutating`,
+    );
+  }
 });
 
 test("parseStatusMap preserves original key casing and ignores junk", () => {
