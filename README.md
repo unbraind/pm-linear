@@ -12,14 +12,23 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 | `importers` | `pm linear import` (+ legacy `linear-sync` importer) |
 | `importers` (exporter) | `pm linear export` |
 | `schema` | `linear_id`, `linear_url` item fields + command/importer/exporter flags |
-| `preflight` | credential + reachability guard for mutating commands |
+| `preflight` | credential + reachability guard for commands that reach Linear |
 
-> **Offline vs live.** Every `--dry-run` path (import **and** export) is fully
-> **offline** — it builds and prints the exact GraphQL request/variables (import)
-> or the would-be `issueCreate`/`issueUpdate` mutations (export) and makes **no**
-> network call. Only the real (non-dry-run) `sync`/`import`, `export --push`, and
-> `validate --check-network` reach the Linear API and require a live
-> `LINEAR_API_KEY`.
+> **Offline vs live.** `--dry-run` never writes to Linear, but "no writes" and
+> "no network" are not the same thing:
+>
+> - **Offline** (no `LINEAR_API_KEY` needed): `sync`/`import`/`linear-sync import`
+>   with `--dry-run` alone, and `export --dry-run` with or without `--push`. These
+>   build and print the exact GraphQL request/variables, or the would-be
+>   `issueCreate`/`issueUpdate` mutations, and make **no** network call.
+> - **Reaches Linear** (live `LINEAR_API_KEY` required): the real (non-dry-run)
+>   `sync`/`import`, `export --push`, `validate --check-network`, and
+>   `sync`/`import` with **`--atomic --dry-run`** — the atomic preview fetches
+>   issues in order to build the plan it reports, so it needs credentials even
+>   though it writes nothing.
+>
+> The preflight gate follows exactly that split: it guards commands that *reach*
+> Linear, not commands that *mutate* it.
 
 ---
 
@@ -92,7 +101,7 @@ pm linear sync --team <slug> [options]
 | `--map` | string | — | Remap Linear→pm fields, e.g. `"identifier=ignore,priority=ignore"` |
 | `--project-map` | string | — | Tag items by Linear project name (additive). Bare flag tags with the verbatim name; `"Mobile=mobile,Web=web"` remaps |
 | `--limit` | number | `100` | Max issues to fetch |
-| `--dry-run` | boolean | `false` | **Offline** — print the exact GraphQL request, no network/writes |
+| `--dry-run` | boolean | `false` | Print the exact GraphQL request, no writes. **Offline** on its own; with `--atomic` it fetches issues to build the plan and needs `LINEAR_API_KEY` |
 | `--skip-preflight-network` | boolean | `false` | Skip the preflight reachability probe (offline/CI) |
 
 #### `--map` field remapping

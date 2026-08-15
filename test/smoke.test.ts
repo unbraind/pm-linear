@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { checkExtensionManifestCompatibility } from "@unbrained/pm-cli/sdk";
 
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
+  commandNeedsLinearAccess,
   parseStatusMap,
   resolveStatus,
   buildProvenance,
@@ -73,6 +77,72 @@ test("extension activates cleanly and registers expected capabilities", async ()
   linearHarness.assertPreflightOverride();
   linearHarness.assertFlags({ targetCommand: "linear import", flags: ["--team", "--dry-run"] });
   linearHarness.assertFlags({ targetCommand: "linear export", flags: ["--push", "--dry-run"] });
+});
+
+test("preflight override is scoped to pm-linear's owned command paths", async () => {
+  // The override MUST register as a scoped object (commands + run), not a bare
+  // function: a global (unscoped) override collides pairwise with every other
+  // installed package's preflight override (pm health reports
+  // extension_preflight_override_collision). The runtime matches a command
+  // against `commands` by exact normalized path, so the array lists the full
+  // command paths commandNeedsLinearAccess can require credentials for.
+  const override = linearHarness.assertPreflightOverride();
+  assert.deepEqual(
+    override.commands,
+    ["linear sync", "linear import", "linear export", "linear-sync import"],
+    "preflight override must be scoped to exactly pm-linear's owned mutating command paths",
+  );
+  assert.equal(
+    typeof override.run,
+    "function",
+    "scoped preflight override must expose a run function",
+  );
+  // Bind the scope to the classifier, in BOTH directions. A loop that only walks
+  // `override.commands` cannot detect the drift that matters most: a command the
+  // classifier says needs credentials while the scope omits it, which silently
+  // loses its credential gate. So the invocations are enumerated explicitly with
+  // their expected verdict, and the two sets are checked against each other.
+  //
+  // The `--dry-run` rows are the ones that were wrong before: `export --push
+  // --dry-run` is documented as making no network call yet demanded a key, and
+  // `--atomic --dry-run` does fetch issues yet skipped the preflight entirely.
+  const invocations: ReadonlyArray<readonly [string, Record<string, unknown>, boolean]> = [
+    ["linear sync", {}, true],
+    ["linear sync", { "dry-run": true }, false],
+    ["linear sync", { "dry-run": true, atomic: true }, true],
+    ["linear import", {}, true],
+    ["linear import", { "dry-run": true }, false],
+    ["linear import", { "dry-run": true, atomic: true }, true],
+    ["linear-sync import", {}, true],
+    ["linear-sync import", { "dry-run": true }, false],
+    ["linear-sync import", { "dry-run": true, atomic: true }, true],
+    ["linear export", {}, false],
+    ["linear export", { push: true }, true],
+    ["linear export", { push: true, "dry-run": true }, false],
+    ["linear export", { "dry-run": true }, false],
+  ];
+  const scope = new Set(override.commands ?? []);
+  for (const [command, options, needsAccess] of invocations) {
+    assert.strictEqual(
+      commandNeedsLinearAccess(command, options),
+      needsAccess,
+      `commandNeedsLinearAccess(${command}, ${JSON.stringify(options)}) must be ${needsAccess}`,
+    );
+    if (needsAccess) {
+      assert.ok(
+        scope.has(command),
+        `${command} needs Linear credentials but is missing from the preflight scope, so it would run with no credential gate`,
+      );
+    }
+  }
+  // ...and the other direction: every scoped command must appear above, so a
+  // newly scoped command cannot sit here with no stated expectation.
+  const covered = new Set(invocations.map(([command]) => command));
+  assert.deepEqual(
+    [...scope].filter((command) => !covered.has(command)),
+    [],
+    "every command in the preflight scope must have an expected classifier verdict declared above",
+  );
 });
 
 test("parseStatusMap preserves original key casing and ignores junk", () => {
@@ -853,4 +923,60 @@ test("AuthHttpError carries its HTTP status and is non-retriable by name", () =>
   const e403 = new AuthHttpError(403);
   assert.equal(e403.status, 403);
   assert.ok(e403.message.includes("403"));
+});
+
+/**
+ * `package.json` and `manifest.json` state the same host-compatibility fact to
+ * two different installers: npm reads the `peerDependencies` floor, the pm host
+ * reads `manifest.json`'s `pm_min_version` when it loads the extension. Nothing
+ * bound them, and this package had drifted in three places at once — a caret dev
+ * range, a `>=2026.7.29` peer, and a floor written as `pm.pm_min_version`, nested
+ * one level below where the host's version gate looks. `checkExtensionManifestCompatibility`
+ * therefore returned `compatible: true` for every host tested back to 2026.1.1,
+ * including 2026.8.14, whose truncated `list-all` is the regression the fleet
+ * pinned away from. The floor is now in the field the gate reads, and bound here.
+ */
+test("the manifest host floor matches the package peer floor", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../manifest.json", import.meta.url), "utf8"),
+  ) as { pm_min_version?: string };
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  const peer = pkg.peerDependencies?.["@unbrained/pm-cli"] ?? "";
+  assert.match(peer, /^>=\d+\.\d+\.\d+$/, "the peer declaration must be a concrete >= floor");
+  assert.equal(
+    manifest.pm_min_version,
+    peer.replace(/^>=/, ""),
+    `manifest.json pm_min_version "${manifest.pm_min_version}" must equal the peer floor "${peer}"`,
+  );
+  // The dev pin is exact, not a range: it decides which CLI the gates run
+  // against, and a caret range is how the 2026.8.14 truncated-`list-all` build
+  // reached this package with no diff to review. It also has to agree with the
+  // history the tracker writes -- CI running an older CLI than the one that
+  // wrote `.agents/pm/history/*.jsonl` reports that history as drifted.
+  assert.match(
+    pkg.devDependencies?.["@unbrained/pm-cli"] ?? "",
+    /^\d+\.\d+\.\d+$/,
+    "the dev CLI must be pinned exactly, not to a range",
+  );
+});
+
+/**
+ * The floor above is only worth stating if the host actually enforces it. This
+ * runs the SDK's own gate against the manifest bytes on disk, so a floor moved
+ * back under a nested key fails here rather than shipping as an inert claim.
+ */
+test("the pm host gate refuses every version below the declared floor", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../manifest.json", import.meta.url), "utf8"),
+  ) as Record<string, unknown>;
+  const below = checkExtensionManifestCompatibility(manifest, { pmVersion: "2026.8.14" });
+  assert.equal(below.compatible, false, "the known-bad 2026.8.14 host must be refused");
+  assert.deepEqual(below.findings.map((f) => f.code), ["pm_min_version_unmet"]);
+  assert.equal(
+    checkExtensionManifestCompatibility(manifest, { pmVersion: "2027.1.1" }).compatible,
+    true,
+    "a floor must not reject later hosts: that is what an exact pin would do",
+  );
 });

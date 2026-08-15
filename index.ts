@@ -2319,23 +2319,46 @@ export function buildExportMutationPlan(
 const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
 
 /**
- * Whether a command writes to Linear and so requires a credential preflight.
+ * Whether an invocation reaches Linear and so requires a credential preflight.
  *
- * `sync` and `import` mutate unless run with `--dry-run`; `export` mutates only
- * when `--push` is present. Every other command is read-only and skips the key
- * check, so a `list` or `validate` never demands an API key it does not need.
+ * The question this answers is "does this invocation touch the Linear API",
+ * not "does it write" — because that is precisely what the preflight guards:
+ * {@link preflightLinear} demands `LINEAR_API_KEY` and then probes reachability.
+ * Asking the narrower mutation question got both edges wrong, in opposite
+ * directions:
+ *
+ * - `export --push --dry-run` writes nothing and is documented as making no
+ *   network call, yet a mutation-shaped test saw `--push` and demanded an API
+ *   key, so the offline preview failed on any host without one.
+ * - `sync`/`import` with `--atomic --dry-run` also writes nothing, but it is
+ *   *not* offline: it fetches issues to build the atomic plan. A mutation-shaped
+ *   test saw `--dry-run` and skipped the preflight, so a missing or invalid key
+ *   surfaced as a raw fetch failure deep in the sync core instead of the clean
+ *   USAGE error the preflight exists to produce.
+ *
+ * So: `--dry-run` alone is offline for `sync`, `import`, and `export`; combined
+ * with `--atomic` it still fetches. Every other command is read-only and skips
+ * the key check, so a `list` or `validate` never demands a key it does not need.
  *
  * @param command - The full command string (e.g. `linear sync`).
- * @param options - The raw flag bag, inspected for `--dry-run` and `--push`.
- * @returns True when the command needs a valid Linear API key.
+ * @param options - The raw flag bag, inspected for `--dry-run`, `--atomic`, and `--push`.
+ * @returns True when the invocation needs a valid, reachable Linear API key.
  */
-function commandMutatesLinear(command: string, options: Record<string, unknown>): boolean {
+export function commandNeedsLinearAccess(command: string, options: Record<string, unknown>): boolean {
   const cmd = command.trim().toLowerCase();
-  if (cmd === "linear sync" || cmd === "linear import") {
-    return !readBooleanOption(options, "dry-run");
+  const dryRun = readBooleanOption(options, "dry-run");
+  // `linear-sync import` is the deprecated importer alias. It reaches the same
+  // write path as `linear import`, so it has to be classified here too --
+  // scoping the preflight override to a command list made this omission
+  // load-bearing, where the previously global registration had covered it by
+  // accident.
+  if (cmd === "linear sync" || cmd === "linear import" || cmd === "linear-sync import") {
+    // `--atomic --dry-run` is a preview, but it builds that preview from issues
+    // it fetches, so it needs the key just as much as a real run.
+    return !dryRun || readBooleanOption(options, "atomic");
   }
   if (cmd === "linear export") {
-    return readBooleanOption(options, "push");
+    return readBooleanOption(options, "push") && !dryRun;
   }
   return false;
 }
@@ -2533,23 +2556,34 @@ export default defineExtension({
 
   activate(api: ExtensionApi) {
     // -----------------------------------------------------------------------
-    // preflight — validate credentials + reachability before any mutating
-    // Linear command runs. On failure it injects a sentinel option (it cannot
-    // abort by throwing) that the handlers convert into a clean USAGE error.
+    // preflight — validate credentials + reachability before any Linear command
+    // that REACHES Linear runs. Note "reaches", not "mutates": the gate protects
+    // the network call, so `--atomic --dry-run` needs it (it fetches issues to
+    // build the plan) while `export --push --dry-run` does not (it writes and
+    // fetches nothing). See commandNeedsLinearAccess. Scoped to the command
+    // paths pm-linear owns so it
+    // cannot contend with another package's preflight override (an unscoped /
+    // global override collides pairwise with every other installed package's
+    // override; pm health reports extension_preflight_override_collision). On
+    // failure it injects a sentinel option (it cannot abort by throwing) that
+    // the handlers convert into a clean USAGE error.
     // -----------------------------------------------------------------------
-    api.registerPreflight(async (ctx: PreflightOverrideContext) => {
-      if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
-      // Reachability uses the network; allow opting out (CI/offline/tests).
-      // pm strips a leading `--no-` as boolean negation, so the user-facing flag
-      // is `--skip-preflight-network` (the legacy `no-preflight-network` key is
-      // still honored for back-compat with any existing scripts/config).
-      const checkReachability =
-        !readBooleanOption(ctx.options, "skip-preflight-network") &&
-        !readBooleanOption(ctx.options, "no-preflight-network") &&
-        process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
-      const error = await preflightLinear(checkReachability);
-      if (!error) return {};
-      return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+    api.registerPreflight({
+      commands: ["linear sync", "linear import", "linear export", "linear-sync import"],
+      run: async (ctx: PreflightOverrideContext) => {
+        if (!commandNeedsLinearAccess(ctx.command, ctx.options)) return {};
+        // Reachability uses the network; allow opting out (CI/offline/tests).
+        // pm strips a leading `--no-` as boolean negation, so the user-facing flag
+        // is `--skip-preflight-network` (the legacy `no-preflight-network` key is
+        // still honored for back-compat with any existing scripts/config).
+        const checkReachability =
+          !readBooleanOption(ctx.options, "skip-preflight-network") &&
+          !readBooleanOption(ctx.options, "no-preflight-network") &&
+          process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
+        const error = await preflightLinear(checkReachability);
+        if (!error) return {};
+        return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+      },
     });
 
     // -----------------------------------------------------------------------
@@ -2582,7 +2616,7 @@ export default defineExtension({
         { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
         { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
-        { long: "--dry-run", description: "Preview the exact GraphQL request without any network call or writes" },
+        { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
 
@@ -2739,7 +2773,7 @@ export default defineExtension({
       { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
       { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
-      { long: "--dry-run", description: "Print the exact GraphQL request offline (no network, no writes)." },
+      { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ]);
     api.registerFlags("linear export", [
       { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
@@ -3040,6 +3074,11 @@ export default defineExtension({
     // Importer: linear-sync
     // -----------------------------------------------------------------------
     api.registerImporter("linear-sync", async (ctx) => {
+      // The deprecated alias reaches the same write path as `linear import`,
+      // so it must clear the same credential gate. The runtime swallows throws
+      // from a preflight override, which is why every mutating handler asserts
+      // here rather than relying on the registration alone.
+      assertPreflightOk(ctx.options);
       const teamSelection = resolveTeamSelection(ctx.options);
       if (!teamSelection) {
         throw new CommandError(
