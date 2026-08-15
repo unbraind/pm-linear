@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Scope preflight override to pm-linear's owned commands ([pm-linear-hwol](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hwol.toon))
+- A globally-scoped preflight override collides with every other installed package, so pm health can never be green ([pm-linear-hwol](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hwol.toon))
 
 ### Deprecated
 

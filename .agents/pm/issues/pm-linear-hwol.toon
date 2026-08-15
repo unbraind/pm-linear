@@ -1,12 +1,12 @@
 id: pm-linear-hwol
-title: Scope preflight override to pm-linear's owned commands
+title: "A globally-scoped preflight override collides with every other installed package, so pm health can never be green"
 description: "registerPreflight used the bare-function (global) form, which collides pairwise with every other installed package's preflight override (pm health reports extension_preflight_override_collision). Rewrite it to the scoped object form declaring exactly the mutating linear command paths commandMutatesLinear recognizes (linear sync, linear import, linear export). The runtime matches a command against the commands array by exact normalized path, so the array lists full command paths, not bare top-level names (which would never match linear sync and silently disable the credential gate). The authoritative gate (sentinel option consumed by the handlers) stays in the override body; this only narrows its scope."
 type: Issue
 status: closed
 priority: 2
 tags: []
 created_at: "2026-08-14T06:22:39.772Z"
-updated_at: "2026-08-14T06:23:38.379Z"
+updated_at: "2026-08-15T10:01:57.163Z"
 closed_at: "2026-08-14T06:23:38.357Z"
 completed_at: "2026-08-14T06:23:38.357Z"
 author: pi-agent
