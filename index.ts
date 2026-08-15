@@ -2319,28 +2319,46 @@ export function buildExportMutationPlan(
 const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
 
 /**
- * Whether a command writes to Linear and so requires a credential preflight.
+ * Whether an invocation reaches Linear and so requires a credential preflight.
  *
- * `sync` and `import` mutate unless run with `--dry-run`; `export` mutates only
- * when `--push` is present. Every other command is read-only and skips the key
- * check, so a `list` or `validate` never demands an API key it does not need.
+ * The question this answers is "does this invocation touch the Linear API",
+ * not "does it write" — because that is precisely what the preflight guards:
+ * {@link preflightLinear} demands `LINEAR_API_KEY` and then probes reachability.
+ * Asking the narrower mutation question got both edges wrong, in opposite
+ * directions:
+ *
+ * - `export --push --dry-run` writes nothing and is documented as making no
+ *   network call, yet a mutation-shaped test saw `--push` and demanded an API
+ *   key, so the offline preview failed on any host without one.
+ * - `sync`/`import` with `--atomic --dry-run` also writes nothing, but it is
+ *   *not* offline: it fetches issues to build the atomic plan. A mutation-shaped
+ *   test saw `--dry-run` and skipped the preflight, so a missing or invalid key
+ *   surfaced as a raw fetch failure deep in the sync core instead of the clean
+ *   USAGE error the preflight exists to produce.
+ *
+ * So: `--dry-run` alone is offline for `sync`, `import`, and `export`; combined
+ * with `--atomic` it still fetches. Every other command is read-only and skips
+ * the key check, so a `list` or `validate` never demands a key it does not need.
  *
  * @param command - The full command string (e.g. `linear sync`).
- * @param options - The raw flag bag, inspected for `--dry-run` and `--push`.
- * @returns True when the command needs a valid Linear API key.
+ * @param options - The raw flag bag, inspected for `--dry-run`, `--atomic`, and `--push`.
+ * @returns True when the invocation needs a valid, reachable Linear API key.
  */
-export function commandMutatesLinear(command: string, options: Record<string, unknown>): boolean {
+export function commandNeedsLinearAccess(command: string, options: Record<string, unknown>): boolean {
   const cmd = command.trim().toLowerCase();
+  const dryRun = readBooleanOption(options, "dry-run");
   // `linear-sync import` is the deprecated importer alias. It reaches the same
-  // write path as `linear import`, so it has to be classified as mutating here
-  // too -- scoping the preflight override to a command list made this omission
+  // write path as `linear import`, so it has to be classified here too --
+  // scoping the preflight override to a command list made this omission
   // load-bearing, where the previously global registration had covered it by
   // accident.
   if (cmd === "linear sync" || cmd === "linear import" || cmd === "linear-sync import") {
-    return !readBooleanOption(options, "dry-run");
+    // `--atomic --dry-run` is a preview, but it builds that preview from issues
+    // it fetches, so it needs the key just as much as a real run.
+    return !dryRun || readBooleanOption(options, "atomic");
   }
   if (cmd === "linear export") {
-    return readBooleanOption(options, "push");
+    return readBooleanOption(options, "push") && !dryRun;
   }
   return false;
 }
@@ -2549,7 +2567,7 @@ export default defineExtension({
     api.registerPreflight({
       commands: ["linear sync", "linear import", "linear export", "linear-sync import"],
       run: async (ctx: PreflightOverrideContext) => {
-        if (!commandMutatesLinear(ctx.command, ctx.options)) return {};
+        if (!commandNeedsLinearAccess(ctx.command, ctx.options)) return {};
         // Reachability uses the network; allow opting out (CI/offline/tests).
         // pm strips a leading `--no-` as boolean negation, so the user-facing flag
         // is `--skip-preflight-network` (the legacy `no-preflight-network` key is

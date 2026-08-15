@@ -4,7 +4,7 @@ import test from "node:test";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
-  commandMutatesLinear,
+  commandNeedsLinearAccess,
   parseStatusMap,
   resolveStatus,
   buildProvenance,
@@ -82,7 +82,7 @@ test("preflight override is scoped to pm-linear's owned command paths", async ()
   // installed package's preflight override (pm health reports
   // extension_preflight_override_collision). The runtime matches a command
   // against `commands` by exact normalized path, so the array lists the full
-  // mutating command paths commandMutatesLinear recognizes.
+  // command paths commandNeedsLinearAccess can require credentials for.
   const override = linearHarness.assertPreflightOverride();
   assert.deepEqual(
     override.commands,
@@ -94,18 +94,52 @@ test("preflight override is scoped to pm-linear's owned command paths", async ()
     "function",
     "scoped preflight override must expose a run function",
   );
-  // Bind the scope to the classifier. Narrowing the override to a command list
-  // means an entry missing here is a command that silently loses its credential
-  // gate, so every path the classifier calls mutating must also be in scope.
-  // `linear export` is excluded because it only mutates with --push.
-  for (const command of override.commands ?? []) {
-    if (command === "linear export") continue;
+  // Bind the scope to the classifier, in BOTH directions. A loop that only walks
+  // `override.commands` cannot detect the drift that matters most: a command the
+  // classifier says needs credentials while the scope omits it, which silently
+  // loses its credential gate. So the invocations are enumerated explicitly with
+  // their expected verdict, and the two sets are checked against each other.
+  //
+  // The `--dry-run` rows are the ones that were wrong before: `export --push
+  // --dry-run` is documented as making no network call yet demanded a key, and
+  // `--atomic --dry-run` does fetch issues yet skipped the preflight entirely.
+  const invocations: ReadonlyArray<readonly [string, Record<string, unknown>, boolean]> = [
+    ["linear sync", {}, true],
+    ["linear sync", { "dry-run": true }, false],
+    ["linear sync", { "dry-run": true, atomic: true }, true],
+    ["linear import", {}, true],
+    ["linear import", { "dry-run": true }, false],
+    ["linear import", { "dry-run": true, atomic: true }, true],
+    ["linear-sync import", {}, true],
+    ["linear-sync import", { "dry-run": true }, false],
+    ["linear-sync import", { "dry-run": true, atomic: true }, true],
+    ["linear export", {}, false],
+    ["linear export", { push: true }, true],
+    ["linear export", { push: true, "dry-run": true }, false],
+    ["linear export", { "dry-run": true }, false],
+  ];
+  const scope = new Set(override.commands ?? []);
+  for (const [command, options, needsAccess] of invocations) {
     assert.strictEqual(
-      commandMutatesLinear(command, {}),
-      true,
-      `${command} is in the preflight scope but the classifier does not treat it as mutating`,
+      commandNeedsLinearAccess(command, options),
+      needsAccess,
+      `commandNeedsLinearAccess(${command}, ${JSON.stringify(options)}) must be ${needsAccess}`,
     );
+    if (needsAccess) {
+      assert.ok(
+        scope.has(command),
+        `${command} needs Linear credentials but is missing from the preflight scope, so it would run with no credential gate`,
+      );
+    }
   }
+  // ...and the other direction: every scoped command must appear above, so a
+  // newly scoped command cannot sit here with no stated expectation.
+  const covered = new Set(invocations.map(([command]) => command));
+  assert.deepEqual(
+    [...scope].filter((command) => !covered.has(command)),
+    [],
+    "every command in the preflight scope must have an expected classifier verdict declared above",
+  );
 });
 
 test("parseStatusMap preserves original key casing and ignores junk", () => {
