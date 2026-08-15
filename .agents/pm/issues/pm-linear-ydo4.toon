@@ -6,13 +6,15 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-14T06:44:19.151Z"
-updated_at: "2026-08-14T06:44:21.393Z"
+updated_at: "2026-08-15T15:45:29.801Z"
 closed_at: "2026-08-14T06:44:21.377Z"
 completed_at: "2026-08-14T06:44:21.377Z"
 author: claude
-resolution: "linear-sync import added to the preflight scope and to commandMutatesLinear, and the legacy importer handler now calls assertPreflightOk."
-expected_result: "A mutating legacy linear-sync import refuses without credentials, exactly as linear import does."
+resolution: "linear-sync import is in the preflight scope and in the access classifier, and the legacy importer handler calls assertPreflightOk so the sentinel becomes a clean USAGE error. Review round 2 renamed the classifier from commandMutatesLinear to commandNeedsLinearAccess and changed what it asks: the preflight guards credentials and reachability, so the question is whether an invocation REACHES Linear, not whether it mutates. That distinction changes two edges. linear export --push --dry-run writes nothing and makes no network call, so it no longer demands a key. linear sync, linear import and linear-sync import with --atomic --dry-run also write nothing but DO fetch issues to build the plan, so they now require the gate they previously skipped. A scoped command is therefore not always gated: the gate depends on the option combination."
+expected_result: "A linear-sync import that reaches Linear refuses without credentials, exactly as linear import does. With --dry-run alone it is offline and runs without a key; with --atomic --dry-run it fetches issues and so refuses without credentials."
 actual_result: "Scope, classifier and handler all cover the alias; a loop test asserts every scoped command is classified mutating so the lists cannot drift."
+comments[1]{created_at,author,text}:
+  "2026-08-15T15:45:29.801Z",claude-agent,"Correction to this item's recorded contract (CodeRabbit, PR #67) — appended, not rewritten.\n\nThe resolution and expected-result recorded here describe `commandMutatesLinear` and mutation-only scope behaviour. Both are superseded by review round 2 on PR #67, which renamed the classifier to `commandNeedsLinearAccess` and changed the question it asks.\n\nThe preflight guards CREDENTIALS AND REACHABILITY, so the right question is whether an invocation reaches Linear, not whether it mutates it. Asking the mutation question was wrong at both `--dry-run` edges, in opposite directions:\n\n- `linear export --push --dry-run` writes nothing and makes no network call, yet the mutation test saw `--push` and demanded `LINEAR_API_KEY`, so a documented-offline preview failed on any host without one.\n- `linear sync`, `linear import` and `linear-sync import` with `--atomic --dry-run` also write nothing, but they are NOT offline: they fetch issues to build the plan they report. The mutation test saw `--dry-run` and skipped the gate, so a missing key surfaced as a raw fetch failure inside the sync core instead of the clean USAGE error.\n\nThe consequence for this item's own subject: being inside the preflight scope no longer implies being gated. `linear-sync import` is in scope, and whether the gate runs for a given invocation now depends on the option combination — offline with `--dry-run` alone, gated with `--atomic --dry-run` or with neither.\n\nThe `--dry-run` flag help and the README \"Offline vs live\" section both promised offline behaviour unconditionally and have been corrected in the same commit, since a user reading them would have been told a command needs no key when it does.\n"
 files[2]{path,scope}:
   index.ts,project
   test/smoke.test.ts,project

@@ -2556,8 +2556,12 @@ export default defineExtension({
 
   activate(api: ExtensionApi) {
     // -----------------------------------------------------------------------
-    // preflight — validate credentials + reachability before any mutating
-    // Linear command runs, scoped to the command paths pm-linear owns so it
+    // preflight — validate credentials + reachability before any Linear command
+    // that REACHES Linear runs. Note "reaches", not "mutates": the gate protects
+    // the network call, so `--atomic --dry-run` needs it (it fetches issues to
+    // build the plan) while `export --push --dry-run` does not (it writes and
+    // fetches nothing). See commandNeedsLinearAccess. Scoped to the command
+    // paths pm-linear owns so it
     // cannot contend with another package's preflight override (an unscoped /
     // global override collides pairwise with every other installed package's
     // override; pm health reports extension_preflight_override_collision). On
@@ -2612,7 +2616,7 @@ export default defineExtension({
         { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
         { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
-        { long: "--dry-run", description: "Preview the exact GraphQL request without any network call or writes" },
+        { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
 
@@ -2769,7 +2773,7 @@ export default defineExtension({
       { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
       { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
-      { long: "--dry-run", description: "Print the exact GraphQL request offline (no network, no writes)." },
+      { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ]);
     api.registerFlags("linear export", [
       { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
