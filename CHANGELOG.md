@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- changelog scripts read the pm workspace with default budgets instead of canonical complete reads ([pm-linear-4so4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4so4.toon))
+
 ## 2026.8.16 - 2026-08-16
 
 ### Fixed
