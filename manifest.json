@@ -11,8 +11,5 @@
     "schema",
     "importers",
     "preflight"
-  ],
-  "pm": {
-    "compatibility": "v2"
-  }
+  ]
 }

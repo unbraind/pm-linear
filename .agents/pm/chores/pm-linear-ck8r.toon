@@ -1,0 +1,24 @@
+id: pm-linear-ck8r
+title: Drop inert pm manifest key and guard the closed manifest vocabulary
+description: "pm-cli's extension-manifest vocabulary is a closed set of 18 keys; since pm-cli 2026.8.19 any other manifest.json key yields a manifest_unknown_key warning. This repo's manifest carried an inert top-level \"pm\": {\"compatibility\": \"v2\"} key that nothing reads, which broke strict-assertion tests downstream (unbraind/pm-linear PRs #75/#76 expected findings exactly ['pm_min_version_unmet'] but got ['manifest_unknown_key','pm_min_version_unmet']). Removed the key, bumped the dev CLI pin from 2026.8.15 to exact 2026.8.22 (the old pin cannot detect unknown keys), and added test/manifest-vocabulary.test.ts asserting no manifest_unknown_key findings via checkExtensionManifestCompatibility."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-22T17:53:36.089Z"
+updated_at: "2026-08-22T17:55:35.198Z"
+closed_at: "2026-08-22T17:55:35.028Z"
+completed_at: "2026-08-22T17:55:35.028Z"
+claim_principal: ox-alpha
+author: ox-alpha
+notes[1]{created_at,author,text}:
+  "2026-08-22T17:54:11.190Z",ox-alpha,"Verified: re-added the pm key programmatically and test/manifest-vocabulary.test.ts failed with a manifest_unknown_key finding; after restoring, the single-file run passes (1 pass/0 fail). Full npm test: 74 tests, 74 pass, 0 fail. release:check exit 0 (changelog already carried unbounded-read --pm-arg flags, no script fix needed). ./node_modules/.bin/pm health --strict-exit exit 0."
+files[4]{path,scope}:
+  manifest.json,project
+  package-lock.json,project
+  package.json,project
+  test/manifest-vocabulary.test.ts,project
+tests[1]{command,path,scope}:
+  PM_PATH=/tmp/pm-mv-pm-linear PM_GLOBAL_PATH=/tmp/pm-mv-g-pm-linear node --test test/manifest-vocabulary.test.ts,test/manifest-vocabulary.test.ts,project
+close_reason: "Closed: inert top-level pm key removed from manifest.json after grep confirmed no readers in src/scripts/test; dev CLI pinned exact to 2026.8.22 so manifest_unknown_key detection is active; test/manifest-vocabulary.test.ts added and verified to fail on re-added pm key and pass without it (1/0). npm test 74/74 pass, release:check exit 0, pm health --strict-exit exit 0. No changelog script fix needed."
+body: ""
