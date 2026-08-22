@@ -1,0 +1,18 @@
+id: pm-linear-4so4
+title: changelog scripts read the pm workspace with default budgets instead of canonical complete reads
+description: "pm-changelog refuses changelogs generated from partial workspace reads (truncated=true). The changelog-family scripts in package.json invoked pm without --pm-bin and without unbounded output controls, so once this tracker exceeds a single page (or no global pm is resolvable), changelog:check and release:check fail or would silently omit entries on older tool versions. Fix mirrors the pm-beads convention: pin ./node_modules/.bin/pm via --pm-bin and pass --output-budget unbounded --output-limit unbounded through --pm-arg."
+type: Issue
+status: closed
+priority: 2
+tags[2]: changelog,quality-gate
+created_at: "2026-08-22T05:34:51.444Z"
+updated_at: "2026-08-22T05:34:52.353Z"
+closed_at: "2026-08-22T05:34:52.343Z"
+completed_at: "2026-08-22T05:34:52.343Z"
+author: ox-alpha
+repro_steps: "npm run changelog:check"
+resolution: fixed
+expected_result: changelog gates always read the complete tracker and exit 0 whenever the committed changelog matches generated output
+actual_result: "Scripts previously used default budgets; after adding --pm-bin and unbounded --pm-arg controls, npm run changelog:check exits 0"
+close_reason: "All pm-changelog invocations now perform the canonical complete unbounded workspace read; npm run changelog:check exits 0 on this head."
+body: ""
