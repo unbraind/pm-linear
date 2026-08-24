@@ -6,8 +6,10 @@ status: open
 priority: 1
 tags[3]: changelog,gates,release
 created_at: "2026-08-24T09:40:16.893Z"
-updated_at: "2026-08-24T09:40:19.281Z"
+updated_at: "2026-08-24T10:16:35.972Z"
 author: "harness:claude-code"
+comments[1]{created_at,author,text}:
+  "2026-08-24T10:16:35.972Z","harness:claude-code","Removed a duplicate of this item. pm-linear-m7r2 was created at 09:35 today by pi-agent for the same change, during a rollout attempt that was killed because it was flagging only the package.json invocations and leaving the release workflow's three direct calls unflagged. Keeping both would have left two records of one change, and the surviving one is this item because it carries the accurate site audit for every invocation rather than the partial one. The deletion is recorded in history rather than silently dropped."
 files[2]{path,scope,note}:
   package.json,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
   .github/workflows/release.yml,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
