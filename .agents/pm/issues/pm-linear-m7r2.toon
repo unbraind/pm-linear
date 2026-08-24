@@ -1,0 +1,23 @@
+id: pm-linear-m7r2
+title: Stabilise the changelog gate release date by deriving it from the calendar version instead of the clock
+description: ""
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-08-24T09:35:31.513Z"
+updated_at: "2026-08-24T09:36:13.438Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+notes[1]{created_at,author,text}:
+  "2026-08-24T09:36:07.267Z",pi-agent,"Proof at test version 2026.8.23: without the flag the generated heading was 2026.8.23 - 2026-08-24 (current UTC date; verdict flips at midnight); with the flag it was 2026.8.23 - 2026-08-23 (the version's own date). At test version 2026.8.20 the with-flag pending section is empty and omitted because both eligible items closed on 2026-08-22."
+files[2]{path,scope,note}:
+  package.json,project,"insert the date-from-version flag into the changelog:full script and bump pm-changelog to ^2026.8.17 so the gate no longer stamps untagged versions with the current UTC date"
+  package-lock.json,project,lockfile moves so the pinned pm-changelog 2026.8.17 ships the flag CI actually runs
+tests[4]{command,scope,note}:
+  "npm run changelog:check",project,changelog gate passes with the derived date
+  npm test,project,unit tests
+  npm run coverage,project,coverage gate
+  ./node_modules/.bin/pm health --strict-exit,project,pinned pm health
+body: ""
