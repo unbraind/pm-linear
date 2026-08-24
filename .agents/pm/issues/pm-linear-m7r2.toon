@@ -6,12 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-08-24T09:35:31.513Z"
-updated_at: "2026-08-24T10:03:49.980Z"
+updated_at: "2026-08-24T10:06:01.303Z"
 assignee: pi-agent
 claim_principal: pi-agent
 author: pi-agent
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-24T10:03:49.980Z","harness:claude-code","CodeRabbit was right that the linked test only covered the package.json invocation and never reached the direct pm-changelog commands in the release workflow. Added an executable check that does both halves. The static half enumerates every tracked file containing a generator invocation and asserts each file's flagged count is not below its site count, which fails when any single site loses the flag; verified by removing the flag from one of two release.yml sites and watching it report one of two and exit non-zero. The behavioural half runs the generator twice on the same probe version 2026.1.2, deliberately chosen so its calendar date cannot coincide with today, and asserts the heading is 2026.1.2 - 2026-01-02 with the flag and 2026.1.2 - 2026-08-24 without it, so the test states the defect rather than merely asserting the fix."
+  "2026-08-24T10:06:01.303Z","harness:claude-code","CodeRabbit was right that the linked test only covered the package.json invocation and never reached the direct pm-changelog commands in the release workflow. Added an executable check that does both halves. The static half enumerates every tracked file containing a generator invocation and asserts each file's flagged count is not below its site count, which fails when any single site loses the flag; verified by removing the flag from one of two release.yml sites and watching it report one of two and exit non-zero. The behavioural half runs the generator twice on the same probe version 2026.1.2, deliberately chosen so its calendar date cannot coincide with today, and asserts the heading is 2026.1.2 - 2026-01-02 with the flag and 2026.1.2 - 2026-08-24 without it, so the test states the defect rather than merely asserting the fix."
 notes[1]{created_at,author,text}:
   "2026-08-24T09:36:07.267Z",pi-agent,"Proof at test version 2026.8.23: without the flag the generated heading was 2026.8.23 - 2026-08-24 (current UTC date; verdict flips at midnight); with the flag it was 2026.8.23 - 2026-08-23 (the version's own date). At test version 2026.8.20 the with-flag pending section is empty and omitted because both eligible items closed on 2026-08-22."
 files[3]{path,scope,note}:
