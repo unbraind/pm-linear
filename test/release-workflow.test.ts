@@ -114,7 +114,10 @@ function releaseJobSource(): string {
   const jobsAt = workflow.indexOf("jobs:\n  release:");
   assert.ok(jobsAt >= 0, "release workflow should declare a jobs.release entry");
   const rest = workflow.slice(jobsAt + "jobs:\n  release:".length);
-  const nextJob = rest.search(/^ {2}[A-Za-z][\w-]*:/m);
+  // `[A-Za-z_]`, not `[A-Za-z]`: a job id may begin with an underscore, and a
+  // slice that does not stop at one runs on into the next job -- letting an
+  // `id-token: write` declared on `_audit` be read as the release job's own.
+  const nextJob = rest.search(/^ {2}[A-Za-z_][\w-]*:/m);
   return executable(nextJob === -1 ? rest : rest.slice(0, nextJob));
 }
 
