@@ -15,3 +15,9 @@ dist-test/
 .agents/pm/extensions/
 
 coverage/
+
+# SDK workspace-transaction journals are runtime state, not tracked data.
+# pm health fails closed on these (tracked_runtime_cache_files), so committing
+# one turns the health gate red; the journal has no value once the transaction
+# has landed. Deliberately outside any `pm-cli:` fence, which the CLI rewrites.
+.agents/pm/transactions/
