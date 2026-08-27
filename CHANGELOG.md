@@ -6,6 +6,10 @@
 
 - changelog scripts read the pm workspace with default budgets instead of canonical complete reads ([pm-linear-4so4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4so4.toon))
 
+### Security
+
+- The identity gate deadlocks the one remediation its own failure message prescribes ([pm-linear-ofoe](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ofoe.toon))
+
 ### Other
 
 - Drop inert pm manifest key and guard the closed manifest vocabulary ([pm-linear-ck8r](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-ck8r.toon))
