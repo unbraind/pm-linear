@@ -68,11 +68,22 @@ const CONTROL = {
  * @returns The control values and whether they came from the trusted base.
  */
 function trustedControl(path: string): { values: string[]; fromBase: boolean } {
+  // Only ABSENCE on the base ref may fall through to the working tree. The
+  // catch used to swallow every failure, so an unresolvable base ref, a
+  // corrupted object, or an I/O error all silently downgraded the audit to
+  // reading the branch under audit - the exact fail-open the anchoring exists
+  // to prevent, reached by breaking git rather than by editing a control.
+  const ref = baseRef();
+  let present = true;
   try {
-    return { values: meaningful(git("show", `${baseRef()}:${path}`)), fromBase: true };
-  } catch {
-    return { values: meaningful(readFileSync(resolve(root, path), "utf-8")), fromBase: false };
+    git("cat-file", "-e", `${ref}:${path}`);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (!/does not exist|exists on disk, but not in|Not a valid object name/i.test(message)) throw error;
+    present = false;
   }
+  if (present) return { values: meaningful(git("show", `${ref}:${path}`)), fromBase: true };
+  return { values: meaningful(readFileSync(resolve(root, path), "utf-8")), fromBase: false };
 }
 
 const identities = trustedControl(CONTROL.identities);

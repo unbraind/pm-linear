@@ -100,13 +100,27 @@ function stepSource(name: string): string {
  *
  * @returns The effective permissions source for the release job.
  */
-function effectiveReleasePermissions(): string {
+/**
+ * The release job's own source, bounded by the next top-level job key.
+ *
+ * Slicing from `jobs:\n  release:` to end of file also swallows every LATER
+ * job, so an assertion meant for the release job was silently being made about
+ * `alert-on-release-failure` too - a false failure waiting on the next edit to
+ * that job, reported against the wrong one.
+ *
+ * @returns The release job's source with comments removed.
+ */
+function releaseJobSource(): string {
   const jobsAt = workflow.indexOf("jobs:\n  release:");
   assert.ok(jobsAt >= 0, "release workflow should declare a jobs.release entry");
-  const afterKey = jobsAt + "jobs:\n  release:".length;
-  const rest = workflow.slice(afterKey);
+  const rest = workflow.slice(jobsAt + "jobs:\n  release:".length);
   const nextJob = rest.search(/^ {2}[A-Za-z][\w-]*:/m);
-  const job = executable(nextJob === -1 ? rest : rest.slice(0, nextJob));
+  return executable(nextJob === -1 ? rest : rest.slice(0, nextJob));
+}
+
+function effectiveReleasePermissions(): string {
+  const jobsAt = workflow.indexOf("jobs:\n  release:");
+  const job = releaseJobSource();
 
   // `permissions: { id-token: write }` - a flow mapping is still an override.
   // Normalised to one entry per line, because every other branch here returns
@@ -199,10 +213,9 @@ test("no run script in the release job interpolates workflow context", () => {
   // Only `run:` script bodies. An `env:` entry is exactly where interpolation
   // belongs - the runner passes the value as an environment variable rather
   // than splicing it into a command line - so flagging those would be noise.
-  const jobs = workflow.indexOf("jobs:\n  release:");
   const offenders: string[] = [];
   let inRunBlock = false;
-  for (const line of executable(workflow.slice(jobs)).split("\n")) {
+  for (const line of releaseJobSource().split("\n")) {
     if (/^ {8}run: \|/.test(line)) {
       inRunBlock = true;
       continue;
