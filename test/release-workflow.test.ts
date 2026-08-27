@@ -109,8 +109,14 @@ function effectiveReleasePermissions(): string {
   const job = executable(nextJob === -1 ? rest : rest.slice(0, nextJob));
 
   // `permissions: { id-token: write }` - a flow mapping is still an override.
-  const inline = /^ {4}permissions:[ \t]*(\{[^}]*\})[ \t]*$/m.exec(job);
-  if (inline) return inline[1];
+  // Normalised to one entry per line, because every other branch here returns
+  // block form and the caller anchors its assertion at end of line. Returned as
+  // written, `{ id-token: write, contents: write }` put a `}` or a `,` after
+  // `write`, so this branch could only ever produce a FALSE failure: a
+  // correctly declared permission reported missing, in the one form the branch
+  // exists to support.
+  const inline = /^ {4}permissions:[ \t]*\{([^}]*)\}[ \t]*$/m.exec(job);
+  if (inline) return inline[1].split(",").map((entry) => entry.trim()).filter(Boolean).join("\n");
 
   // `permissions: read-all` and friends are overrides that grant no id-token.
   const scalar = /^ {4}permissions:[ \t]*([A-Za-z][\w-]*)[ \t]*$/m.exec(job);
