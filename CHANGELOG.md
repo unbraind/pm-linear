@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- A failed provenance publish silently falls back to an unattested one ([pm-linear-5quv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-5quv.toon))
+- A failed provenance publish silently falls back to an unattested one ([pm-linear-17vm](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-17vm.toon))
+- A failed provenance publish silently falls back to an unattested one ([pm-linear-tw31](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-tw31.toon))
 - changelog scripts read the pm workspace with default budgets instead of canonical complete reads ([pm-linear-4so4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4so4.toon))
 
 ### Security
