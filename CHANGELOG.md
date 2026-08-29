@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Close PR 85 review findings after main rebase ([pm-linear-jyi2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-jyi2.toon))
+
 ## 2026.8.28 - 2026-08-28
 
 ### Fixed

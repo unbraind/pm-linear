@@ -533,7 +533,33 @@ export interface SourceFile {
  * @returns The same text with continuations joined.
  */
 export function joinContinuations(text: string): string {
-  return text.replace(/\\\r?\n\s*/g, " ");
+  const lines = text.split(/\r?\n/);
+  const joined: string[] = [];
+  let pending = "";
+  for (const line of lines) {
+    const candidate = pending + (pending.length > 0 ? line.replace(/^\s*/, "") : line);
+    let quote: "'" | '"' | undefined;
+    let escaped = false;
+    let comment = false;
+    for (const char of candidate) {
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\" && quote !== "'") { escaped = true; continue; }
+      if (quote !== undefined) {
+        if (char === quote) quote = undefined;
+        continue;
+      }
+      if (char === "'" || char === '"') { quote = char; continue; }
+      if (char === "#") { comment = true; break; }
+    }
+    if (!comment && candidate.endsWith("\\")) {
+      pending = candidate.slice(0, -1) + " ";
+    } else {
+      joined.push(candidate);
+      pending = "";
+    }
+  }
+  if (pending.length > 0) joined.push(pending);
+  return joined.join("\n");
 }
 
 /**
@@ -548,8 +574,8 @@ export function joinContinuations(text: string): string {
  */
 export function bashArrays(text: string): Map<string, string> {
   const arrays = new Map<string, string>();
-  for (const match of text.matchAll(/(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=\(([\s\S]*?)\)/g)) {
-    arrays.set(match[1], match[2].replace(/\s+/g, " ").trim());
+  for (const match of text.matchAll(/^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=\(([\s\S]*?)\)[ \t]*(?:;|#|$)/gm)) {
+    arrays.set(match[1]!, match[2]!.replace(/\s+/g, " ").trim());
   }
   return arrays;
 }
@@ -634,9 +660,29 @@ export function shellScalars(text: string): Map<string, string> {
  * @returns The command with known scalar references inlined.
  */
 export function expandScalars(line: string, scalars: Map<string, string>): string {
-  // One of the two alternatives always captures the name, so there is no
-  // nameless match to guard against.
-  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => scalars.get(braced ?? bare!) ?? whole);
+  let expanded = "";
+  let singleQuoted = false;
+  for (let index = 0; index < line.length;) {
+    const char = line[index]!;
+    if (char === "'") {
+      singleQuoted = !singleQuoted;
+      expanded += char;
+      index += 1;
+      continue;
+    }
+    if (!singleQuoted && char === "$") {
+      const match = /^(?:\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*))/.exec(line.slice(index));
+      if (match !== null) {
+        const name = match[1] ?? match[2]!;
+        expanded += scalars.get(name) ?? match[0];
+        index += match[0].length;
+        continue;
+      }
+    }
+    expanded += char;
+    index += 1;
+  }
+  return expanded;
 }
 
 /**

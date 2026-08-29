@@ -50,7 +50,7 @@ function trackedFixture(files: Record<string, string>): string {
     mkdirSync(join(root, path, ".."), { recursive: true });
     writeFileSync(join(root, path), text);
   }
-  execFileSync("git", ["add", "-A"], { cwd: root });
+  execFileSync("git", ["-c", "core.excludesFile=", "add", "-f", "-A"], { cwd: root });
   return root;
 }
 
@@ -96,6 +96,27 @@ test("a shared bash array holding the flag is expanded rather than read as an ab
     { file: "release.yml", text: `          flags=( --access public ${ATTESTATION_FLAG} )\n          npm publish "\${flags[@]}"` },
   ]);
   assert.deepEqual(result.failures, []);
+});
+
+test("assignments are expanded only after their lexical position and can be cleared", () => {
+  for (const text of [
+    `npm publish "\${flags[@]}"\nflags=( ${ATTESTATION_FLAG} )`,
+    `npm publish $FLAG\nFLAG=${ATTESTATION_FLAG}`,
+    `FLAG=${ATTESTATION_FLAG}\nFLAG=""\nnpm publish $FLAG`,
+    `flags=( ${ATTESTATION_FLAG} )\nflags=( )\nnpm publish "\${flags[@]}"`,
+  ]) {
+    assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1, text);
+  }
+});
+
+test("comments and single quotes cannot supply expanded attestation flags", () => {
+  for (const text of [
+    `# flags=( ${ATTESTATION_FLAG} )\nnpm publish "\${flags[@]}"`,
+    `FLAG=${ATTESTATION_FLAG}\nnpm publish '$FLAG'`,
+    `# continued comment \\\nnpm publish\n${ATTESTED}`,
+  ]) {
+    assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1, text);
+  }
 });
 
 test("a prose mention of the command inside quotes is not treated as an invocation", () => {
@@ -376,9 +397,9 @@ test("a tracked path that cannot be opened is skipped rather than taking the gat
     ".github/workflows/release.yml": `          ${ATTESTED}`,
   });
   try {
-    symlinkSync("nowhere-at-all", join(root, "dangling"));
-    execFileSync("git", ["add", "dangling"], { cwd: root });
-    assert.ok(!trackedPublishSources(root).includes("dangling"), "an unreadable tracked file is not a publish source");
+    symlinkSync("nowhere-at-all", join(root, "dangling.sh"));
+    execFileSync("git", ["add", "dangling.sh"], { cwd: root });
+    assert.ok(trackedPublishSources(root).includes("dangling.sh"), "its executable name is classified");
     assert.deepEqual(verify(root).failures, [], "and it does not fail the gate either");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -431,6 +452,22 @@ test("a publish in any tracked executable is audited, not only workflows and the
     const failures = verify(root).failures;
     assert.equal(failures.length, 1, JSON.stringify(failures));
     assert.match(failures[0]!, /scripts\/ship\.sh/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a sourced tracked fragment is audited even without a shebang or executable extension", () => {
+  const root = trackedFixture({
+    ".github/workflows/release.yml": `          ${ATTESTED}`,
+    "scripts/release.sh": "#!/bin/sh\n. ../lib/publish.inc\n",
+    "lib/publish.inc": `${UNATTESTED}\n`,
+  });
+  try {
+    assert.ok(trackedPublishSources(root).includes("lib/publish.inc"));
+    const failures = verify(root).failures;
+    assert.equal(failures.length, 1);
+    assert.match(failures[0]!, /lib\/publish\.inc/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

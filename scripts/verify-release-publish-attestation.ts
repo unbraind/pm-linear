@@ -19,7 +19,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, join, normalize, resolve } from "node:path";
 
 import {
   bashArrays,
@@ -205,11 +205,16 @@ export function attestationEnabled(command: ShellCommand): boolean {
 export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
-  const arrays = bashArrays(text);
-  const scalars = shellScalars(text);
+  let prefix = "";
   const expanded = text
     .split("\n")
-    .map((line) => expandScalars(expandArrays(line, arrays), scalars))
+    .map((line) => {
+      // Shell assignments affect only commands at or after their lexical
+      // position. Indexing only this prefix also supports multi-line arrays,
+      // later reassignments, and empty assignments that clear a prior flag.
+      prefix += `${line}\n`;
+      return expandScalars(expandArrays(line, bashArrays(prefix)), shellScalars(prefix));
+    })
     .join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
@@ -361,10 +366,28 @@ export function trackedPublishSources(root: string): string[] {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
-  return listed
-    .split("\0")
-    .filter((path) => path.length > 0)
-    .filter((path) => isExecutableSource(path, firstBytes(resolve(root, path))));
+  const tracked = new Set(listed.split("\0").filter((path) => path.length > 0));
+  const sources = [...tracked].filter((path) => isExecutableSource(path, firstBytes(resolve(root, path))));
+  const found = new Set(sources);
+  for (let index = 0; index < sources.length; index += 1) {
+    const source = sources[index]!;
+    let text: string;
+    try {
+      text = readFileSync(resolve(root, source), "utf8");
+    } catch {
+      continue;
+    }
+    for (const match of text.matchAll(/^[ \t]*(?:\.|source)[ \t]+["']?([^\s"';]+)["']?/gm)) {
+      const reference = match[1]!;
+      if (reference.includes("$")) continue;
+      const path = normalize(join(dirname(source), reference)).replaceAll("\\", "/");
+      if (path.startsWith("../") || !tracked.has(path) || found.has(path)) continue;
+      if (GENERATED_PREFIXES.some((prefix) => path.startsWith(prefix))) continue;
+      found.add(path);
+      sources.push(path);
+    }
+  }
+  return sources;
 }
 
 /**
@@ -374,10 +397,15 @@ export function trackedPublishSources(root: string): string[] {
  * @returns Failures and notes for the whole repository.
  */
 export function verify(root: string): VerifierResult {
-  const sources: SourceFile[] = trackedPublishSources(root).map((file) => ({
-    file,
-    text: readFileSync(resolve(root, file), "utf8"),
-  }));
+  const sources: SourceFile[] = [];
+  for (const file of trackedPublishSources(root)) {
+    try {
+      sources.push({ file, text: readFileSync(resolve(root, file), "utf8") });
+    } catch {
+      // A tracked path can be absent or a dangling symlink. Classification and
+      // auditing both treat that as unreadable rather than crashing the gate.
+    }
+  }
   return auditPublishAttestation(sources);
 }
 
