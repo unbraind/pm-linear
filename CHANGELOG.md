@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- The release changelog remained Unreleased after the release tag was created ([pm-linear-fkps](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-fkps.toon))
+
+## 2026.8.29 - 2026-08-29
+
+### Fixed
+
 - Close PR 85 review findings after main rebase ([pm-linear-jyi2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-jyi2.toon))
 
 ## 2026.8.28 - 2026-08-28
