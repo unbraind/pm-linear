@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The release changelog remained Unreleased after the release tag was created ([pm-linear-fkps](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-fkps.toon))
+
 ## 2026.8.29 - 2026-08-29
 
 ### Fixed
