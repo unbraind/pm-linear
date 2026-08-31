@@ -28,10 +28,16 @@ const PM_SPAWN_OPTS = {
 // integration tests below (freshTracker + the real `pm`); this pure stub keeps
 // the pure-plan tests offline and deterministic.
 function fakeNormalize(input: string, prefix: string): string {
+  // Trim the leading and trailing dashes with two separately anchored patterns
+  // rather than one `/^-+|-+$/g` alternation. In the alternation the `-+$`
+  // branch is retried from every position, so an input that folds to a long run
+  // of dashes costs quadratic time; anchored singles are linear. Flagged as
+  // js/polynomial-redos.
   const slug = input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
   return `${prefix}${slug}`;
 }
 

@@ -1,0 +1,19 @@
+id: pm-linear-unfa
+title: "The validate diagnostic logged four characters of the API key and its exact length, and neither belongs in a log line"
+description: "CodeQL flagged js/clear-text-logging at index.ts line 2742 on the first scan this repository has ever had: the validate command wrote apiKeyMasked to stderr, and that value was derived from the secret. maskApiKey returned the first four characters of the key plus its exact length, in the form lin_ ellipsis 24 chars. Both halves are wrong for a value that reaches a log. The prefix is a constant for Linear keys, so it identified nothing while still being key material, and the exact length is real information about a secret. The diagnostic exists to answer one operator question, whether the configured key is the expected one, and a non-reversible fingerprint answers that strictly better: comparing two fingerprints is exact, whereas comparing two identical constant prefixes is meaningless. Replaced with a twelve hex character SHA-256 prefix, so nothing derived from the key content leaves the process."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T12:06:57.445Z"
+updated_at: "2026-08-31T12:06:59.303Z"
+closed_at: "2026-08-31T12:06:59.291Z"
+completed_at: "2026-08-31T12:06:59.291Z"
+author: claude-orchestrator
+resolution: "maskApiKey now returns a twelve hex character SHA-256 prefix, so the logged value carries no key material and no length while still identifying the key by comparison."
+expected_result: A readiness diagnostic can confirm which key is configured without writing anything derived from the secret to a log.
+actual_result: It wrote the key first four characters and its exact length to stderr; the prefix is a constant that identified nothing and the length is information about a secret.
+files[1]{path,scope}:
+  index.ts,project
+close_reason: "Replaced the prefix-and-length mask with a non-reversible SHA-256 fingerprint; verified revert-proof, with the old mask failing the new assertions (170 pass, 1 fail) and the fingerprint returning 171 of 171."
+body: ""

@@ -2399,19 +2399,26 @@ async function preflightLinear(
 }
 
 /**
- * Redact a credential to a short prefix plus its length for safe diagnostics.
+ * Reduce a credential to a non-reversible fingerprint for safe diagnostics.
  *
- * Never reveals more than the first four characters, so a log line or error can
- * confirm a key was present and roughly how long it was without leaking the
- * secret. An absent or empty input collapses to an empty string.
+ * The point of this value is to answer one operator question — *is the key
+ * configured here the key I think it is?* — and a fingerprint answers it
+ * strictly better than the previous `lin_…(42 chars)` form did. That form
+ * carried the first four characters and the exact length: the prefix is a
+ * constant for Linear keys, so it distinguished nothing, while the length is
+ * real information about a secret and it was written to a log. Comparing two
+ * fingerprints answers the question exactly, and derives from the key in a way
+ * that cannot be run backwards.
  *
- * @param key - The raw API key to redact.
- * @returns The masked form, e.g. `lin_…(42 chars)`.
+ * An absent or empty input collapses to an empty string, so callers can still
+ * distinguish "no key" from "some key" without a special case.
+ *
+ * @param key - The raw API key to fingerprint.
+ * @returns A 12-hex-character SHA-256 prefix, e.g. `sha256:1f4b8c2d9e07`, or `""`.
  */
 export function maskApiKey(key: string | undefined): string {
   if (!key) return "";
-  const head = key.slice(0, 4);
-  return `${head}…(${key.length} chars)`;
+  return `sha256:${crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
 }
 
 // Structured readiness report. Pure aside from reading env (which is the point).

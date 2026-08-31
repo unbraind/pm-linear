@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- A test stub trims dashes with an alternation that is retried from every position ([pm-linear-4yle](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4yle.toon))
+- The validate diagnostic logged four characters of the API key and its exact length, and neither belongs in a log line ([pm-linear-unfa](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-unfa.toon))
 - This repository has never produced a static analysis, because it runs no CodeQL workflow ([pm-linear-exy3](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-exy3.toon))
 - Group codeql-action bumps into one pull request to end the split-PR deadlock ([pm-linear-k37l](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-k37l.toon))
 

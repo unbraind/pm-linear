@@ -693,13 +693,26 @@ test("buildItemPlan: cycle tag is de-duplicated against an identical label", () 
   assert.equal(cycleTags.length, 1, "cycle tag not duplicated");
 });
 
-test("maskApiKey never leaks the full key", () => {
+test("maskApiKey leaks no key material and no length, and still identifies the key", () => {
   assert.equal(maskApiKey(undefined), "");
   assert.equal(maskApiKey(""), "");
-  const masked = maskApiKey("lin_api_supersecretvalue");
-  assert.ok(masked.startsWith("lin_"));
+
+  const key = "lin_api_supersecretvalue";
+  const masked = maskApiKey(key);
+
+  // No substring of the key survives. The previous implementation returned
+  // `lin_…(24 chars)`, so these two assertions fail against it: the prefix is
+  // key material and the length is information about a secret that was being
+  // written to a log line.
   assert.ok(!masked.includes("supersecret"), "must not contain the secret tail");
-  assert.ok(masked.includes("chars"));
+  assert.ok(!masked.includes("lin_"), "must not contain the key prefix");
+  assert.ok(!masked.includes(String(key.length)), "must not disclose the key length");
+
+  // It still answers the only question the diagnostic exists for: is this the
+  // key I configured? Same key, same fingerprint; different key, different one.
+  assert.equal(masked, maskApiKey(key), "the fingerprint is stable");
+  assert.notEqual(masked, maskApiKey(key + "x"), "a different key fingerprints differently");
+  assert.match(masked, /^sha256:[0-9a-f]{12}$/);
 });
 
 // ---------------------------------------------------------------------------
