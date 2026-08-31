@@ -2414,7 +2414,7 @@ async function preflightLinear(
  * distinguish "no key" from "some key" without a special case.
  *
  * @param key - The raw API key to fingerprint.
- * @returns A 12-hex-character SHA-256 prefix, e.g. `sha256:1f4b8c2d9e07`, or `""`.
+ * @returns A 12-hex-character scrypt digest, e.g. `scrypt:1f4b8c2d9e07`, or `""`.
  */
 export function maskApiKey(key: string | undefined): string {
   if (!key) return "";

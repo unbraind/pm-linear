@@ -6,15 +6,16 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-31T12:06:57.445Z"
-updated_at: "2026-08-31T12:32:19.104Z"
+updated_at: "2026-08-31T12:37:18.089Z"
 closed_at: "2026-08-31T12:06:59.291Z"
 completed_at: "2026-08-31T12:06:59.291Z"
 author: claude-orchestrator
 resolution: "maskApiKey now returns a twelve hex character SHA-256 prefix, so the logged value carries no key material and no length while still identifying the key by comparison."
 expected_result: A readiness diagnostic can confirm which key is configured without writing anything derived from the secret to a log.
 actual_result: It wrote the key first four characters and its exact length to stderr; the prefix is a constant that identified nothing and the length is information about a secret.
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-31T12:32:19.104Z",claude-orchestrator,"The first fix traded one CodeQL alert for another and that is worth recording rather than quietly amending. Replacing the prefix-and-length mask with a bare SHA-256 digest raised js/insufficient-password-hash at index.ts line 2421: a single-round digest of a credential is cheap to brute force if the credential is guessable, which is true of the construction regardless of whether the digest is ever used for authentication. Replaced with scryptSync against a fixed non-secret domain label. The salt is constant on purpose, because the entire value of the fingerprint is that the same key yields the same string across runs and machines, which a random salt would destroy; it is a domain separator, not a secret. The cost is a few milliseconds, once, in a diagnostic command a human runs by hand."
+  "2026-08-31T12:37:18.089Z",claude-orchestrator,"Two further review findings on the same fix, both accepted. Greptile noted the returns docstring still described a sha256 prefix after the implementation moved to scrypt, so the documented contract and the code had drifted apart inside the same commit that changed the code. CodeRabbit noted that the different-key assertion used key plus x, which changes both the content and the length, so an implementation that fingerprinted only the key length would have satisfied it. Replaced with a same-length different key and an explicit length-equality precondition. Proved the point rather than assuming it: substituting a length-only fingerprint makes the test fail, 170 pass and 1 fail, and the real implementation returns 171 of 171."
 files[1]{path,scope}:
   index.ts,project
 close_reason: "Replaced the prefix-and-length mask with a non-reversible SHA-256 fingerprint; verified revert-proof, with the old mask failing the new assertions (170 pass, 1 fail) and the fingerprint returning 171 of 171."

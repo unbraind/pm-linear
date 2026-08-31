@@ -711,7 +711,16 @@ test("maskApiKey leaks no key material and no length, and still identifies the k
   // It still answers the only question the diagnostic exists for: is this the
   // key I configured? Same key, same fingerprint; different key, different one.
   assert.equal(masked, maskApiKey(key), "the fingerprint is stable");
-  assert.notEqual(masked, maskApiKey(key + "x"), "a different key fingerprints differently");
+  // Deliberately a SAME-LENGTH different key. `key + "x"` would change both the
+  // content and the length, so an implementation that fingerprinted only
+  // `key.length` would satisfy it — the assertion has to fail against that.
+  const sameLengthOtherKey = "lin_api_supersecretvaluX";
+  assert.equal(sameLengthOtherKey.length, key.length, "the comparison key must be the same length");
+  assert.notEqual(
+    masked,
+    maskApiKey(sameLengthOtherKey),
+    "two keys of equal length fingerprint differently, so the digest depends on content and not on length",
+  );
   assert.match(masked, /^scrypt:[0-9a-f]{12}$/);
 });
 
