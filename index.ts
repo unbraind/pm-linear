@@ -2418,8 +2418,26 @@ async function preflightLinear(
  */
 export function maskApiKey(key: string | undefined): string {
   if (!key) return "";
-  return `sha256:${crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
+  // A deliberately slow KDF rather than a bare SHA-256. A single-round digest of
+  // a credential is cheap to brute-force if the credential is guessable, which
+  // is why CodeQL flags it (js/insufficient-password-hash) even when the digest
+  // is only ever used as an identifier. scrypt makes that search infeasible.
+  // The salt is a fixed, non-secret domain label on purpose: the whole value of
+  // this fingerprint is that the SAME key produces the SAME string across runs
+  // and machines, which a random salt would destroy. Cost is a few milliseconds,
+  // once, in a diagnostic command a human runs by hand.
+  return `scrypt:${crypto.scryptSync(key, KEY_FINGERPRINT_SALT, 6).toString("hex")}`;
 }
+
+/**
+ * Fixed, non-secret domain label for the API-key fingerprint.
+ *
+ * Deliberately constant. A random salt would make each run produce a different
+ * fingerprint, which would defeat the one question the value exists to answer:
+ * is the key configured here the same key as before, or the same one my
+ * colleague has? It is a domain separator, not a secret.
+ */
+const KEY_FINGERPRINT_SALT = "pm-linear/api-key-fingerprint/v1";
 
 // Structured readiness report. Pure aside from reading env (which is the point).
 interface ValidationReport {

@@ -712,7 +712,7 @@ test("maskApiKey leaks no key material and no length, and still identifies the k
   // key I configured? Same key, same fingerprint; different key, different one.
   assert.equal(masked, maskApiKey(key), "the fingerprint is stable");
   assert.notEqual(masked, maskApiKey(key + "x"), "a different key fingerprints differently");
-  assert.match(masked, /^sha256:[0-9a-f]{12}$/);
+  assert.match(masked, /^scrypt:[0-9a-f]{12}$/);
 });
 
 // ---------------------------------------------------------------------------

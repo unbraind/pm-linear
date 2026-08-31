@@ -28,16 +28,18 @@ const PM_SPAWN_OPTS = {
 // integration tests below (freshTracker + the real `pm`); this pure stub keeps
 // the pure-plan tests offline and deterministic.
 function fakeNormalize(input: string, prefix: string): string {
-  // Trim the leading and trailing dashes with two separately anchored patterns
-  // rather than one `/^-+|-+$/g` alternation. In the alternation the `-+$`
-  // branch is retried from every position, so an input that folds to a long run
-  // of dashes costs quadratic time; anchored singles are linear. Flagged as
-  // js/polynomial-redos.
-  const slug = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
+  // Trim the dashes by index rather than by regex. `/^-+|-+$/g` is quadratic on
+  // a long run of dashes because the `-+$` branch is retried from every
+  // position, and splitting it into two anchored patterns does not fix it: a
+  // bare `/-+$/` is still tried at each start position, so CodeQL flags it too
+  // (js/polynomial-redos). Two index walks are unambiguously linear and need no
+  // reasoning about backtracking at all.
+  const folded = input.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  let start = 0;
+  let end = folded.length;
+  while (start < end && folded[start] === "-") start++;
+  while (end > start && folded[end - 1] === "-") end--;
+  const slug = folded.slice(start, end);
   return `${prefix}${slug}`;
 }
 
