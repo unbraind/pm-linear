@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Group codeql-action bumps into one pull request to end the split-PR deadlock ([pm-linear-k37l](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-k37l.toon))
+
 ## 2026.8.31 - 2026-08-31
 
 ### Fixed
