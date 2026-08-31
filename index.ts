@@ -2399,20 +2399,45 @@ async function preflightLinear(
 }
 
 /**
- * Redact a credential to a short prefix plus its length for safe diagnostics.
+ * Reduce a credential to a non-reversible fingerprint for safe diagnostics.
  *
- * Never reveals more than the first four characters, so a log line or error can
- * confirm a key was present and roughly how long it was without leaking the
- * secret. An absent or empty input collapses to an empty string.
+ * The point of this value is to answer one operator question — *is the key
+ * configured here the key I think it is?* — and a fingerprint answers it
+ * strictly better than the previous `lin_…(42 chars)` form did. That form
+ * carried the first four characters and the exact length: the prefix is a
+ * constant for Linear keys, so it distinguished nothing, while the length is
+ * real information about a secret and it was written to a log. Comparing two
+ * fingerprints answers the question exactly, and derives from the key in a way
+ * that cannot be run backwards.
  *
- * @param key - The raw API key to redact.
- * @returns The masked form, e.g. `lin_…(42 chars)`.
+ * An absent or empty input collapses to an empty string, so callers can still
+ * distinguish "no key" from "some key" without a special case.
+ *
+ * @param key - The raw API key to fingerprint.
+ * @returns A 12-hex-character scrypt digest, e.g. `scrypt:1f4b8c2d9e07`, or `""`.
  */
 export function maskApiKey(key: string | undefined): string {
   if (!key) return "";
-  const head = key.slice(0, 4);
-  return `${head}…(${key.length} chars)`;
+  // A deliberately slow KDF rather than a bare SHA-256. A single-round digest of
+  // a credential is cheap to brute-force if the credential is guessable, which
+  // is why CodeQL flags it (js/insufficient-password-hash) even when the digest
+  // is only ever used as an identifier. scrypt makes that search infeasible.
+  // The salt is a fixed, non-secret domain label on purpose: the whole value of
+  // this fingerprint is that the SAME key produces the SAME string across runs
+  // and machines, which a random salt would destroy. Cost is a few milliseconds,
+  // once, in a diagnostic command a human runs by hand.
+  return `scrypt:${crypto.scryptSync(key, KEY_FINGERPRINT_SALT, 6).toString("hex")}`;
 }
+
+/**
+ * Fixed, non-secret domain label for the API-key fingerprint.
+ *
+ * Deliberately constant. A random salt would make each run produce a different
+ * fingerprint, which would defeat the one question the value exists to answer:
+ * is the key configured here the same key as before, or the same one my
+ * colleague has? It is a domain separator, not a secret.
+ */
+const KEY_FINGERPRINT_SALT = "pm-linear/api-key-fingerprint/v1";
 
 // Structured readiness report. Pure aside from reading env (which is the point).
 interface ValidationReport {

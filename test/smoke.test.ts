@@ -693,13 +693,35 @@ test("buildItemPlan: cycle tag is de-duplicated against an identical label", () 
   assert.equal(cycleTags.length, 1, "cycle tag not duplicated");
 });
 
-test("maskApiKey never leaks the full key", () => {
+test("maskApiKey leaks no key material and no length, and still identifies the key", () => {
   assert.equal(maskApiKey(undefined), "");
   assert.equal(maskApiKey(""), "");
-  const masked = maskApiKey("lin_api_supersecretvalue");
-  assert.ok(masked.startsWith("lin_"));
+
+  const key = "lin_api_supersecretvalue";
+  const masked = maskApiKey(key);
+
+  // No substring of the key survives. The previous implementation returned
+  // `lin_…(24 chars)`, so these two assertions fail against it: the prefix is
+  // key material and the length is information about a secret that was being
+  // written to a log line.
   assert.ok(!masked.includes("supersecret"), "must not contain the secret tail");
-  assert.ok(masked.includes("chars"));
+  assert.ok(!masked.includes("lin_"), "must not contain the key prefix");
+  assert.ok(!masked.includes(String(key.length)), "must not disclose the key length");
+
+  // It still answers the only question the diagnostic exists for: is this the
+  // key I configured? Same key, same fingerprint; different key, different one.
+  assert.equal(masked, maskApiKey(key), "the fingerprint is stable");
+  // Deliberately a SAME-LENGTH different key. `key + "x"` would change both the
+  // content and the length, so an implementation that fingerprinted only
+  // `key.length` would satisfy it — the assertion has to fail against that.
+  const sameLengthOtherKey = "lin_api_supersecretvaluX";
+  assert.equal(sameLengthOtherKey.length, key.length, "the comparison key must be the same length");
+  assert.notEqual(
+    masked,
+    maskApiKey(sameLengthOtherKey),
+    "two keys of equal length fingerprint differently, so the digest depends on content and not on length",
+  );
+  assert.match(masked, /^scrypt:[0-9a-f]{12}$/);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,21 @@
+id: pm-linear-4yle
+title: A test stub trims dashes with an alternation that is retried from every position
+description: "CodeQL flagged js/polynomial-redos at test/atomic.test.ts line 31. The fakeNormalize stub trimmed dashes with a single alternation, caret dash plus or dash plus dollar, applied globally. In that alternation the trailing branch is retried from every position, so an input that folds to a long run of dashes costs quadratic time. It is a test stub rather than production code, so the exposure is bounded, but the fix is two separately anchored replacements which are linear and no less readable."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T12:06:57.931Z"
+updated_at: "2026-08-31T12:32:19.524Z"
+closed_at: "2026-08-31T12:06:59.737Z"
+completed_at: "2026-08-31T12:06:59.737Z"
+author: claude-orchestrator
+resolution: The dash trim uses caret dash plus and dash plus dollar as two anchored replacements instead of one global alternation.
+expected_result: Normalising an identifier is linear in the length of the input.
+actual_result: "The trailing branch of the alternation was retried from every position, so an input folding to a long run of dashes cost quadratic time."
+comments[1]{created_at,author,text}:
+  "2026-08-31T12:32:19.524Z",claude-orchestrator,"The first fix did not actually remove the alert. Splitting the global alternation into two separately anchored replacements left a bare trailing pattern that is still tried at every start position, so CodeQL flagged js/polynomial-redos again at the new line. Replaced the regex trim entirely with two index walks, which are unambiguously linear and require no reasoning about backtracking. Recorded because splitting an alternation reads like a fix for this class and is not one."
+files[1]{path,scope}:
+  test/atomic.test.ts,project
+close_reason: "Replaced the single global alternation with two separately anchored replacements, which are linear in the input length."
+body: ""
