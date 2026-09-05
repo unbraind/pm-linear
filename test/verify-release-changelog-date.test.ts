@@ -161,10 +161,24 @@ test("a control that fails is a failure, not a note", () => {
   assert.match(result.failures[0], /so the comparison proves nothing/);
 });
 
-test("a control that is not clock-derived fails, because then it discriminates nothing", () => {
+test("a control identical to the flagged run fails, because then it discriminates nothing", () => {
   const result = auditHeadings("2026.1.2", "2026-08-27", () => ({ ok: true, text: "## 2026.1.2 - 2026-01-02" }));
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0], /the control is not measuring the clock/);
+  assert.match(result.failures[0], /the flag is not load-bearing/);
+});
+
+test("a control differing from the flagged run passes whether it is clock-derived or undated", () => {
+  const clock = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.2 - 2026-08-27" }));
+  assert.deepEqual(clock.failures, []);
+  assert.ok(clock.notes.some((note) => note.includes("clock-derived")));
+
+  // pm-changelog 2026.9.2 dropped the clock stamp: the unflagged heading carries
+  // no date at all. That still proves the flag is load-bearing, so it must pass.
+  const undated = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.2" }));
+  assert.deepEqual(undated.failures, []);
+  assert.ok(undated.notes.some((note) => note.includes("undated")));
 });
 
 test("a flagged run that fails, or that derives the wrong date, both fail", () => {

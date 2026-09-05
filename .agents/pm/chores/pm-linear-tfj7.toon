@@ -1,0 +1,26 @@
+id: pm-linear-tfj7
+title: Adopt pm CLI 2026.9.5 and repair the release-date control that its changelog fix invalidated
+description: Converge the pm toolchain on the latest published versions and fix the verifier control that assumed the old clock-stamping behaviour.
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-05T17:38:36.373Z"
+updated_at: "2026-09-05T17:40:04.866Z"
+closed_at: "2026-09-05T17:39:21.311Z"
+completed_at: "2026-09-05T17:39:21.311Z"
+claim_principal: pi-orchestrator
+author: pi-orchestrator
+resolution: "Pinned @unbrained/pm-cli 2026.9.5 and pm-changelog 2026.9.2, made the release-date control version-tolerant, and confirmed release:check exits 0 with the full gate suite."
+expected_result: "release:check exits 0 on pm CLI 2026.9.5 and pm-changelog 2026.9.2, and pm health is clean in a fresh clone."
+actual_result: "release:check exited 0 including coverage, docstring, changelog:check, pack:dry-run and attestation; a fresh clone with pm 2026.9.5 reported ok:true with no failed_because entries."
+comments[1]{created_at,author,text}:
+  "2026-09-05T17:39:37.407Z",pi-orchestrator,"pm-changelog 2026.9.2 stopped stamping the clock on an unflagged run: the heading is now the bare '## <version>' instead of '## <version> - <today>'. scripts/verify-release-changelog-date.ts asserted the clock form as its control, so the gate failed against a generator that had fixed the very defect the date-from-version flag exists to avoid. The control now asserts only that the unflagged heading differs from the flagged one, which is the property that actually proves the flag is load-bearing, and it accepts either generator. Verified by reverting the source change (4 tests fail) and restoring it (22 pass)."
+files[3]{path,scope}:
+  scripts/verify-release-changelog-date.ts,project
+  test/verify-release-changelog-date.test.ts,project
+  package.json,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  a control differing from the flagged run passes whether it is clock-derived or undated,project,pi-orchestrator,"2026-09-05T17:38:44.906Z",local_mutation,main
+close_reason: "Pinned @unbrained/pm-cli 2026.9.5 and pm-changelog 2026.9.2, made the release-date control version-tolerant, and confirmed release:check exits 0 with the full gate suite."
+body: ""
