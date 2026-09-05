@@ -1,0 +1,23 @@
+id: pm-linear-ndrd
+title: Bound the release-date control by version so it cannot certify a heading it does not recognise
+description: "Asserting only that the unflagged heading differs from the flagged one lets a malformed heading, or one for a different version, pass as evidence that the date flag is load-bearing."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-05T18:32:19.526Z"
+updated_at: "2026-09-05T18:32:22.665Z"
+closed_at: "2026-09-05T18:32:22.649Z"
+completed_at: "2026-09-05T18:32:22.649Z"
+claim_principal: claude-orchestrator
+author: claude-orchestrator
+resolution: Bounded the unflagged control to a heading for the probe version in a non version derived form.
+expected_result: "A heading for a different version, or one sharing only a version prefix, fails the control; bare, disambiguated and clock derived headings pass."
+actual_result: "All three failure cases and all three accepted shapes verified by unit test; 23 pass, 0 fail; release:check exits 0."
+comments[1]{created_at,author,text}:
+  "2026-09-05T18:32:22.064Z",claude-orchestrator,"Greptile raised this as a P2 on the sibling pm-github pull request and it applies identically here, because the same loosening was made in this repository earlier today. A control that accepts any differing heading certifies output it cannot recognise. The bound is now the property rather than an enumeration of spellings: the unflagged heading must be a heading for the probe version in some non version derived form. An enumeration of the bare and clock forms was tried first and rejected, because the generator also emits a disambiguated heading with a numeric suffix when a section for that version already exists, which is legitimate output that an enumeration would fail. The trailing non digit guard stops the probe matching a longer version that merely shares its prefix."
+files[2]{path,scope}:
+  scripts/verify-release-changelog-date.ts,project
+  test/verify-release-changelog-date.test.ts,project
+close_reason: Bounded the unflagged control to a heading for the probe version in a non version derived form.
+body: ""

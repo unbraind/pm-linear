@@ -192,12 +192,21 @@ export interface HeadingResult {
  * failure here -- it was previously suppressed with `|| true` and downgraded to
  * a note, letting the script exit zero having proved nothing.
  *
- * The control asserts only that the unflagged heading *differs* from the
- * flagged one, never which particular wrong answer the generator gives. Older
- * pm-changelog stamped the clock (`## <probe> - <today>`); 2026.9.2 emits the
- * bare `## <probe>` instead. Both prove the flag is load-bearing, so pinning
- * the control to the clock form made this gate fail on a generator that had
- * *fixed* the very clock dependence the flag exists to avoid.
+ * The control asserts that the unflagged heading *differs* from the flagged one,
+ * never which particular wrong answer the generator gives. Older pm-changelog
+ * stamped the clock (`## <probe> - <today>`); 2026.9.2 emits the bare
+ * `## <probe>` instead. Both prove the flag is load-bearing, so pinning the
+ * control to the clock form made this gate fail on a generator that had *fixed*
+ * the very clock dependence the flag exists to avoid.
+ *
+ * Difference alone is not enough, though: a malformed heading, or one for a
+ * different version, also differs, and certifying it would prove the flag
+ * changed something but not that it changed the right thing. So the control is
+ * bounded by version rather than by an enumerated list of spellings -- it must
+ * be a heading FOR THE PROBE VERSION in some non-version-derived form. An
+ * enumeration would be too brittle: the generator also emits a disambiguated
+ * `## <probe>-2` when a section for that version already exists. The trailing
+ * `[^0-9]` guard stops probe `2026.1.2` matching a heading for `2026.1.20`.
  *
  * @param probe - Probe version, deliberately not today's date.
  * @param today - Today's date as `YYYY-MM-DD`.
@@ -227,8 +236,13 @@ export function auditHeadings(
       `without ${DATE_FLAG} the heading is already '${control.text}', identical to the flagged run`
       + " - the flag is not load-bearing, so this checkout proves nothing about it",
     );
+  } else if (!new RegExp(`^## ${probe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^0-9].*)?$`).test(control.text)) {
+    failures.push(
+      `without ${DATE_FLAG} expected a heading for ${probe} in a non-version-derived form, got '${control.text}'`
+      + " - the control cannot vouch for a heading that is not even for the probe version",
+    );
   } else {
-    const shape = control.text === todayHeading ? "clock-derived" : "undated";
+    const shape = control.text === todayHeading ? "clock-derived" : "not version-derived";
     notes.push(`ok - without the flag the heading is ${shape}: ${control.text} (this is the defect the flag removes)`);
   }
 
