@@ -192,6 +192,13 @@ export interface HeadingResult {
  * failure here -- it was previously suppressed with `|| true` and downgraded to
  * a note, letting the script exit zero having proved nothing.
  *
+ * The control asserts only that the unflagged heading *differs* from the
+ * flagged one, never which particular wrong answer the generator gives. Older
+ * pm-changelog stamped the clock (`## <probe> - <today>`); 2026.9.2 emits the
+ * bare `## <probe>` instead. Both prove the flag is load-bearing, so pinning
+ * the control to the clock form made this gate fail on a generator that had
+ * *fixed* the very clock dependence the flag exists to avoid.
+ *
  * @param probe - Probe version, deliberately not today's date.
  * @param today - Today's date as `YYYY-MM-DD`.
  * @param generate - Runs the generator; `flagged` selects `--date-from-version`.
@@ -215,12 +222,15 @@ export function auditHeadings(
 
   const control = generate(false);
   if (!control.ok) failures.push(`without ${DATE_FLAG}, ${control.text}, so the comparison proves nothing`);
-  else if (control.text !== todayHeading) {
+  else if (control.text === expected) {
     failures.push(
-      `without ${DATE_FLAG} expected the clock-derived '${todayHeading}', got '${control.text}'`
-      + " - the control is not measuring the clock",
+      `without ${DATE_FLAG} the heading is already '${control.text}', identical to the flagged run`
+      + " - the flag is not load-bearing, so this checkout proves nothing about it",
     );
-  } else notes.push(`ok - without the flag the heading is clock-derived: ${control.text} (this is the defect the flag removes)`);
+  } else {
+    const shape = control.text === todayHeading ? "clock-derived" : "undated";
+    notes.push(`ok - without the flag the heading is ${shape}: ${control.text} (this is the defect the flag removes)`);
+  }
 
   return { failures, notes };
 }

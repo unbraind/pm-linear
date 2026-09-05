@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Adopt pm CLI 2026.9.5 and repair the release-date control that its changelog fix invalidated ([pm-linear-tfj7](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-tfj7.toon))
+
 ## 2026.9.1 - 2026-09-01
 
 ### Fixed
