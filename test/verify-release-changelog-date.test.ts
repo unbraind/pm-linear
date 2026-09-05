@@ -178,7 +178,46 @@ test("a control differing from the flagged run passes whether it is clock-derive
   const undated = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
     ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.2" }));
   assert.deepEqual(undated.failures, []);
-  assert.ok(undated.notes.some((note) => note.includes("undated")));
+  assert.ok(undated.notes.some((note) => note.includes("not version-derived")));
+});
+
+test("a control that is not a heading for the probe version fails, however different it is", () => {
+  // Difference alone would certify this: it is not the flagged heading, so the
+  // looser rule reported it as "undated" and passed, proving the flag changed
+  // something but not that it changed the right thing.
+  const wrongVersion = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 9999.1.1 - garbage" }));
+  assert.equal(wrongVersion.failures.length, 1);
+  assert.match(wrongVersion.failures[0], /form it does not recognise/);
+
+  // A longer version that merely shares the probe as a prefix is a different
+  // release, so the bound must not accept it.
+  const falsePrefix = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.20 - 2026-08-27" }));
+  assert.equal(falsePrefix.failures.length, 1);
+
+  // Excluding only a trailing DIGIT is not enough. Each of these is either a
+  // different version or a date position holding something that is not a date,
+  // and none of them says anything about what the flag does.
+  for (const heading of ["## 2026.1.2.3", "## 2026.1.2-rc1", "## 2026.1.2 - garbage"]) {
+    const result = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+      ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : heading }));
+    assert.equal(result.failures.length, 1, `${heading} must not be accepted as a control`);
+    assert.match(result.failures[0], /form it does not recognise/);
+  }
+
+  // The duplicate suffix and a date can appear together, and that is still a
+  // heading for this version.
+  const suffixedAndDated = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.2-2 - 2026-03-04" }));
+  assert.deepEqual(suffixedAndDated.failures, []);
+
+  // The generator disambiguates a repeated version with a numeric suffix. That
+  // carries no date, so it cannot mask the defect and must still pass -- an
+  // enumeration of the bare and clock spellings would have rejected it.
+  const disambiguated = auditHeadings("2026.1.2", "2026-08-27", (flagged) =>
+    ({ ok: true, text: flagged ? "## 2026.1.2 - 2026-01-02" : "## 2026.1.2-2" }));
+  assert.deepEqual(disambiguated.failures, []);
 });
 
 test("a flagged run that fails, or that derives the wrong date, both fail", () => {

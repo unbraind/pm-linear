@@ -184,6 +184,29 @@ export interface HeadingResult {
 }
 
 /**
+ * The heading forms a correct generator can produce for one probe version.
+ *
+ * Used to bound the unflagged control. Matching merely "not the flagged
+ * heading" lets a malformed heading pass, and matching "the probe followed by
+ * any non-digit" is barely narrower -- it still admits `## <probe>.3` and
+ * `## <probe>-rc1`, which are OTHER versions, and `## <probe> - garbage`, which
+ * is a date position carrying something that is not a date. Each of those would
+ * be certified as evidence about a flag they say nothing about.
+ *
+ * So the suffix is matched as a grammar rather than excluded by a delimiter
+ * class: the bare version, an optional `-<n>` duplicate-section suffix (the
+ * generator emits `## <probe>-2` when a section for that version already
+ * exists), and an optional ` - <YYYY-MM-DD>` date. Anything else fails.
+ *
+ * @param probe - Probe version, matched literally.
+ * @returns An anchored pattern accepting exactly the recognised forms.
+ */
+function controlShape(probe: string): RegExp {
+  const literal = probe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^## ${literal}(-\\d+)?( - \\d{4}-\\d{2}-\\d{2})?$`);
+}
+
+/**
  * Compare the flagged and unflagged headings for one probe version.
  *
  * The unflagged run is the control: it is what proves the flag is doing the
@@ -192,12 +215,21 @@ export interface HeadingResult {
  * failure here -- it was previously suppressed with `|| true` and downgraded to
  * a note, letting the script exit zero having proved nothing.
  *
- * The control asserts only that the unflagged heading *differs* from the
- * flagged one, never which particular wrong answer the generator gives. Older
- * pm-changelog stamped the clock (`## <probe> - <today>`); 2026.9.2 emits the
- * bare `## <probe>` instead. Both prove the flag is load-bearing, so pinning
- * the control to the clock form made this gate fail on a generator that had
- * *fixed* the very clock dependence the flag exists to avoid.
+ * The control asserts that the unflagged heading *differs* from the flagged one,
+ * never which particular wrong answer the generator gives. Older pm-changelog
+ * stamped the clock (`## <probe> - <today>`); 2026.9.2 emits the bare
+ * `## <probe>` instead. Both prove the flag is load-bearing, so pinning the
+ * control to the clock form made this gate fail on a generator that had *fixed*
+ * the very clock dependence the flag exists to avoid.
+ *
+ * Difference alone is not enough, though: a malformed heading, or one for a
+ * different version, also differs, and certifying it would prove the flag
+ * changed something but not that it changed the right thing. So the control is
+ * bounded by version rather than by an enumerated list of spellings -- it must
+ * be a heading FOR THE PROBE VERSION in some non-version-derived form. An
+ * enumeration would be too brittle: the generator also emits a disambiguated
+ * `## <probe>-2` when a section for that version already exists. The trailing
+ * `[^0-9]` guard stops probe `2026.1.2` matching a heading for `2026.1.20`.
  *
  * @param probe - Probe version, deliberately not today's date.
  * @param today - Today's date as `YYYY-MM-DD`.
@@ -227,8 +259,14 @@ export function auditHeadings(
       `without ${DATE_FLAG} the heading is already '${control.text}', identical to the flagged run`
       + " - the flag is not load-bearing, so this checkout proves nothing about it",
     );
+  } else if (!controlShape(probe).test(control.text)) {
+    failures.push(
+      `without ${DATE_FLAG} expected a heading for ${probe} in a recognised form`
+      + ` (\`## ${probe}\`, optionally a \`-<n>\` duplicate suffix, optionally \` - <YYYY-MM-DD>\`),`
+      + ` got '${control.text}' - the control cannot vouch for a heading form it does not recognise`,
+    );
   } else {
-    const shape = control.text === todayHeading ? "clock-derived" : "undated";
+    const shape = control.text === todayHeading ? "clock-derived" : "not version-derived";
     notes.push(`ok - without the flag the heading is ${shape}: ${control.text} (this is the defect the flag removes)`);
   }
 
