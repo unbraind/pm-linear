@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Consume the canonical attestation gate instead of carrying a copy of it ([pm-linear-onxx](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-onxx.toon))
+
 ## 2026.9.6 - 2026-09-06
 
 ### Fixed
