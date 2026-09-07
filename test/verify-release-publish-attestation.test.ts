@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -132,4 +132,38 @@ test("the launcher runs the gate and sets a failing exit code on an unattested p
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+/**
+ * Reproduce the shebang rule this file's own docstring relies on.
+ *
+ * The launcher deliberately carries no shebang, and the reason is a concrete
+ * claim about the auditor: a shebang naming a SHELL interpreter makes the
+ * file's body shell, at which point this file's prose - which necessarily names
+ * the command it is guarding - reads as an unattested publish. The claim is
+ * reproduced here rather than asserted, because an earlier wording of it said
+ * ANY shebang had that effect, and that is not what the auditor does: a shebang
+ * says a file executes, not that it executes as shell.
+ */
+test("only a shebang naming a shell interpreter pulls this file into the scan", () => {
+  const body = readFileSync(resolve(root, "scripts/verify-release-publish-attestation.ts"), "utf8");
+  const scannedAsShell = (shebang: string): boolean => {
+    const dir = mkdtempSync(resolve(tmpdir(), "shebang-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(resolve(dir, "scripts"), { recursive: true });
+      writeFileSync(resolve(dir, "scripts/verify-release-publish-attestation.ts"), shebang + body);
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      // The file is reported by name only when the auditor read its body as
+      // shell; otherwise the only failure is that the throwaway repository
+      // contains no publish at all.
+      return verify(dir).failures.some((failure) => failure.includes("scripts/verify-release-publish-attestation.ts"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  assert.equal(scannedAsShell("#!/bin/bash\n"), true, "a bash shebang makes this file shell input");
+  assert.equal(scannedAsShell("#!/usr/bin/env sh\n"), true, "an env sh shebang makes this file shell input");
+  assert.equal(scannedAsShell("#!/usr/bin/env node\n"), false, "a node shebang does not make this file shell input");
+  assert.equal(scannedAsShell(""), false, "with no shebang the file is not shell input, which is why it has none");
 });
