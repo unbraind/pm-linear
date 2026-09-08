@@ -51,6 +51,77 @@ export class CommandError extends Error {
   }
 }
 
+/**
+ * Human-readable message for a thrown value, including non-Error rejections.
+ *
+ * Command handlers and the GraphQL client both catch `unknown`; Linear can
+ * reject with an Error, a string, or a bare status. This keeps those sites on
+ * one conversion so a non-Error rejection still names the failure.
+ *
+ * @param err - The thrown value.
+ * @returns `Error.message` when `err` is an Error, otherwise `String(err)`.
+ */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Optional atomic fields copied onto command and importer JSON receipts.
+ *
+ * @param result - Sync/import result that may carry atomic journal metadata.
+ * @returns A sparse object containing only the atomic fields that were present.
+ */
+export function atomicReceiptFields(result: {
+  atomic?: boolean;
+  transactionId?: string;
+  recovered?: boolean;
+  recoveredItems?: number;
+}): Record<string, unknown> {
+  return {
+    ...(result.atomic ? { atomic: true } : {}),
+    ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+    ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+    ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+  };
+}
+
+/**
+ * Best available identifier for a push-failure log line.
+ *
+ * Prefers the Linear id, then the pm id, then the title so a failed push still
+ * names the item when provenance is incomplete.
+ *
+ * @param payload - Export payload being pushed.
+ * @returns A non-empty label string.
+ */
+export function pushItemLabel(payload: {
+  linearId?: string;
+  pmId?: string;
+  title: string;
+}): string {
+  return payload.linearId ?? payload.pmId ?? payload.title;
+}
+
+/**
+ * Linear workflow-state name for an export preview, or null when unresolved.
+ *
+ * @param name - Result of {@link resolveLinearStateName}.
+ * @returns The name, or `null` when the pm status does not map to a Linear state.
+ */
+export function linearPreviewState(name: string | undefined): string | null {
+  return name ?? null;
+}
+
+/**
+ * Linear priority shown in an export preview, defaulting to "No priority".
+ *
+ * @param priority - Payload priority, which may be omitted for a bare item.
+ * @returns The numeric Linear priority, or `0` when absent.
+ */
+export function linearPreviewPriority(priority: number | undefined): number {
+  return priority ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -1230,7 +1301,8 @@ export function buildItemPlan(
 // WOULD be sent (no network) plus a count of existing Linear-linked pm items the
 // import would reconcile against (read-only, local). Pure aside from the local
 // pm read; exported helper buildImportRequestPlan is the network-shaped piece.
-interface ImportDryRunPlan {
+/** Offline import dry-run: the GraphQL request that would be sent, plus local match counts. */
+export interface ImportDryRunPlan {
   dryRun: true;
   team: string;
   request: ImportRequestPlan;
@@ -1240,7 +1312,15 @@ interface ImportDryRunPlan {
   projectMap: ProjectMap;
 }
 
-function buildImportDryRunPlan(
+/**
+ * Build the offline import dry-run plan: the literal GraphQL request plus a
+ * count of already-linked local items. Makes no Linear network call.
+ *
+ * @param options - Resolved sync options. Missing maps default to empty.
+ * @param pm_root - Workspace root passed to `pm --path`.
+ * @returns The dry-run plan the command and importer print or return as JSON.
+ */
+export function buildImportDryRunPlan(
   options: SyncOptions,
   pm_root: string
 ): ImportDryRunPlan {
@@ -1295,6 +1375,16 @@ type NormalizeItemId = (input: string, prefix: string) => string;
 type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
 
 /**
+ * The SDK helpers an atomic import resolves, each optional so a missing export
+ * can still be reported as an upgrade error rather than a crash.
+ */
+interface AtomicSdkExports {
+  commitItemMutations?: CommitItemMutations;
+  normalizeItemId?: NormalizeItemId;
+  readSettings?: ReadSettings;
+}
+
+/**
  * Optional inputs to an atomic Linear import: author attribution and test seams.
  *
  * Every field is optional; the live path resolves the SDK helpers itself, while
@@ -1311,6 +1401,14 @@ export interface AtomicImportOptions {
   normalizeItemId?: NormalizeItemId;
   /** Test seam: inject readSettings (skips SDK resolution). */
   readSettings?: ReadSettings;
+  /**
+   * Test seam: replace the SDK module loader used when a live helper is missing.
+   *
+   * Production loads `@unbrained/pm-cli/sdk`. Tests inject a throwing loader or a
+   * module that omits `commitItemMutations` so the upgrade errors stay reachable
+   * without uninstalling the peer.
+   */
+  loadSdk?: () => Promise<AtomicSdkExports>;
 }
 
 /** Fully rendered desired state for one Linear issue import. */
@@ -1348,15 +1446,14 @@ function assertSdkFunction<F extends (...args: never[]) => unknown>(
 }
 
 async function loadAtomicSdk(
-  importSdk: () => Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> =
-    () => import("@unbrained/pm-cli/sdk"),
-): Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> {
+  importSdk: () => Promise<AtomicSdkExports> = () => import("@unbrained/pm-cli/sdk"),
+): Promise<AtomicSdkExports> {
   try {
     return await importSdk();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     throw new CommandError(
-      `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
+      `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli`,
       EXIT_CODE.USAGE,
     );
   }
@@ -1369,7 +1466,7 @@ async function resolveAtomicSdkFunctions(opts: AtomicImportOptions): Promise<{
 }> {
   const needsSdk =
     !opts.commitItemMutations || !opts.normalizeItemId || !opts.readSettings;
-  const mod = needsSdk ? await loadAtomicSdk() : undefined;
+  const mod = needsSdk ? await loadAtomicSdk(opts.loadSdk) : undefined;
   return {
     commitItemMutations: opts.commitItemMutations ??
       assertSdkFunction<CommitItemMutations>(
@@ -1570,7 +1667,7 @@ export async function importLinearAtomic(
     const settings = await readSettings(pmRoot);
     if (settings.id_prefix) idPrefix = settings.id_prefix;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     throw new CommandError(
       `Atomic Linear import could not read workspace settings to resolve id_prefix: ${msg}. ` +
         `The transaction identity is keyed on id_prefix, so proceeding with a fallback could duplicate items; ` +
@@ -1619,7 +1716,7 @@ export async function importLinearAtomic(
       itemIds,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     if (err instanceof AggregateError || /compensation failed/i.test(msg)) {
       throw new CommandError(
         `Atomic Linear import failed and compensation was incomplete. The tracker may contain partially applied state; retry the same import to resume transaction ${transactionId}, then inspect its durable journal if recovery still fails. Underlying error: ${msg}`,
@@ -2051,6 +2148,26 @@ mutation($id: String!, $input: IssueUpdateInput!) {
 `.trim();
 
 /**
+ * Raise when Linear returned GraphQL `errors` for a mutation.
+ *
+ * Linear often answers HTTP 200 with an `errors` array instead of a 4xx; the
+ * exporter must treat that as a failed push so a rejected create/update is
+ * counted in `skipped` rather than as success.
+ *
+ * @param resp - Parsed GraphQL envelope. Only `errors` is read.
+ * @param action - Mutation name included in the error message (`issueCreate` or `issueUpdate`).
+ */
+export function throwIfLinearErrors(
+  resp: { errors?: ReadonlyArray<{ message: string }> },
+  action: "issueCreate" | "issueUpdate",
+): void {
+  if (!resp.errors?.length) return;
+  throw new Error(
+    `Linear ${action} failed: ${resp.errors.map((e) => e.message).join("; ")}`,
+  );
+}
+
+/**
  * The single team node TEAM_QUERY selects, restricted to the fields
  * resolveTeamContext reads. Every field is optional: Linear may return a
  * partial node alongside GraphQL `errors`, and the resolver treats each
@@ -2394,7 +2511,7 @@ async function preflightLinear(
     }
     return null;
   } catch (err) {
-    return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
+    return `Linear API unreachable: ${errorMessage(err)}`;
   }
 }
 
@@ -2515,7 +2632,7 @@ function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
 function renderImportDryRun(
   ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
-  teamSource?: TeamSource
+  teamSource: TeamSource
 ): Record<string, unknown> {
   const plan = buildImportDryRunPlan(options, ctx.pm_root);
   if (!isJsonMode(ctx)) {
@@ -2558,7 +2675,7 @@ function renderImportDryRun(
     statusMap: plan.statusMap,
     fieldMap: plan.fieldMap,
     projectMap: plan.projectMap,
-    ...(teamSource ? { teamSource } : {}),
+    teamSource,
   };
 }
 
@@ -2701,9 +2818,7 @@ export default defineExtension({
               teamSource: teamSelection.source,
               atomic: true,
               dryRun: Boolean(result.dryRun),
-              ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-              ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-              ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+              ...atomicReceiptFields(result),
             };
           }
 
@@ -2730,7 +2845,7 @@ export default defineExtension({
           // Preserve a more specific exitCode (e.g. a missing API key is a
           // USAGE error) rather than flattening everything to a generic failure.
           if (err instanceof CommandError) throw err;
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           throw new CommandError(`Linear sync failed: ${message}`);
         }
       },
@@ -2870,14 +2985,11 @@ export default defineExtension({
           team: result.team.toUpperCase(),
           teamSource: teamSelection.source,
           dryRun: Boolean(result.dryRun),
-          ...(result.atomic ? { atomic: true } : {}),
-          ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-          ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-          ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+          ...atomicReceiptFields(result),
         };
       } catch (err: unknown) {
         if (err instanceof CommandError) throw err;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         throw new CommandError(`Linear import failed: ${message}`);
       }
     });
@@ -2943,8 +3055,8 @@ export default defineExtension({
           action: p.alreadyInLinear ? "update" : "create",
           title: p.title,
           description: p.description,
-          targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
-          priority: p.priority ?? 0,
+          targetState: linearPreviewState(resolveLinearStateName(p.pmStatus, invertedStatusMap)),
+          priority: linearPreviewPriority(p.priority),
           ...(p.labels && p.labels.length ? { labels: p.labels } : {}),
           ...(p.dueDate ? { dueDate: p.dueDate } : {}),
           ...(typeof p.estimate === "number" ? { estimate: p.estimate } : {}),
@@ -3014,7 +3126,7 @@ export default defineExtension({
       // and the batch CONTINUES — mirroring the import path's per-item `continue`
       // — instead of aborting every remaining item. Errors are logged to stderr.
       for (const payload of payloads) {
-        const label = payload.linearId ?? payload.pmId ?? payload.title;
+        const label = pushItemLabel(payload);
         try {
           // Map pm status -> a concrete Linear workflow-state id for this team,
           // when one resolves; otherwise leave the state untouched.
@@ -3045,11 +3157,7 @@ export default defineExtension({
               id: payload.linearId,
               input,
             });
-            if (resp.errors?.length) {
-              throw new Error(
-                `Linear issueUpdate failed: ${resp.errors.map((e) => e.message).join("; ")}`
-              );
-            }
+            throwIfLinearErrors(resp, "issueUpdate");
             updated++;
             continue;
           }
@@ -3066,14 +3174,10 @@ export default defineExtension({
           applyPushDynamicFields(input, payload, teamCtx.cyclesByName);
           // Same contract as the update above: only `errors` is read.
           const resp = await linearRequest<unknown>(apiKey, ISSUE_CREATE_MUTATION, { input });
-          if (resp.errors?.length) {
-            throw new Error(
-              `Linear issueCreate failed: ${resp.errors.map((e) => e.message).join("; ")}`
-            );
-          }
+          throwIfLinearErrors(resp, "issueCreate");
           created++;
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           console.error(`Failed to push item ${label}: ${message}`);
           skipped++;
           continue;
@@ -3167,10 +3271,7 @@ export default defineExtension({
         team: result.team.toUpperCase(),
         teamSource: teamSelection.source,
         dryRun: Boolean(result.dryRun),
-        ...(result.atomic ? { atomic: true } : {}),
-        ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-        ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-        ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+        ...atomicReceiptFields(result),
       };
     });
   },
