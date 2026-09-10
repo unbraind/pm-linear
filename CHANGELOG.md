@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Certify pm CLI 2026.9.10 and pick up the canonical auditor fixes the lockfile was holding back ([pm-linear-tyq9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-tyq9.toon))
+
 ## 2026.9.8 - 2026-09-08
 
 ### Security
