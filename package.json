@@ -61,7 +61,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@unbrained/pm-cli": "2026.9.10",
-    "pm-changelog": "2026.9.6",
+    "pm-changelog": "2026.9.9",
     "pm-ops": "^2026.9.9",
     "typescript": "^7.0.2"
   },
