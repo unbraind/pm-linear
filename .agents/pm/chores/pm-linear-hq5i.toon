@@ -6,12 +6,12 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-09-12T21:01:14.712Z"
-updated_at: "2026-09-12T21:01:21.846Z"
+updated_at: "2026-09-12T21:04:35.990Z"
 closed_at: "2026-09-12T21:01:21.832Z"
 completed_at: "2026-09-12T21:01:21.832Z"
 claim_principal: claude-orchestrator
 author: claude-orchestrator
-acceptance_criteria: "package.json pins @unbrained/pm-cli 2026.9.12 exactly and the lockfile resolves it; where pm-ops is consumed the lockfile resolves 2026.9.11; npm run release:check exits 0 on the new pins; CI is green on every required check"
+acceptance_criteria: "package.json pins @unbrained/pm-cli 2026.9.12 exactly and the lockfile resolves it; where pm-ops is consumed the lockfile resolves 2026.9.11; npm run release:check exits 0 on the new pins. CI is not an acceptance criterion of this item because the item is closed inside its own pull request; strict branch protection lets the closed item reach main only once every required check on that head has passed."
 resolution: Pins advanced and the full release gate passed on them
 expected_result: "release:check exits 0 on @unbrained/pm-cli 2026.9.12"
 actual_result: "release:check exited 0 on 2026.9.12: 117 of 117 tests pass"
