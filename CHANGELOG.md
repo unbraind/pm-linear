@@ -4,7 +4,6 @@
 
 ### Other
 
-- Certify the CLI and SDK on PM 2026.9.7 ([pm-linear-bi97](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-bi97.toon))
 - Certify pm CLI 2026.9.12 and the pm-ops 2026.9.11 auditor ([pm-linear-hq5i](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-hq5i.toon))
 
 ## 2026.9.11 - 2026-09-11
