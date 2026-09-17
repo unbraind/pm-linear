@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Certify pm CLI 2026.9.17 ([pm-linear-beeo](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-beeo.toon))
+
 ## 2026.9.13 - 2026-09-13
 
 ### Other
@@ -49,13 +55,13 @@
 
 ### Fixed
 
+- A failed provenance publish silently falls back to an unattested one ([pm-linear-tw31](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-tw31.toon))
 - Close PR 85 review findings after main rebase ([pm-linear-jyi2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-jyi2.toon))
 
 ## 2026.8.28 - 2026-08-28
 
 ### Fixed
 
-- A failed provenance publish silently falls back to an unattested one ([pm-linear-tw31](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-tw31.toon))
 - changelog scripts read the pm workspace with default budgets instead of canonical complete reads ([pm-linear-4so4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4so4.toon))
 
 ### Security
