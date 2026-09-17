@@ -1,0 +1,24 @@
+id: pm-linear-beeo
+title: Certify pm CLI 2026.9.17
+description: "Pin @unbrained/pm-cli to 2026.9.17 and refresh pm-ops/pm-changelog to latest. Releases 2026.9.13-2026.9.17 fix telemetry consent/DO_NOT_TRACK handling, telemetry event loss under concurrent queue rewrites, a lock reclaimed during owner-metadata init, oversized item reads losing content without a receipt, and merge-driver launchers breaking after a runtime upgrade. 2026.9.14 lets non-colliding extension leaves live beneath core command groups."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-17T19:43:27.106Z"
+updated_at: "2026-09-17T19:44:44.654Z"
+closed_at: "2026-09-17T19:44:44.619Z"
+completed_at: "2026-09-17T19:44:44.619Z"
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "package.json pins @unbrained/pm-cli at exactly 2026.9.17; package-lock.json resolves 2026.9.17; pm-ops and pm-changelog at npm latest; release:check exits 0 with all tests passing"
+resolution: "Pinned @unbrained/pm-cli to 2026.9.17, pm-changelog to 2026.9.16, pm-ops to 2026.9.13 (all exact, lockfile resolved)"
+expected_result: "release:check exits 0 with all gates passing"
+actual_result: "release:check passed: 117/117 tests, 0 failures, coverage thresholds met, 0 vulnerabilities, pack dry-run OK, changelog up to date, publish-attestation verified"
+files[2]{path,scope}:
+  package.json,project
+  package-lock.json,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,pi-agent,"2026-09-17T19:43:31.959Z",local_mutation,chore/certify-pm-cli-2026-9-17
+close_reason: completed
+body: ""
