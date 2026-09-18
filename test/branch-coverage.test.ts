@@ -279,6 +279,12 @@ test("export human branches render dry-run and payload previews from a real pm i
     { encoding: "utf8", shell: process.platform === "win32" },
   );
   assert.equal(add.status, 0, add.stderr);
+  const fresh = spawnSync(
+    pm,
+    ["--path", root, "create", "--title", "Fresh export", "--status", "open", "--priority", "1", "--description", "fresh"],
+    { encoding: "utf8", shell: process.platform === "win32" },
+  );
+  assert.equal(fresh.status, 0, fresh.stderr);
   try {
     const h = await getHarness();
     const dry = await h.runExporter({
