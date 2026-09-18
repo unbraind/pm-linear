@@ -6,6 +6,7 @@ import type {
   PreflightOverrideContext,
 } from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
 
@@ -759,7 +760,7 @@ export function buildImportRequestPlan(
   if (flags.state) variables.state = state;
   if (flags.cycle) variables.cycle = cycle;
   return {
-    endpoint: "https://api.linear.app/graphql",
+    endpoint: LINEAR_API_BASE_URL,
     method: "POST",
     query: buildIssuesQuery(flags),
     variables,
@@ -832,7 +833,53 @@ async function fetchAllLinearIssues(
 // present. A retriable HTTP status is surfaced as a RetriableHttpError so the
 // retry wrapper can decide; everything else resolves/rejects immediately.
 // ---------------------------------------------------------------------------
-const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * The default Linear GraphQL endpoint.
+ *
+ * The production value is the public Linear API. It is read from the
+ * `LINEAR_API_BASE_URL` environment variable so a workspace can point the
+ * client at a Linear-compatible proxy or self-hosted gateway, and so the
+ * network-facing code paths (request, retry, auth, pagination, team resolve)
+ * can be exercised against a local server speaking the real wire format —
+ * without monkey-patching `fetch` or `https`. The value is resolved once per
+ * process and parsed with `URL`, so a malformed override fails fast at the
+ * first request rather than silently hitting the wrong host.
+ */
+const LINEAR_API_BASE_URL = process.env["LINEAR_API_BASE_URL"] ?? "https://api.linear.app/graphql";
+
+/**
+ * Resolved Linear endpoint pieces for `http.request` / `https.request`.
+ */
+interface LinearEndpoint {
+  hostname: string;
+  port: number;
+  path: string;
+  useTls: boolean;
+}
+
+/**
+ * Parse the configured Linear endpoint into request-option pieces.
+ *
+ * `URL` normalises the protocol, host, and path, and a bad override throws a
+ * descriptive `TypeError` that the caller surfaces as a request failure. The
+ * default port follows the protocol (443 for https, 80 for http) so a bare
+ * `http://127.0.0.1:PORT/path` local server resolves correctly.
+ *
+ * @returns The hostname, port, path, and TLS flag for the request options.
+ */
+function resolveLinearEndpoint(): LinearEndpoint {
+  const url = new URL(LINEAR_API_BASE_URL);
+  return {
+    hostname: url.hostname,
+    port: url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
+    path: url.pathname + url.search,
+    useTls: url.protocol === "https:",
+  };
+}
+
+const REQUEST_TIMEOUT_MS = process.env["LINEAR_REQUEST_TIMEOUT_MS"]
+  ? Number(process.env["LINEAR_REQUEST_TIMEOUT_MS"])
+  : 30_000;
 const MAX_RETRIES = 4;
 
 class RetriableHttpError extends Error {
@@ -922,20 +969,41 @@ function linearRequestOnce<TData>(
 ): Promise<LinearResponse<TData>> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query, variables });
+    const endpoint = resolveLinearEndpoint();
 
-    const req = https.request(
-      {
-        hostname: "api.linear.app",
-        path: "/graphql",
-        method: "POST",
-        timeout: REQUEST_TIMEOUT_MS,
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-          Authorization: apiKey,
-        },
-      },
-      (res) => {
+    const req = endpoint.useTls
+      ? https.request(
+          {
+            hostname: endpoint.hostname,
+            port: endpoint.port,
+            path: endpoint.path,
+            method: "POST",
+            timeout: REQUEST_TIMEOUT_MS,
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(body),
+              Authorization: apiKey,
+            },
+          },
+          respond,
+        )
+      : http.request(
+          {
+            hostname: endpoint.hostname,
+            port: endpoint.port,
+            path: endpoint.path,
+            method: "POST",
+            timeout: REQUEST_TIMEOUT_MS,
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(body),
+              Authorization: apiKey,
+            },
+          },
+          respond,
+        );
+
+    function respond(res: http.IncomingMessage): void {
         const status = res.statusCode ?? 0;
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -966,8 +1034,7 @@ function linearRequestOnce<TData>(
             reject(new Error(`Failed to parse Linear response: ${String(err)}`));
           }
         });
-      }
-    );
+    }
 
     req.on("timeout", () => {
       req.destroy(new RetriableHttpError(0));
@@ -1050,9 +1117,19 @@ const PM_LIST_MAX_BUFFER = 16 * 1024 * 1024;
  * Read the local pm item list via the `pm list --json` subprocess.
  *
  * Shells out with a large buffer because a full workspace dump can exceed the
- * default maxBuffer; a non-zero exit or unparseable stdout is turned into a
+ * default maxBuffer; a non-zero exit or a spawn failure is turned into a
  * `CommandError` rather than returning an empty list that would look like a
  * clean sync of zero items.
+ *
+ * Stdout parsing is not wrapped in a defensive `try/catch`: the pinned pm CLI
+ * emits a valid JSON envelope on stdout whenever `pm --json list` exits 0 (a
+ * structured `--json` output flag is a contract, not a best-effort side
+ * effect), and every failure path — missing root, uninitialised tracker, a bad
+ * flag — exits non-zero with the diagnostic on stderr instead. A parse failure
+ * on a zero-exit stdout is therefore unreachable through the pinned CLI, and a
+ * synthetic `catch` would only ever mask a pm regression by reporting "could
+ * not parse" instead of letting the real `SyntaxError` surface. The pinned
+ * exit-0/valid-JSON contract is asserted by `readPmItems`'s test suite.
  *
  * @param pmRoot - The workspace root passed to `pm --path`.
  * @returns The parsed pm items.
@@ -1069,13 +1146,9 @@ function readPmItems(pmRoot: string): PmItem[] {
   if (result.status !== 0) {
     throw new CommandError(result.stderr || "pm list failed");
   }
-  try {
-    const parsed = JSON.parse(result.stdout);
-    const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
-    return items as PmItem[];
-  } catch {
-    throw new CommandError("Could not parse `pm list --json` output.");
-  }
+  const parsed = JSON.parse(result.stdout);
+  const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
+  return items as PmItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1300,7 +1373,12 @@ type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
  * Every field is optional; the live path resolves the SDK helpers itself, while
  * the seams let a test inject `commitItemMutations`, `normalizeItemId`, and
  * `readSettings` so the crash-recovery and compensation branches run offline
- * without touching the real workspace transaction journal.
+ * without touching the real workspace transaction journal. The `sdkLoader`
+ * seam additionally lets a test supply a partial SDK module so the defensive
+ * guards for an older or broken SDK install (the `assertSdkFunction` throw and
+ * the `loadAtomicSdk` import-failure path) are reachable — the pinned dev
+ * dependency always exports every helper, so those branches are otherwise
+ * unreachable through the public surface.
  */
 export interface AtomicImportOptions {
   /** Author attributed to the atomic transaction journal (defaults to `pm-linear`). */
@@ -1311,6 +1389,13 @@ export interface AtomicImportOptions {
   normalizeItemId?: NormalizeItemId;
   /** Test seam: inject readSettings (skips SDK resolution). */
   readSettings?: ReadSettings;
+  /**
+   * Test seam: inject the SDK module loader used to resolve any helper not
+   * supplied above. Pass a partial module (or one that throws) to exercise the
+   * defensive `assertSdkFunction` and `loadAtomicSdk` failure paths that the
+   * pinned, always-complete dev dependency cannot reach.
+   */
+  sdkLoader?: () => Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>>;
 }
 
 /** Fully rendered desired state for one Linear issue import. */
@@ -1369,7 +1454,7 @@ async function resolveAtomicSdkFunctions(opts: AtomicImportOptions): Promise<{
 }> {
   const needsSdk =
     !opts.commitItemMutations || !opts.normalizeItemId || !opts.readSettings;
-  const mod = needsSdk ? await loadAtomicSdk() : undefined;
+  const mod = needsSdk ? await loadAtomicSdk(opts.sdkLoader) : undefined;
   return {
     commitItemMutations: opts.commitItemMutations ??
       assertSdkFunction<CommitItemMutations>(

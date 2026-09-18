@@ -1,0 +1,16 @@
+id: pm-linear-xw01
+title: Cover every pm-linear code path with behavioural tests and raise the coverage gate to 100
+description: "Drive index.ts to 100% line/branch/function coverage via behavioural tests (real pm CLI + local Linear-shaped HTTP server), then raise coverageGate thresholds to 100."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-09-18T03:12:35.441Z"
+updated_at: "2026-09-18T03:12:45.333Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "npm run coverage reports 100.00 lines/branches/functions for index.ts; coverageGate.thresholds all 100; npm run release:check exits 0; no gate weakened."
+comments[1]{created_at,author,text}:
+  "2026-09-18T03:12:45.333Z",pi-agent,"Baseline: index.ts lines 74.13 / branches 80.30 / functions 82.61. Single source file. Uncovered: HTTP client (linearRequestOnce/linearRequest/parseRetryAfter/RetriableHttpError), fetchAllLinearIssues, resolveTeamContext, preflightLinear network probe, syncLinearIssues legacy loop, readPmItems error branches, assertSdkFunction/loadAtomicSdk defensive branches, command handlers (sync/validate/import/export/linear-sync), renderImportDryRun, buildValidationReport, assertPreflightOk, readBooleanOption string branch, readProjectMapOption boolean branch. Plan: add LINEAR_API_BASE_URL env seam to redirect HTTPS client to local http server; drive command handlers via harness; cover syncLinearIssues legacy loop via fetchIssues seam + real pm workspace; add sdkLoader seam for defensive SDK branches."
+body: ""
