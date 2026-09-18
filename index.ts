@@ -6,7 +6,6 @@ import type {
   PreflightOverrideContext,
 } from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
-import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
 
@@ -760,7 +759,7 @@ export function buildImportRequestPlan(
   if (flags.state) variables.state = state;
   if (flags.cycle) variables.cycle = cycle;
   return {
-    endpoint: linearApiBaseUrl(),
+    endpoint: "https://api.linear.app/graphql",
     method: "POST",
     query: buildIssuesQuery(flags),
     variables,
@@ -833,74 +832,7 @@ async function fetchAllLinearIssues(
 // present. A retriable HTTP status is surfaced as a RetriableHttpError so the
 // retry wrapper can decide; everything else resolves/rejects immediately.
 // ---------------------------------------------------------------------------
-/**
- * The default Linear GraphQL endpoint.
- *
- * The production value is the public Linear API. It is read from the
- * `LINEAR_API_BASE_URL` environment variable so a workspace can point the
- * client at a Linear-compatible proxy or self-hosted gateway, and so the
- * network-facing code paths (request, retry, auth, pagination, team resolve)
- * can be exercised against a local server speaking the real wire format —
- * without monkey-patching `fetch` or `https`. The value is resolved per
- * request (not captured at module load) so a caller can re-point the client
- * within a process, and parsed with `URL`, so a malformed override fails fast
- * at the first request rather than silently hitting the wrong host.
- */
-const DEFAULT_LINEAR_API_BASE_URL = "https://api.linear.app/graphql";
-
-/**
- * Read the configured Linear GraphQL endpoint, defaulting to the public API.
- *
- * @returns The raw endpoint URL string.
- */
-function linearApiBaseUrl(): string {
-  return process.env["LINEAR_API_BASE_URL"] ?? DEFAULT_LINEAR_API_BASE_URL;
-}
-
-/**
- * Resolved Linear endpoint pieces for `http.request` / `https.request`.
- */
-interface LinearEndpoint {
-  hostname: string;
-  port: number;
-  path: string;
-  useTls: boolean;
-}
-
-/**
- * Parse the configured Linear endpoint into request-option pieces.
- *
- * `URL` normalises the protocol, host, and path, and a bad override throws a
- * descriptive `TypeError` that the caller surfaces as a request failure. The
- * default port follows the protocol (443 for https, 80 for http) so a bare
- * `http://127.0.0.1:PORT/path` local server resolves correctly.
- *
- * @returns The hostname, port, path, and TLS flag for the request options.
- */
-function resolveLinearEndpoint(): LinearEndpoint {
-  const url = new URL(linearApiBaseUrl());
-  return {
-    hostname: url.hostname,
-    port: url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
-    path: url.pathname + url.search,
-    useTls: url.protocol === "https:",
-  };
-}
-
-/**
- * Resolve the per-request timeout in milliseconds.
- *
- * Defaults to 30s; the `LINEAR_REQUEST_TIMEOUT_MS` env var overrides it (read
- * per request, not captured at module load, so a caller can shorten it within a
- * process — e.g. a test exercising the timeout/retry-exhaustion path).
- *
- * @returns The per-request timeout in milliseconds.
- */
-function resolveRequestTimeoutMs(): number {
-  const raw = process.env["LINEAR_REQUEST_TIMEOUT_MS"];
-  return raw ? Number(raw) : 30_000;
-}
-
+const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 4;
 
 class RetriableHttpError extends Error {
@@ -962,10 +894,7 @@ export function backoffDelayMs(attempt: number, retryAfterMs?: number): number {
  */
 function parseRetryAfter(header: string | string[] | undefined): number | undefined {
   if (!header) return undefined;
-  // Node's IncomingMessage normalizes this singleton response header to a
-  // string; String() also keeps the helper total for a one-element array from
-  // a custom HTTP-compatible client without adding an unreachable branch.
-  const raw = String(header);
+  const raw = Array.isArray(header) ? header[0] : header;
   const seconds = Number(raw);
   if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
   const date = Date.parse(raw);
@@ -993,44 +922,21 @@ function linearRequestOnce<TData>(
 ): Promise<LinearResponse<TData>> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query, variables });
-    const endpoint = resolveLinearEndpoint();
 
-    const req = endpoint.useTls
-      ? https.request(
-          {
-            hostname: endpoint.hostname,
-            port: endpoint.port,
-            path: endpoint.path,
-            method: "POST",
-            timeout: resolveRequestTimeoutMs(),
-            headers: {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(body),
-              Authorization: apiKey,
-            },
-          },
-          respond,
-        )
-      : http.request(
-          {
-            hostname: endpoint.hostname,
-            port: endpoint.port,
-            path: endpoint.path,
-            method: "POST",
-            timeout: resolveRequestTimeoutMs(),
-            headers: {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(body),
-              Authorization: apiKey,
-            },
-          },
-          respond,
-        );
-
-    function respond(res: http.IncomingMessage): void {
-        // IncomingMessage is created only after Node parsed an HTTP response;
-        // its statusCode is therefore always present for this callback.
-        const status = res.statusCode as number;
+    const req = https.request(
+      {
+        hostname: "api.linear.app",
+        path: "/graphql",
+        method: "POST",
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Authorization: apiKey,
+        },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0;
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
@@ -1060,7 +966,8 @@ function linearRequestOnce<TData>(
             reject(new Error(`Failed to parse Linear response: ${String(err)}`));
           }
         });
-    }
+      }
+    );
 
     req.on("timeout", () => {
       req.destroy(new RetriableHttpError(0));
@@ -1118,9 +1025,7 @@ async function linearRequest<TData>(
   const msg =
     lastErr instanceof RetriableHttpError
       ? `Linear API unavailable after ${MAX_RETRIES + 1} attempts (HTTP ${lastErr.status || "timeout"})`
-      // linearRequestOnce rejects only Error instances: URL parsing, socket,
-      // timeout, response parsing, and the typed HTTP errors all use Error.
-      : `Linear request failed: ${(lastErr as Error).message}`;
+      : `Linear request failed: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`;
   throw new CommandError(msg);
 }
 
@@ -1145,19 +1050,9 @@ const PM_LIST_MAX_BUFFER = 16 * 1024 * 1024;
  * Read the local pm item list via the `pm list --json` subprocess.
  *
  * Shells out with a large buffer because a full workspace dump can exceed the
- * default maxBuffer; a non-zero exit or a spawn failure is turned into a
+ * default maxBuffer; a non-zero exit or unparseable stdout is turned into a
  * `CommandError` rather than returning an empty list that would look like a
  * clean sync of zero items.
- *
- * Stdout parsing is not wrapped in a defensive `try/catch`: the pinned pm CLI
- * emits a valid JSON envelope on stdout whenever `pm --json list` exits 0 (a
- * structured `--json` output flag is a contract, not a best-effort side
- * effect), and every failure path — missing root, uninitialised tracker, a bad
- * flag — exits non-zero with the diagnostic on stderr instead. A parse failure
- * on a zero-exit stdout is therefore unreachable through the pinned CLI, and a
- * synthetic `catch` would only ever mask a pm regression by reporting "could
- * not parse" instead of letting the real `SyntaxError` surface. The pinned
- * exit-0/valid-JSON contract is asserted by `readPmItems`'s test suite.
  *
  * @param pmRoot - The workspace root passed to `pm --path`.
  * @returns The parsed pm items.
@@ -1172,16 +1067,15 @@ function readPmItems(pmRoot: string): PmItem[] {
     throw new CommandError(`pm list failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    // The pinned pm CLI writes a diagnostic for every non-zero `--json list`
-    // exit. Keep that contract explicit rather than masking an empty diagnostic
-    // with a synthetic fallback branch.
-    throw new CommandError(result.stderr);
+    throw new CommandError(result.stderr || "pm list failed");
   }
-  // Successful `pm --json list` output is the pinned object envelope with an
-  // `items` array. Array/results fallbacks would describe older, unsupported pm
-  // contracts and cannot be reached by the installed CLI.
-  const parsed = JSON.parse(result.stdout) as { items: unknown[] };
-  return parsed.items as PmItem[];
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
+    return items as PmItem[];
+  } catch {
+    throw new CommandError("Could not parse `pm list --json` output.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1374,11 +1268,8 @@ function buildImportDryRunPlan(
     request,
     existingLinkedItems,
     fieldMap: options.fieldMap ?? {},
-    // The command/importer handlers always resolve these maps before calling
-    // this renderer. Keeping the invariant explicit avoids inventing a second
-    // untestable option-normalization path here.
-    statusMap: options.statusMap as Record<string, string>,
-    projectMap: options.projectMap as ProjectMap,
+    statusMap: options.statusMap ?? {},
+    projectMap: options.projectMap ?? { enabled: false, passthrough: false, map: {} },
   };
 }
 
@@ -1409,12 +1300,7 @@ type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
  * Every field is optional; the live path resolves the SDK helpers itself, while
  * the seams let a test inject `commitItemMutations`, `normalizeItemId`, and
  * `readSettings` so the crash-recovery and compensation branches run offline
- * without touching the real workspace transaction journal. The `sdkLoader`
- * seam additionally lets a test supply a partial SDK module so the defensive
- * guards for an older or broken SDK install (the `assertSdkFunction` throw and
- * the `loadAtomicSdk` import-failure path) are reachable — the pinned dev
- * dependency always exports every helper, so those branches are otherwise
- * unreachable through the public surface.
+ * without touching the real workspace transaction journal.
  */
 export interface AtomicImportOptions {
   /** Author attributed to the atomic transaction journal (defaults to `pm-linear`). */
@@ -1425,13 +1311,6 @@ export interface AtomicImportOptions {
   normalizeItemId?: NormalizeItemId;
   /** Test seam: inject readSettings (skips SDK resolution). */
   readSettings?: ReadSettings;
-  /**
-   * Test seam: inject the SDK module loader used to resolve any helper not
-   * supplied above. Pass a partial module (or one that throws) to exercise the
-   * defensive `assertSdkFunction` and `loadAtomicSdk` failure paths that the
-   * pinned, always-complete dev dependency cannot reach.
-   */
-  sdkLoader?: () => Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>>;
 }
 
 /** Fully rendered desired state for one Linear issue import. */
@@ -1475,7 +1354,7 @@ async function loadAtomicSdk(
   try {
     return await importSdk();
   } catch (err: unknown) {
-    const msg = (err as Error).message;
+    const msg = err instanceof Error ? err.message : String(err);
     throw new CommandError(
       `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
       EXIT_CODE.USAGE,
@@ -1490,7 +1369,7 @@ async function resolveAtomicSdkFunctions(opts: AtomicImportOptions): Promise<{
 }> {
   const needsSdk =
     !opts.commitItemMutations || !opts.normalizeItemId || !opts.readSettings;
-  const mod = needsSdk ? await loadAtomicSdk(opts.sdkLoader) : undefined;
+  const mod = needsSdk ? await loadAtomicSdk() : undefined;
   return {
     commitItemMutations: opts.commitItemMutations ??
       assertSdkFunction<CommitItemMutations>(
@@ -2039,7 +1918,7 @@ export async function syncLinearIssues(
 // Linear issueCreate/issueUpdate input. teamId is required by the API for a
 // real create, so callers must supply --team and we resolve it to an id at
 // push time. For updates we instead address the existing issue by linearId.
-export interface LinearCreatePayload {
+interface LinearCreatePayload {
   title: string;
   description: string;
   // pm provenance carried through so a re-import is idempotent.
@@ -2393,31 +2272,6 @@ function applyExportFields(input: Record<string, unknown>, payload: LinearCreate
   }
 }
 
-/**
- * Build the read-only exporter preview shape for one payload.
- *
- * Kept separate from the command handler so both complete and sparse payloads
- * can be checked directly without fabricating a pm subprocess response.
- */
-export function buildExportPreviewPayload(
-  payload: LinearCreatePayload,
-  invertedStatusMap: Record<string, string>,
-): Record<string, unknown> {
-  return {
-    action: payload.alreadyInLinear ? "update" : "create",
-    title: payload.title,
-    description: payload.description,
-    targetState: resolveLinearStateName(payload.pmStatus, invertedStatusMap) ?? null,
-    priority: payload.priority ?? 0,
-    ...(payload.labels && payload.labels.length ? { labels: payload.labels } : {}),
-    ...(payload.dueDate ? { dueDate: payload.dueDate } : {}),
-    ...(typeof payload.estimate === "number" ? { estimate: payload.estimate } : {}),
-    ...(payload.cycleName ? { cycle: payload.cycleName } : {}),
-    ...(payload.linearId ? { linearId: payload.linearId } : {}),
-    ...(payload.linearUrl ? { linearUrl: payload.linearUrl } : {}),
-  };
-}
-
 export function buildExportMutationPlan(
   payload: LinearCreatePayload,
   invertedStatusMap: Record<string, string>,
@@ -2540,9 +2394,7 @@ async function preflightLinear(
     }
     return null;
   } catch (err) {
-    // linearRequest and the native request lifecycle reject with Error objects;
-    // there is no non-Error preflight failure contract to normalize here.
-    return `Linear API unreachable: ${(err as Error).message}`;
+    return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -2663,7 +2515,7 @@ function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
 function renderImportDryRun(
   ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
-  teamSource: TeamSource
+  teamSource?: TeamSource
 ): Record<string, unknown> {
   const plan = buildImportDryRunPlan(options, ctx.pm_root);
   if (!isJsonMode(ctx)) {
@@ -2706,7 +2558,7 @@ function renderImportDryRun(
     statusMap: plan.statusMap,
     fieldMap: plan.fieldMap,
     projectMap: plan.projectMap,
-    teamSource,
+    ...(teamSource ? { teamSource } : {}),
   };
 }
 
@@ -2834,14 +2686,10 @@ export default defineExtension({
           console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
         }
 
-        // syncLinearIssues only ever throws CommandError (every failure path —
-        // linearRequest, readPmItems, the atomic SDK commit — wraps into one), so
-        // it propagates with its specific exitCode unchanged; no catch-and-rewrap
-        // is needed here (a non-CommandError throw is unreachable through this
-        // call, pinned by the suite).
-        const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+        try {
+          const result = await syncLinearIssues(syncOpts, ctx.pm_root);
 
-        if (result.atomic) {
+          if (result.atomic) {
             // syncLinearIssues already printed the atomic summary line.
             return {
               success: true,
@@ -2853,11 +2701,9 @@ export default defineExtension({
               teamSource: teamSelection.source,
               atomic: true,
               dryRun: Boolean(result.dryRun),
-              // JSON output omits undefined object values, so direct fields
-              // preserve the wire shape without three unreachable spread arms.
-              transactionId: result.transactionId,
-              recovered: result.recovered,
-              recoveredItems: result.recoveredItems,
+              ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+              ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+              ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
             };
           }
 
@@ -2880,6 +2726,13 @@ export default defineExtension({
             teamSource: teamSelection.source,
             dryRun: false,
           };
+        } catch (err: unknown) {
+          // Preserve a more specific exitCode (e.g. a missing API key is a
+          // USAGE error) rather than flattening everything to a generic failure.
+          if (err instanceof CommandError) throw err;
+          const message = err instanceof Error ? err.message : String(err);
+          throw new CommandError(`Linear sync failed: ${message}`);
+        }
       },
     });
 
@@ -3000,10 +2853,9 @@ export default defineExtension({
         console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
       }
 
-      // syncLinearIssues only ever throws CommandError (see the sync command
-      // note), so it propagates with its specific exitCode unchanged.
-      const result = await syncLinearIssues(syncOpts, ctx.pm_root);
-      if (!result.atomic) {
+      try {
+        const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+        if (!result.atomic) {
           console.error(
             `Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
               `from Linear team ${result.team.toUpperCase()}` +
@@ -3019,10 +2871,15 @@ export default defineExtension({
           teamSource: teamSelection.source,
           dryRun: Boolean(result.dryRun),
           ...(result.atomic ? { atomic: true } : {}),
-          transactionId: result.transactionId,
-          recovered: result.recovered,
-          recoveredItems: result.recoveredItems,
+          ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+          ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+          ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
         };
+      } catch (err: unknown) {
+        if (err instanceof CommandError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        throw new CommandError(`Linear import failed: ${message}`);
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -3082,7 +2939,19 @@ export default defineExtension({
 
       // Default (no --push, no --dry-run): print the read-only payload preview.
       if (!push) {
-        const printable = payloads.map((p) => buildExportPreviewPayload(p, invertedStatusMap));
+        const printable = payloads.map((p) => ({
+          action: p.alreadyInLinear ? "update" : "create",
+          title: p.title,
+          description: p.description,
+          targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
+          priority: p.priority ?? 0,
+          ...(p.labels && p.labels.length ? { labels: p.labels } : {}),
+          ...(p.dueDate ? { dueDate: p.dueDate } : {}),
+          ...(typeof p.estimate === "number" ? { estimate: p.estimate } : {}),
+          ...(p.cycleName ? { cycle: p.cycleName } : {}),
+          ...(p.linearId ? { linearId: p.linearId } : {}),
+          ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
+        }));
         const wouldCreate = printable.filter((p) => p.action === "create").length;
         const wouldUpdate = printable.length - wouldCreate;
         if (isJsonMode(ctx)) {
@@ -3145,17 +3014,14 @@ export default defineExtension({
       // and the batch CONTINUES — mirroring the import path's per-item `continue`
       // — instead of aborting every remaining item. Errors are logged to stderr.
       for (const payload of payloads) {
-        // The pinned pm list contract always supplies an item id when no
-        // Linear provenance id is present; use a stable diagnostic fallback
-        // rather than depending on an optional title field.
-        const label = String(payload.linearId ?? payload.pmId);
+        const label = payload.linearId ?? payload.pmId ?? payload.title;
         try {
           // Map pm status -> a concrete Linear workflow-state id for this team,
           // when one resolves; otherwise leave the state untouched.
           const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
-          // Undefined status names naturally miss this map lookup; the
-          // resulting undefined stateId is omitted below.
-          const stateId = teamCtx.statesByName[stateName?.trim().toLowerCase() as string];
+          const stateId = stateName
+            ? teamCtx.statesByName[stateName.trim().toLowerCase()]
+            : undefined;
 
           // Resolve pm tags -> existing Linear label ids for this team (symmetric
           // with the importer's labels->tags mapping). Unknown tags are dropped.
@@ -3207,9 +3073,7 @@ export default defineExtension({
           }
           created++;
         } catch (err) {
-          // The push body only awaits linearRequest and typed local transforms,
-          // all of which reject/throw Error instances.
-          const message = (err as Error).message;
+          const message = err instanceof Error ? err.message : String(err);
           console.error(`Failed to push item ${label}: ${message}`);
           skipped++;
           continue;
@@ -3304,9 +3168,9 @@ export default defineExtension({
         teamSource: teamSelection.source,
         dryRun: Boolean(result.dryRun),
         ...(result.atomic ? { atomic: true } : {}),
-        transactionId: result.transactionId,
-        recovered: result.recovered,
-        recoveredItems: result.recoveredItems,
+        ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
+        ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
+        ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
       };
     });
   },
