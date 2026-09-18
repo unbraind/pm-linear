@@ -265,6 +265,7 @@ const result = spawnSync(
     // compete for sockets and process resources, producing ECONNRESET in the
     // local server rather than a product failure. Serial execution preserves
     // every test and coverage counter while making the gate deterministic.
+    "--test-isolation=none",
     "--test-concurrency=1",
     "--experimental-test-coverage",
     // Scope the report to exactly the files the presence check requires. Passing
