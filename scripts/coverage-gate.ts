@@ -260,6 +260,12 @@ const result = spawnSync(
   process.execPath,
   [
     "--test",
+    // The behavioural suite starts local HTTP servers and shells out to the
+    // real pm binary. Running those test files in parallel makes the host
+    // compete for sockets and process resources, producing ECONNRESET in the
+    // local server rather than a product failure. Serial execution preserves
+    // every test and coverage counter while making the gate deterministic.
+    "--test-concurrency=1",
     "--experimental-test-coverage",
     // Scope the report to exactly the files the presence check requires. Passing
     // the enumerated paths rather than a directory glob keeps the two in step by
