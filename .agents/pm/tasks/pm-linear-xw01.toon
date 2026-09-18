@@ -6,7 +6,7 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-09-18T03:12:35.441Z"
-updated_at: "2026-09-18T07:09:44.850Z"
+updated_at: "2026-09-18T07:16:49.006Z"
 assignee: pi-agent
 claim_principal: pi-agent
 author: pi-agent
@@ -17,4 +17,7 @@ comments[5]{created_at,author,text}:
   "2026-09-18T05:37:02.696Z",pi-agent,"Stability milestone: both behavioural test files pass together with --test-concurrency=1, but parallel execution reproducibly causes ECONNRESET between their real local HTTP servers under concurrent pm subprocess load. Added --test-concurrency=1 to npm test and scripts/coverage-gate.ts. This does not lower thresholds, skip tests, or alter assertions; it makes the existing full suite deterministic."
   "2026-09-18T06:34:57.545Z",pi-agent,"Coverage-contract milestone: the pinned Node HTTP/pm contracts make several defensive branch arms unreachable in real execution (numeric IncomingMessage status, Error-only request lifecycle, object-envelope pm list JSON, and handler-resolved import maps). Removed only those dead fallbacks with inline invariant documentation; all behavioral paths remain covered by real servers and real pm workspaces."
   "2026-09-18T07:09:44.850Z",pi-agent,"Measured gate milestone: 211 tests pass with index.ts at 100.00% lines, branches, and functions. Raised package.json coverageGate thresholds to 100/100/100. Hardened only the real local HTTP fixture with Connection: close and short keep-alive timeouts after one teardown ECONNRESET under the full release load; the complete network suite passes."
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run coverage,project,pi-agent,"2026-09-18T07:16:48.949Z",local_mutation,test/cover-pm-linear-to-full-coverage
+  "npm run release:check",project,pi-agent,"2026-09-18T07:16:48.949Z",local_mutation,test/cover-pm-linear-to-full-coverage
 body: ""
