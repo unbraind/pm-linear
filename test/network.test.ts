@@ -106,10 +106,16 @@ async function startLinearServer(respond: LinearResponder): Promise<LinearTestSe
         // Accept the connection but never respond; the client timeout fires.
         return;
       }
+      // Each request is a short-lived real test transaction. Closing the
+      // response connection prevents stale keep-alive sockets from surviving
+      // into the next server-backed test and being reset during teardown.
+      res.setHeader("Connection", "close");
       res.writeHead(spec.status ?? 200, spec.headers);
       res.end(spec.body ?? "");
     });
   });
+  server.keepAliveTimeout = 1;
+  server.headersTimeout = 1_000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
