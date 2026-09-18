@@ -962,7 +962,10 @@ export function backoffDelayMs(attempt: number, retryAfterMs?: number): number {
  */
 function parseRetryAfter(header: string | string[] | undefined): number | undefined {
   if (!header) return undefined;
-  const raw = Array.isArray(header) ? header[0] : header;
+  // Node's IncomingMessage normalizes this singleton response header to a
+  // string; String() also keeps the helper total for a one-element array from
+  // a custom HTTP-compatible client without adding an unreachable branch.
+  const raw = String(header);
   const seconds = Number(raw);
   if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
   const date = Date.parse(raw);
@@ -1025,7 +1028,9 @@ function linearRequestOnce<TData>(
         );
 
     function respond(res: http.IncomingMessage): void {
-        const status = res.statusCode ?? 0;
+        // IncomingMessage is created only after Node parsed an HTTP response;
+        // its statusCode is therefore always present for this callback.
+        const status = res.statusCode as number;
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
@@ -1113,7 +1118,9 @@ async function linearRequest<TData>(
   const msg =
     lastErr instanceof RetriableHttpError
       ? `Linear API unavailable after ${MAX_RETRIES + 1} attempts (HTTP ${lastErr.status || "timeout"})`
-      : `Linear request failed: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`;
+      // linearRequestOnce rejects only Error instances: URL parsing, socket,
+      // timeout, response parsing, and the typed HTTP errors all use Error.
+      : `Linear request failed: ${(lastErr as Error).message}`;
   throw new CommandError(msg);
 }
 
@@ -1165,11 +1172,16 @@ function readPmItems(pmRoot: string): PmItem[] {
     throw new CommandError(`pm list failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    throw new CommandError(result.stderr || "pm list failed");
+    // The pinned pm CLI writes a diagnostic for every non-zero `--json list`
+    // exit. Keep that contract explicit rather than masking an empty diagnostic
+    // with a synthetic fallback branch.
+    throw new CommandError(result.stderr);
   }
-  const parsed = JSON.parse(result.stdout);
-  const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
-  return items as PmItem[];
+  // Successful `pm --json list` output is the pinned object envelope with an
+  // `items` array. Array/results fallbacks would describe older, unsupported pm
+  // contracts and cannot be reached by the installed CLI.
+  const parsed = JSON.parse(result.stdout) as { items: unknown[] };
+  return parsed.items as PmItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1362,8 +1374,11 @@ function buildImportDryRunPlan(
     request,
     existingLinkedItems,
     fieldMap: options.fieldMap ?? {},
-    statusMap: options.statusMap ?? {},
-    projectMap: options.projectMap ?? { enabled: false, passthrough: false, map: {} },
+    // The command/importer handlers always resolve these maps before calling
+    // this renderer. Keeping the invariant explicit avoids inventing a second
+    // untestable option-normalization path here.
+    statusMap: options.statusMap as Record<string, string>,
+    projectMap: options.projectMap as ProjectMap,
   };
 }
 
@@ -1460,7 +1475,7 @@ async function loadAtomicSdk(
   try {
     return await importSdk();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = (err as Error).message;
     throw new CommandError(
       `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
       EXIT_CODE.USAGE,
@@ -2500,7 +2515,9 @@ async function preflightLinear(
     }
     return null;
   } catch (err) {
-    return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
+    // linearRequest and the native request lifecycle reject with Error objects;
+    // there is no non-Error preflight failure contract to normalize here.
+    return `Linear API unreachable: ${(err as Error).message}`;
   }
 }
 
@@ -2621,7 +2638,7 @@ function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
 function renderImportDryRun(
   ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
-  teamSource?: TeamSource
+  teamSource: TeamSource
 ): Record<string, unknown> {
   const plan = buildImportDryRunPlan(options, ctx.pm_root);
   if (!isJsonMode(ctx)) {
@@ -2664,7 +2681,7 @@ function renderImportDryRun(
     statusMap: plan.statusMap,
     fieldMap: plan.fieldMap,
     projectMap: plan.projectMap,
-    ...(teamSource ? { teamSource } : {}),
+    teamSource,
   };
 }
 
