@@ -6,6 +6,7 @@ import type {
   PreflightOverrideContext,
 } from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
 
@@ -825,15 +826,76 @@ async function fetchAllLinearIssues(
 }
 
 // ---------------------------------------------------------------------------
-// Linear GraphQL client (native Node.js https — no external deps)
+// Linear GraphQL client (native Node.js http/https — no external deps)
 //
 // Robustness: a per-request timeout (default 30s) and exponential backoff retry
 // on transient failures (HTTP 429 + 5xx), honoring a Retry-After header when
 // present. A retriable HTTP status is surfaced as a RetriableHttpError so the
 // retry wrapper can decide; everything else resolves/rejects immediately.
 // ---------------------------------------------------------------------------
-const REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_LINEAR_API_BASE_URL = "https://api.linear.app/graphql";
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Largest delay Node's timers honour (2^31 - 1 ms); larger values are clamped, not rejected. */
+const MAX_TIMER_MS = 2_147_483_647;
 const MAX_RETRIES = 4;
+
+interface LinearEndpoint {
+  hostname: string;
+  port: number;
+  path: string;
+  useTls: boolean;
+}
+
+function linearApiBaseUrl(): string {
+  return process.env["LINEAR_API_BASE_URL"] ?? DEFAULT_LINEAR_API_BASE_URL;
+}
+
+/**
+ * Resolve the endpoint seam without permitting credentials to leave the host
+ * over cleartext HTTP. HTTPS may target any host; HTTP is restricted to exact
+ * loopback hostnames for real local GraphQL test servers.
+ */
+function resolveLinearEndpoint(): LinearEndpoint {
+  let url: URL;
+  try {
+    url = new URL(linearApiBaseUrl());
+  } catch {
+    throw new Error(
+      "LINEAR_API_BASE_URL must be a valid https URL, or an http URL on the loopback host (127.0.0.1, ::1, or localhost).",
+    );
+  }
+  const useTls = url.protocol === "https:";
+  const isHttp = url.protocol === "http:";
+  const loopback = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+  if (!useTls && (!isHttp || !loopback.has(url.hostname))) {
+    throw new Error(
+      "LINEAR_API_BASE_URL must use https, or http only with the loopback host (127.0.0.1, ::1, or localhost).",
+    );
+  }
+  return {
+    hostname: url.hostname.replace(/^\[(.*)\]$/, "$1"),
+    port: url.port ? Number(url.port) : useTls ? 443 : 80,
+    path: url.pathname + url.search,
+    useTls,
+  };
+}
+
+/**
+ * Resolve the request timeout from the environment.
+ *
+ * Only integers from 1 through 2^31-1 ms are accepted; malformed, zero,
+ * negative, fractional, and oversized values fall back to the safe 30-second
+ * default. Exported because the chosen value is not observable through a
+ * request in bounded time (proving a 30 s fallback would take 30 s).
+ */
+export function resolveRequestTimeoutMs(): number {
+  const raw = process.env["LINEAR_REQUEST_TIMEOUT_MS"];
+  if (!raw) return DEFAULT_REQUEST_TIMEOUT_MS;
+  const value = Number(raw);
+  // Node clamps timers above 2^31-1 ms (about 24.8 days) instead of rejecting
+  // them, so an oversized value would silently disable the timeout.
+  return Number.isInteger(value) && value > 0 && value <= MAX_TIMER_MS ? value : DEFAULT_REQUEST_TIMEOUT_MS;
+}
 
 class RetriableHttpError extends Error {
   status: number;
@@ -922,20 +984,22 @@ function linearRequestOnce<TData>(
 ): Promise<LinearResponse<TData>> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query, variables });
-
-    const req = https.request(
-      {
-        hostname: "api.linear.app",
-        path: "/graphql",
-        method: "POST",
-        timeout: REQUEST_TIMEOUT_MS,
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-          Authorization: apiKey,
-        },
+    const endpoint = resolveLinearEndpoint();
+    const requestOptions = {
+      hostname: endpoint.hostname,
+      port: endpoint.port,
+      path: endpoint.path,
+      method: "POST" as const,
+      timeout: resolveRequestTimeoutMs(),
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+        Authorization: apiKey,
       },
-      (res) => {
+    };
+
+    const request = endpoint.useTls ? https.request : http.request;
+    const req = request(requestOptions, (res) => {
         const status = res.statusCode ?? 0;
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));

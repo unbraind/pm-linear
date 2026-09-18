@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc",
     "build:test": "tsc -p tsconfig.test.json",
-    "test": "npm run build && npm run build:test && node --test test/*.test.ts",
+    "test": "npm run build && npm run build:test && node --test --test-concurrency=1 test/*.test.ts",
     "dev": "tsc --watch",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
@@ -49,9 +49,9 @@
       "test/*.test.ts"
     ],
     "thresholds": {
-      "lines": 70,
-      "branches": 80,
-      "functions": 80
+      "lines": 99,
+      "branches": 96,
+      "functions": 100
     },
     "ignore": []
   },
