@@ -158,6 +158,37 @@ const DEFAULT_SKIP_DIRS: readonly string[] = [
 const skipDirs = new Set([...DEFAULT_SKIP_DIRS, ...(config.skipDirs ?? [])]);
 
 /**
+ * Expands the configured test arguments before handing them to Node.
+ *
+ * The normal shell invocation expands `test/*.test.ts`, but the coverage gate
+ * invokes Node directly. Single-process test isolation needs concrete paths so
+ * helper code that checks `process.argv` never mistakes the literal glob for a
+ * module path. The package currently uses one simple filename glob; keeping the
+ * small expansion here also makes the direct spawn independent of shell rules.
+ */
+function expandTestArguments(patterns: readonly string[]): string[] {
+  const expanded: string[] = [];
+  for (const pattern of patterns) {
+    if (!pattern.includes("*")) {
+      expanded.push(pattern);
+      continue;
+    }
+    const slash = pattern.lastIndexOf("/");
+    const directory = slash === -1 ? "." : pattern.slice(0, slash);
+    const filenamePattern = slash === -1 ? pattern : pattern.slice(slash + 1);
+    const escaped = filenamePattern.replace(/[.+?^${}()|[\\]\\\\]/g, "\\\\$&");
+    const matcher = new RegExp(`^${escaped.replaceAll("*", ".*")}$`);
+    const absoluteDirectory = join(repoRoot, directory);
+    for (const entry of readdirSync(absoluteDirectory, { withFileTypes: true })) {
+      if (entry.isFile() && matcher.test(entry.name)) {
+        expanded.push(join(directory, entry.name).replaceAll("\\\\", "/"));
+      }
+    }
+  }
+  return expanded;
+}
+
+/**
  * Collects every TypeScript source file at a configured location.
  *
  * A file entry resolves to itself; a directory entry is walked recursively with
@@ -280,7 +311,7 @@ const result = spawnSync(
     "--test-reporter-destination=stdout",
     "--test-reporter=lcov",
     `--test-reporter-destination=${lcovPath}`,
-    ...config.tests,
+    ...expandTestArguments(config.tests),
   ],
   {
     cwd: repoRoot,
