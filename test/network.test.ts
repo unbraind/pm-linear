@@ -866,6 +866,52 @@ test("export --push accepts a team response with omitted nested connections", as
   }
 });
 
+test("export --push includes deadline fields for both create and update", async () => {
+  let mutations = 0;
+  const server = await startLinearServer(({ query }) => {
+    if (query?.includes("teams(")) return { body: teamResponse() };
+    mutations++;
+    return { body: mutationOk(`ENG-DUE-${mutations}`) };
+  });
+  const root = freshWorkspace();
+  try {
+    const linked = spawnSync(
+      PM_BIN,
+      [
+        "--path", root, "create", "--title", "Linked due", "--status", "open", "--priority", "1",
+        "--description", "[linear] linear_id=lin-due linear_url=https://linear.app/ENG-DUE",
+        "--body", "linked", "--deadline", "2026-01-03", "--assignee", "ada@example.com",
+      ],
+      PM_SPAWN_OPTS,
+    );
+    const fresh = spawnSync(
+      PM_BIN,
+      ["--path", root, "create", "--title", "Fresh due", "--status", "open", "--priority", "1", "--description", "fresh", "--deadline", "2026-01-04", "--assignee", "ada@example.com"],
+      PM_SPAWN_OPTS,
+    );
+    assert.equal(linked.status, 0, linked.stderr);
+    assert.equal(fresh.status, 0, fresh.stderr);
+    const harness = await getHarness();
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runExporter({
+          exporter: "linear",
+          options: { push: true, team: "ENG" },
+          pmRoot: root,
+        });
+        const r = result as { created: number; updated: number };
+        assert.equal(r.created, 1);
+        assert.equal(r.updated, 1);
+      },
+    );
+    assert.equal(mutations, 2);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("export --push resolves a cycle tag to a concrete cycleId on the create input", async () => {
   let lastCreateInput: Record<string, unknown> | undefined;
   const server = await startLinearServer(({ query, variables }) => {
@@ -1125,7 +1171,7 @@ test("linear validate --check-network succeeds when the viewer resolves", async 
           command: "linear validate",
           options: { "check-network": true },
           pmRoot: root,
-          global: { json: true },
+          global: { json: false },
         });
         const diag = result as { networkChecked: boolean; networkOk: boolean };
         assert.equal(diag.networkChecked, true);

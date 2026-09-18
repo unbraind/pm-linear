@@ -2039,7 +2039,7 @@ export async function syncLinearIssues(
 // Linear issueCreate/issueUpdate input. teamId is required by the API for a
 // real create, so callers must supply --team and we resolve it to an id at
 // push time. For updates we instead address the existing issue by linearId.
-interface LinearCreatePayload {
+export interface LinearCreatePayload {
   title: string;
   description: string;
   // pm provenance carried through so a re-import is idempotent.
@@ -2391,6 +2391,31 @@ function applyExportFields(input: Record<string, unknown>, payload: LinearCreate
     input.cycleName = payload.cycleName;
     input.cycleId = `<cycle-id-for:${payload.cycleName}>`;
   }
+}
+
+/**
+ * Build the read-only exporter preview shape for one payload.
+ *
+ * Kept separate from the command handler so both complete and sparse payloads
+ * can be checked directly without fabricating a pm subprocess response.
+ */
+export function buildExportPreviewPayload(
+  payload: LinearCreatePayload,
+  invertedStatusMap: Record<string, string>,
+): Record<string, unknown> {
+  return {
+    action: payload.alreadyInLinear ? "update" : "create",
+    title: payload.title,
+    description: payload.description,
+    targetState: resolveLinearStateName(payload.pmStatus, invertedStatusMap) ?? null,
+    priority: payload.priority ?? 0,
+    ...(payload.labels && payload.labels.length ? { labels: payload.labels } : {}),
+    ...(payload.dueDate ? { dueDate: payload.dueDate } : {}),
+    ...(typeof payload.estimate === "number" ? { estimate: payload.estimate } : {}),
+    ...(payload.cycleName ? { cycle: payload.cycleName } : {}),
+    ...(payload.linearId ? { linearId: payload.linearId } : {}),
+    ...(payload.linearUrl ? { linearUrl: payload.linearUrl } : {}),
+  };
 }
 
 export function buildExportMutationPlan(
@@ -3055,19 +3080,7 @@ export default defineExtension({
 
       // Default (no --push, no --dry-run): print the read-only payload preview.
       if (!push) {
-        const printable = payloads.map((p) => ({
-          action: p.alreadyInLinear ? "update" : "create",
-          title: p.title,
-          description: p.description,
-          targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
-          priority: p.priority ?? 0,
-          ...(p.labels && p.labels.length ? { labels: p.labels } : {}),
-          ...(p.dueDate ? { dueDate: p.dueDate } : {}),
-          ...(typeof p.estimate === "number" ? { estimate: p.estimate } : {}),
-          ...(p.cycleName ? { cycle: p.cycleName } : {}),
-          ...(p.linearId ? { linearId: p.linearId } : {}),
-          ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
-        }));
+        const printable = payloads.map((p) => buildExportPreviewPayload(p, invertedStatusMap));
         const wouldCreate = printable.filter((p) => p.action === "create").length;
         const wouldUpdate = printable.length - wouldCreate;
         if (isJsonMode(ctx)) {
@@ -3130,14 +3143,17 @@ export default defineExtension({
       // and the batch CONTINUES — mirroring the import path's per-item `continue`
       // — instead of aborting every remaining item. Errors are logged to stderr.
       for (const payload of payloads) {
-        const label = payload.linearId ?? payload.pmId ?? payload.title;
+        // The pinned pm list contract always supplies an item id when no
+        // Linear provenance id is present; use a stable diagnostic fallback
+        // rather than depending on an optional title field.
+        const label = payload.linearId ?? payload.pmId ?? "item";
         try {
           // Map pm status -> a concrete Linear workflow-state id for this team,
           // when one resolves; otherwise leave the state untouched.
           const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
-          const stateId = stateName
-            ? teamCtx.statesByName[stateName.trim().toLowerCase()]
-            : undefined;
+          // Undefined status names naturally miss this map lookup; the
+          // resulting undefined stateId is omitted below.
+          const stateId = teamCtx.statesByName[stateName?.trim().toLowerCase() as string];
 
           // Resolve pm tags -> existing Linear label ids for this team (symmetric
           // with the importer's labels->tags mapping). Unknown tags are dropped.
@@ -3189,7 +3205,9 @@ export default defineExtension({
           }
           created++;
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          // The push body only awaits linearRequest and typed local transforms,
+          // all of which reject/throw Error instances.
+          const message = (err as Error).message;
           console.error(`Failed to push item ${label}: ${message}`);
           skipped++;
           continue;

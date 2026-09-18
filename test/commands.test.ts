@@ -677,6 +677,31 @@ test("linear import writes items through the real fetch", async () => {
   }
 });
 
+test("linear import non-json reports skipped issues in its human summary", async () => {
+  const server = await issuesServer();
+  const root = freshWorkspace();
+  const harness = await getHarness();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runImporter({
+          importer: "linear",
+          options: { team: "ENG", state: "never-matches" },
+          pmRoot: root,
+          global: { json: false },
+        });
+        const r = result as { imported: number; skipped: number };
+        assert.equal(r.imported, 0);
+        assert.equal(r.skipped, 2);
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("linear import --atomic commits through the real SDK", async () => {
   const server = await issuesServer();
   const root = freshWorkspace();
