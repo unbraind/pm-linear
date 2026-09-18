@@ -2853,9 +2853,11 @@ export default defineExtension({
               teamSource: teamSelection.source,
               atomic: true,
               dryRun: Boolean(result.dryRun),
-              ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-              ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-              ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+              // JSON output omits undefined object values, so direct fields
+              // preserve the wire shape without three unreachable spread arms.
+              transactionId: result.transactionId,
+              recovered: result.recovered,
+              recoveredItems: result.recoveredItems,
             };
           }
 
@@ -3017,9 +3019,9 @@ export default defineExtension({
           teamSource: teamSelection.source,
           dryRun: Boolean(result.dryRun),
           ...(result.atomic ? { atomic: true } : {}),
-          ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-          ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-          ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+          transactionId: result.transactionId,
+          recovered: result.recovered,
+          recoveredItems: result.recoveredItems,
         };
     });
 
@@ -3146,7 +3148,7 @@ export default defineExtension({
         // The pinned pm list contract always supplies an item id when no
         // Linear provenance id is present; use a stable diagnostic fallback
         // rather than depending on an optional title field.
-        const label = payload.linearId ?? payload.pmId ?? "item";
+        const label = String(payload.linearId ?? payload.pmId);
         try {
           // Map pm status -> a concrete Linear workflow-state id for this team,
           // when one resolves; otherwise leave the state untouched.
@@ -3302,9 +3304,9 @@ export default defineExtension({
         teamSource: teamSelection.source,
         dryRun: Boolean(result.dryRun),
         ...(result.atomic ? { atomic: true } : {}),
-        ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-        ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-        ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
+        transactionId: result.transactionId,
+        recovered: result.recovered,
+        recoveredItems: result.recoveredItems,
       };
     });
   },

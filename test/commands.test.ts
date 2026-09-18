@@ -121,10 +121,11 @@ interface LinearServer {
 }
 
 /** Start a local Linear-shaped server returning one issues page for any query. */
-async function issuesServer(): Promise<LinearServer> {
+async function issuesServer(count = 2): Promise<LinearServer> {
+  const nodes = count === 1 ? [issue("ENG-1")] : [issue("ENG-1"), issue("ENG-2")];
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(issuesPage([issue("ENG-1"), issue("ENG-2")]));
+    res.end(issuesPage(nodes));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -694,6 +695,29 @@ test("linear import non-json reports skipped issues in its human summary", async
         const r = result as { imported: number; skipped: number };
         assert.equal(r.imported, 0);
         assert.equal(r.skipped, 2);
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear sync human summary uses singular issue grammar", async () => {
+  const server = await issuesServer(1);
+  const root = freshWorkspace();
+  const harness = await getHarness();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runCommand({
+          command: "linear sync",
+          options: { team: "ENG" },
+          pmRoot: root,
+          global: { json: false },
+        });
+        assert.equal((result as { synced: number }).synced, 1);
       },
     );
   } finally {

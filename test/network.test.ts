@@ -1201,7 +1201,7 @@ test("linear validate --check-network fails on a GraphQL error from the viewer",
           command: "linear validate",
           options: { "check-network": true },
           pmRoot: root,
-          global: { json: true },
+          global: { json: false },
         });
         const diag = result as { networkOk: boolean; networkError?: string };
         assert.equal(diag.networkOk, false);

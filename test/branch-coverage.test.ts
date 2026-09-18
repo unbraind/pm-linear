@@ -190,6 +190,27 @@ test("atomic identity and mutation sorting cover comparator and optional fields"
   assert.match(transaction, /^linear-import-[0-9a-f]{16}$/);
 });
 
+test("atomic import sorts equal identifiers through the real mutation seam", async () => {
+  const root = workspace();
+  try {
+    const one = prepared("ENG-1");
+    const two = prepared("ENG-1", { title: "Second representation" });
+    const result = await importLinearAtomic(root, "ENG", [two, one], {
+      readSettings: async () => ({ id_prefix: "pm-" }),
+      normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
+      commitItemMutations: async () => ({
+        transactionId: "tx",
+        status: "committed" as const,
+        recovered: false,
+        results: {},
+      }),
+    });
+    assert.equal(result.imported, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("atomic import reports a non-Error settings-read rejection", async () => {
   const root = workspace();
   try {
@@ -397,6 +418,14 @@ test("export human branches render dry-run and payload previews from a real pm i
     });
     assert.equal((preview.result as { pushed: boolean; wouldUpdate: number }).pushed, false);
     assert.equal((preview.result as { wouldUpdate: number }).wouldUpdate, 1);
+
+    const withTeam = await h.runExporter({
+      exporter: "linear",
+      options: { team: "ENG" },
+      pmRoot: root,
+      global: { json: false },
+    });
+    assert.equal((withTeam.result as { team: string }).team, "ENG");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
