@@ -2792,10 +2792,14 @@ export default defineExtension({
           console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
         }
 
-        try {
-          const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+        // syncLinearIssues only ever throws CommandError (every failure path —
+        // linearRequest, readPmItems, the atomic SDK commit — wraps into one), so
+        // it propagates with its specific exitCode unchanged; no catch-and-rewrap
+        // is needed here (a non-CommandError throw is unreachable through this
+        // call, pinned by the suite).
+        const result = await syncLinearIssues(syncOpts, ctx.pm_root);
 
-          if (result.atomic) {
+        if (result.atomic) {
             // syncLinearIssues already printed the atomic summary line.
             return {
               success: true,
@@ -2832,13 +2836,6 @@ export default defineExtension({
             teamSource: teamSelection.source,
             dryRun: false,
           };
-        } catch (err: unknown) {
-          // Preserve a more specific exitCode (e.g. a missing API key is a
-          // USAGE error) rather than flattening everything to a generic failure.
-          if (err instanceof CommandError) throw err;
-          const message = err instanceof Error ? err.message : String(err);
-          throw new CommandError(`Linear sync failed: ${message}`);
-        }
       },
     });
 
@@ -2959,9 +2956,10 @@ export default defineExtension({
         console.error(`Using LINEAR_DEFAULT_TEAM=${team.toUpperCase()} (no --team provided).`);
       }
 
-      try {
-        const result = await syncLinearIssues(syncOpts, ctx.pm_root);
-        if (!result.atomic) {
+      // syncLinearIssues only ever throws CommandError (see the sync command
+      // note), so it propagates with its specific exitCode unchanged.
+      const result = await syncLinearIssues(syncOpts, ctx.pm_root);
+      if (!result.atomic) {
           console.error(
             `Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
               `from Linear team ${result.team.toUpperCase()}` +
@@ -2981,11 +2979,6 @@ export default defineExtension({
           ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
           ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
         };
-      } catch (err: unknown) {
-        if (err instanceof CommandError) throw err;
-        const message = err instanceof Error ? err.message : String(err);
-        throw new CommandError(`Linear import failed: ${message}`);
-      }
     });
 
     // -----------------------------------------------------------------------
