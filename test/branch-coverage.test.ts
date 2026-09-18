@@ -140,12 +140,14 @@ test("import mapping covers priority cases, state-name fallbacks, and ignored fi
   for (const [priority, expected] of [[3, 3], [4, 4], [0, 3]] as const) {
     assert.equal(buildItemPlan(issue({ priority }), {}).priority, expected);
   }
+  assert.equal(resolveStatus("unstarted", "In Review", {}), "in_progress");
   assert.equal(resolveStatus("unstarted", "Blocked by dependency", {}), "blocked");
   assert.equal(resolveStatus("unstarted", "Done", {}), "closed");
   assert.equal(resolveStatus("unstarted", "Cancelled", {}), "closed");
   assert.equal(resolveStatus("cancelled", "Anything", {}), "closed");
   assert.equal(resolveStatus("completed", "Anything", {}), "closed");
 
+  assert.equal(buildItemPlan(issue({ description: null }), {}).body, "");
   const plan = buildItemPlan(
     issue({ description: null }),
     {},
@@ -180,6 +182,8 @@ test("atomic identity and mutation sorting cover comparator and optional fields"
     ...buildAtomicImportMutations("ENG", second, "pm-", normalize).mutations,
   ];
   const transaction = deriveAtomicTransactionId("ENG", [second, first], mutations);
+  const reorderedTransaction = deriveAtomicTransactionId("ENG", [first, second], mutations);
+  assert.equal(reorderedTransaction, transaction);
   assert.match(transaction, /^linear-import-[0-9a-f]{16}$/);
 });
 
@@ -226,6 +230,38 @@ test("sync scope logging covers every optional filter and the atomic fetch seam"
   );
   assert.equal(result.atomic, undefined, "empty fetch returns before atomic preparation");
   assert.equal(result.synced, 0);
+
+  const withOptionalFields = await syncLinearIssues(
+    { team: "ENG", limit: 10, atomic: true, dryRun: true },
+    "/unused",
+    {
+      fetchIssues: async () => [
+        issue({
+          dueDate: "2026-01-02",
+          assignee: { email: "ada@example.com", name: "Ada" },
+        }),
+      ],
+      readItems: () => [],
+    },
+  );
+  assert.equal(withOptionalFields.created, 1);
+
+  const recovered = await syncLinearIssues(
+    { team: "ENG", limit: 10, atomic: true },
+    "/unused",
+    {
+      fetchIssues: async () => [issue()],
+      readItems: () => [],
+      commitAtomic: async () => ({
+        imported: 0,
+        updated: 1,
+        transactionId: "tx",
+        recovered: true,
+        itemIds: new Map<string, string>(),
+      }),
+    },
+  );
+  assert.equal(recovered.recovered, true);
 });
 
 test("export-plan target state null and default cycle warning sink are covered", () => {
@@ -309,12 +345,12 @@ test("export human branches render dry-run and payload previews from a real pm i
   }
 });
 
-test("preflight override skips unrelated read-only commands", async () => {
+test("preflight override skips a sync dry-run that has no network dependency", async () => {
   const h = await getHarness();
   const result = await h.runPreflightOverride({
-    command: "linear validate",
+    command: "linear sync",
     args: [],
-    options: {},
+    options: { "dry-run": true },
     global: {},
     pm_root: "",
     decision: {
@@ -324,5 +360,23 @@ test("preflight override skips unrelated read-only commands", async () => {
       enforce_mandatory_migration_gate: false,
     },
   });
-  assert.equal(result.overridden, false);
+  assert.equal(result.overridden, true);
+  const options = (result as { context?: { options?: Record<string, unknown> } }).context?.options ?? {};
+  assert.equal(options["__linear_preflight_error"], undefined);
+});
+
+test("validate human output reports the offline readiness lines", async () => {
+  const h = await getHarness();
+  const root = workspace();
+  try {
+    const result = await h.runCommand({
+      command: "linear validate",
+      options: {},
+      pmRoot: root,
+      global: { json: false },
+    });
+    assert.equal((result.result as { apiKeyPresent: boolean }).apiKeyPresent, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
