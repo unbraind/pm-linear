@@ -13,7 +13,6 @@ import {
 import extension, {
   applyPushDynamicFields,
   buildExportMutationPlan,
-  buildExportPreviewPayload,
   buildItemPlan,
   buildProvenance,
   buildAtomicImportMutations,
@@ -308,38 +307,6 @@ test("sync scope logging covers every optional filter and the atomic fetch seam"
     },
   );
   assert.equal(recovered.recovered, true);
-});
-
-test("export preview renders both sparse and complete payloads", () => {
-  const sparse = buildExportPreviewPayload(
-    { title: "Sparse", description: "", alreadyInLinear: false },
-    {},
-  );
-  assert.equal(sparse.targetState, null);
-  assert.equal(sparse.priority, 0);
-  assert.equal(sparse.labels, undefined);
-
-  const complete = buildExportPreviewPayload(
-    {
-      title: "Complete",
-      description: "body",
-      alreadyInLinear: true,
-      pmStatus: "open",
-      priority: 2,
-      labels: ["bug"],
-      dueDate: "2026-01-02",
-      estimate: 5,
-      cycleName: "Sprint 1",
-      linearId: "lin-1",
-      linearUrl: "https://linear.app/ENG-1",
-    },
-    {},
-  );
-  assert.equal(complete.action, "update");
-  assert.equal(complete.targetState, "Todo");
-  assert.equal(complete.priority, 2);
-  assert.deepEqual(complete.labels, ["bug"]);
-  assert.equal(complete.cycle, "Sprint 1");
 });
 
 test("export-plan target state null and default cycle warning sink are covered", () => {

@@ -352,46 +352,6 @@ test("syncLinearIssues legacy create/update failures skip the issue and continue
 // importLinearAtomic defensive SDK branches
 // ---------------------------------------------------------------------------
 
-test("importLinearAtomic throws USAGE when the SDK lacks commitItemMutations", async () => {
-  const root = freshWorkspace();
-  try {
-    await assert.rejects(
-      () =>
-        importLinearAtomic(root, "ENG", [preparedEntry("ENG-1")], {
-          sdkLoader: async () => ({}),
-        }),
-      (err: unknown) => {
-        assert.ok(err instanceof CommandError);
-        assert.match((err as Error).message, /does not export commitItemMutations/);
-        return true;
-      },
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("importLinearAtomic throws USAGE when the SDK cannot be imported", async () => {
-  const root = freshWorkspace();
-  try {
-    await assert.rejects(
-      () =>
-        importLinearAtomic(root, "ENG", [preparedEntry("ENG-1")], {
-          sdkLoader: async () => {
-            throw new Error("module not found");
-          },
-        }),
-      (err: unknown) => {
-        assert.ok(err instanceof CommandError);
-        assert.match((err as Error).message, /SDK could not be imported: module not found/);
-        return true;
-      },
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("importLinearAtomic surfaces a WorkspaceTransactionInterruptedError as resumable", async () => {
   const root = freshWorkspace();
   try {

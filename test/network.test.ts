@@ -523,6 +523,62 @@ test("a per-request timeout is retried as a timeout and eventually exhausted", a
   }
 });
 
+test("HTTP endpoint validation rejects non-loopback hosts before any request", async () => {
+  const server = await startLinearServer(() => ({ body: issuesPage([issue("ENG-SECURE")] ) }));
+  const root = freshWorkspace();
+  const invalidEndpoints = [
+    "http://127.0.0.1.evil.example.com/graphql",
+    "http://169.254.169.254/graphql",
+    "http://example.com/graphql",
+    "not a url",
+  ];
+  try {
+    for (const endpoint of invalidEndpoints) {
+      await withEnv(
+        { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: endpoint },
+        async () => {
+          await assert.rejects(
+            () => syncLinearIssues({ team: "ENG", limit: 100 }, root),
+            (err: unknown) => {
+              assert.ok(err instanceof CommandError);
+              assert.match((err as Error).message, /LINEAR_API_BASE_URL/);
+              return true;
+            },
+          );
+        },
+      );
+    }
+    assert.equal(server.received.length, 0, "rejected endpoints must not send a request");
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invalid timeout values use the default without breaking a real request", async () => {
+  for (const timeout of ["NaN", "0", "-5"]) {
+    const server = await startLinearServer(() => ({ body: issuesPage([issue("ENG-TIMEOUT")] ) }));
+    const root = freshWorkspace();
+    try {
+      await withEnv(
+        {
+          LINEAR_API_KEY: "lin_test",
+          LINEAR_API_BASE_URL: server.url,
+          LINEAR_REQUEST_TIMEOUT_MS: timeout,
+        },
+        async () => {
+          const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+          assert.equal(result.synced, 1);
+        },
+      );
+      assert.equal(server.received.length, 1);
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("bare HTTP and HTTPS endpoint defaults fail through the real diagnostic path", async () => {
   const harness = await getHarness();
   const root = freshWorkspace();
