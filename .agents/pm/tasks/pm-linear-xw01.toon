@@ -2,13 +2,11 @@ id: pm-linear-xw01
 title: Cover every pm-linear code path with behavioural tests and raise the coverage gate to 100
 description: "Drive index.ts to 100% line/branch/function coverage via behavioural tests (real pm CLI + local Linear-shaped HTTP server), then raise coverageGate thresholds to 100."
 type: Task
-status: closed
+status: open
 priority: 2
 tags: []
 created_at: "2026-09-18T03:12:35.441Z"
-updated_at: "2026-09-18T07:32:16.670Z"
-closed_at: "2026-09-18T07:32:02.350Z"
-completed_at: "2026-09-18T07:32:02.350Z"
+updated_at: "2026-09-18T07:45:43.237Z"
 author: pi-agent
 acceptance_criteria: "npm run coverage reports 100.00 lines/branches/functions for index.ts; coverageGate.thresholds all 100; npm run release:check exits 0; no gate weakened."
 comments[7]{created_at,author,text}:
@@ -29,5 +27,4 @@ files[6]{path,scope}:
 tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run coverage,project,pi-agent,"2026-09-18T07:16:48.949Z",local_mutation,test/cover-pm-linear-to-full-coverage
   "npm run release:check",project,pi-agent,"2026-09-18T07:16:48.949Z",local_mutation,test/cover-pm-linear-to-full-coverage
-close_reason: "Implemented and verified on PR #117: 211 passing tests; index.ts at 100.00% lines/branches/functions; coverageGate thresholds 100/100/100; npm run release:check passes; hosted test (22), test (26), CodeQL, DeepScan, Hound, and CodeRabbit pass. PR remains open and unmerged; Greptile returned an empty external-review failure with no code finding."
 body: ""
