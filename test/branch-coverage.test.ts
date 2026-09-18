@@ -183,8 +183,32 @@ test("atomic identity and mutation sorting cover comparator and optional fields"
   ];
   const transaction = deriveAtomicTransactionId("ENG", [second, first], mutations);
   const reorderedTransaction = deriveAtomicTransactionId("ENG", [first, second], mutations);
+  const equalIdentifier = deriveAtomicTransactionId("ENG", [first, { ...first, title: "same key" }], mutations);
   assert.equal(reorderedTransaction, transaction);
+  assert.match(equalIdentifier, /^linear-import-[0-9a-f]{16}$/);
   assert.match(transaction, /^linear-import-[0-9a-f]{16}$/);
+});
+
+test("atomic import reports a non-Error settings-read rejection", async () => {
+  const root = workspace();
+  try {
+    await assert.rejects(
+      () =>
+        importLinearAtomic(root, "ENG", [prepared("ENG-1"), prepared("ENG-2")], {
+          readSettings: async () => Promise.reject("settings failure"),
+          normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
+          commitItemMutations: async () => ({
+            transactionId: "unused",
+            status: "committed" as const,
+            recovered: false,
+            results: {},
+          }),
+        }),
+      /could not read workspace settings.*settings failure/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("atomic import wraps a non-Error SDK rejection as a generic CommandError", async () => {

@@ -834,6 +834,38 @@ test("export --push tolerates partial team state, label, and cycle nodes", async
   }
 });
 
+test("export --push accepts a team response with omitted nested connections", async () => {
+  const sparseTeam = JSON.stringify({ data: { teams: { nodes: [{ id: "team-sparse" }] } } });
+  const server = await startLinearServer(({ query }) => {
+    if (query?.includes("teams(")) return { body: sparseTeam };
+    return { body: mutationOk("ENG-SPARSE") };
+  });
+  const root = freshWorkspace();
+  try {
+    const add = spawnSync(
+      PM_BIN,
+      ["--path", root, "create", "--title", "Sparse team", "--status", "open", "--priority", "1", "--description", "fresh"],
+      PM_SPAWN_OPTS,
+    );
+    assert.equal(add.status, 0, add.stderr);
+    const harness = await getHarness();
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runExporter({
+          exporter: "linear",
+          options: { push: true, team: "ENG" },
+          pmRoot: root,
+        });
+        assert.equal((result as { created: number }).created, 1);
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("export --push resolves a cycle tag to a concrete cycleId on the create input", async () => {
   let lastCreateInput: Record<string, unknown> | undefined;
   const server = await startLinearServer(({ query, variables }) => {
