@@ -52,7 +52,7 @@ const PM_SPAWN_OPTS = { encoding: "utf-8" as const, shell: process.platform === 
  */
 interface LinearResponseSpec {
   status?: number;
-  headers?: Record<string, string>;
+  headers?: Record<string, string | string[]>;
   body?: string;
   hang?: boolean;
 }
@@ -328,6 +328,23 @@ test("fetchAllLinearIssues stops when a page has no nodes (empty result)", async
   }
 });
 
+test("a response without an issues connection is treated as an empty page", async () => {
+  const server = await startLinearServer(() => ({ body: JSON.stringify({ data: {} }) }));
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(result.synced, 0);
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fetchAllLinearIssues surfaces a GraphQL errors envelope as a CommandError", async () => {
   const server = await startLinearServer(() => ({
     body: JSON.stringify({ errors: [{ message: "rate limited by upstream" }] }),
@@ -369,6 +386,28 @@ test("a 429 with Retry-After: 0 is retried once and then succeeds", async () => 
       },
     );
     assert.equal(calls, 2, "exactly one retry before success");
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a 429 with an array-valued Retry-After header is retried", async () => {
+  const server = await startLinearServer((_body, i) => {
+    if (i === 0) {
+      return { status: 429, headers: { "retry-after": ["0"] }, body: "{}" };
+    }
+    return { body: issuesPage([issue("ENG-1")]) };
+  });
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(result.synced, 1);
+      },
+    );
   } finally {
     await server.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -474,6 +513,30 @@ test("a per-request timeout is retried as a timeout and eventually exhausted", a
     );
   } finally {
     await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bare HTTP and HTTPS endpoint defaults fail through the real diagnostic path", async () => {
+  const harness = await getHarness();
+  const root = freshWorkspace();
+  try {
+    for (const endpoint of ["http://127.0.0.1/graphql", "https://127.0.0.1/graphql"]) {
+      await withEnv(
+        { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: endpoint, LINEAR_REQUEST_TIMEOUT_MS: "20" },
+        async () => {
+          const { result } = await harness.runCommand({
+            command: "linear validate",
+            options: { "check-network": true },
+            pmRoot: root,
+            global: { json: true },
+          });
+          assert.equal((result as { networkChecked: boolean; networkOk: boolean }).networkChecked, true);
+          assert.equal((result as { networkOk: boolean }).networkOk, false);
+        },
+      );
+    }
+  } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -651,6 +714,33 @@ function mutationOk(identifier: string): string {
   });
 }
 
+test("sync writes and then updates optional deadline and assignee fields", async () => {
+  const server = await startLinearServer(() => ({
+    body: issuesPage([
+      issue("ENG-OPTIONAL", {
+        dueDate: "2026-02-03",
+        assignee: { email: "ada@example.com", name: "Ada" },
+      }),
+    ]),
+  }));
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const first = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(first.created, 1);
+        const second = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(second.updated, 1);
+      },
+    );
+    assert.equal(itemCount(root), 1);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("export --push creates fresh issues and updates linked issues through the real API", async () => {
   let mutationCalls = 0;
   const server = await startLinearServer(({ query }) => {
@@ -693,6 +783,51 @@ test("export --push creates fresh issues and updates linked issues through the r
       },
     );
     assert.ok(mutationCalls >= 2, "create + update mutations both sent");
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("export --push tolerates partial team state, label, and cycle nodes", async () => {
+  const partialTeam = JSON.stringify({
+    data: {
+      teams: {
+        nodes: [
+          {
+            id: "team-uuid-1",
+            states: { nodes: [{}, { id: "st-open", name: "Todo" }] },
+            labels: { nodes: [{}, { id: "lbl-bug", name: "bug" }] },
+            cycles: { nodes: [{}, { id: "cyc-q3", name: "Q3", number: 3 }] },
+          },
+        ],
+      },
+    },
+  });
+  const server = await startLinearServer(({ query }) => {
+    if (query?.includes("teams(")) return { body: partialTeam };
+    return { body: mutationOk("ENG-PARTIAL") };
+  });
+  const root = freshWorkspace();
+  try {
+    const add = spawnSync(
+      PM_BIN,
+      ["--path", root, "create", "--title", "Partial team", "--status", "open", "--priority", "1", "--description", "fresh", "--tags", "bug"],
+      PM_SPAWN_OPTS,
+    );
+    assert.equal(add.status, 0, add.stderr);
+    const harness = await getHarness();
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runExporter({
+          exporter: "linear",
+          options: { push: true, team: "ENG" },
+          pmRoot: root,
+        });
+        assert.equal((result as { created: number }).created, 1);
+      },
+    );
   } finally {
     await server.close();
     fs.rmSync(root, { recursive: true, force: true });
