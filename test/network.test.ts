@@ -84,9 +84,10 @@ interface LinearTestServer {
  * Start a local Linear-shaped server with a programmable responder.
  *
  * @param respond - The per-request responder.
+ * @param host - Loopback address to bind: IPv4 by default, or `::1` for IPv6.
  * @returns The running server handle plus its URL and received-request log.
  */
-async function startLinearServer(respond: LinearResponder): Promise<LinearTestServer> {
+async function startLinearServer(respond: LinearResponder, host: "127.0.0.1" | "::1" = "127.0.0.1"): Promise<LinearTestServer> {
   const log: Array<{ query?: string; variables?: Record<string, unknown> }> = [];
   let counter = 0;
   const server = http.createServer((req, res) => {
@@ -118,14 +119,14 @@ async function startLinearServer(respond: LinearResponder): Promise<LinearTestSe
   server.headersTimeout = 1_000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, host, () => {
       server.removeListener("error", reject);
       resolve();
     });
   });
   const port = getPort(server);
   return {
-    url: "http://127.0.0.1:" + port,
+    url: host === "::1" ? `http://[::1]:${port}` : "http://127.0.0.1:" + port,
     received: log,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
@@ -523,31 +524,29 @@ test("a per-request timeout is retried as a timeout and eventually exhausted", a
   }
 });
 
-test("bracketed IPv6 loopback endpoint parses before an unavailable probe", async () => {
+test("a bracketed IPv6 loopback endpoint reaches a real ::1 server", async () => {
+  // A regression that handed "[::1]" (with brackets) to Node's http.request
+  // would fail name resolution instead of reaching this server, so a
+  // successful sync proves the brackets were stripped.
+  const server = await startLinearServer(() => ({
+    body: issuesPage([issue("ENG-1"), issue("ENG-2")]),
+  }), "::1");
   const root = freshWorkspace();
   try {
+    assert.match(server.url, /^http:\/\/\[::1\]:\d+$/);
     await withEnv(
-      {
-        LINEAR_API_KEY: "lin_test",
-        LINEAR_API_BASE_URL: "http://[::1]:1/graphql",
-        LINEAR_REQUEST_TIMEOUT_MS: "50",
-      },
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_REQUEST_TIMEOUT_MS: "5000" },
       async () => {
-        await assert.rejects(
-          () => syncLinearIssues({ team: "ENG", limit: 100 }, root),
-          (err: unknown) => {
-            assert.ok(err instanceof CommandError);
-            assert.match((err as Error).message, /Linear request failed:/);
-            return true;
-          },
-        );
+        const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(result.synced, 2);
       },
     );
+    assert.ok(server.received.length >= 1, "the ::1 server must receive the GraphQL request");
   } finally {
+    await server.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
-
 test("HTTP endpoint validation rejects non-loopback hosts before any request", async () => {
   const server = await startLinearServer(() => ({ body: issuesPage([issue("ENG-SECURE")] ) }));
   const root = freshWorkspace();
