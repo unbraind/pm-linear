@@ -35,6 +35,7 @@ import {
 
 import extension, {
   CommandError,
+  resolveRequestTimeoutMs,
   syncLinearIssues,
   type LinearIssue,
 } from "../index.ts";
@@ -601,6 +602,25 @@ test("invalid timeout values use the default without breaking a real request", a
       await server.close();
       fs.rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+test("request timeouts are bounded to Node's timer range, and anything else uses the 30 s default", async () => {
+  const cases: Array<[string | undefined, number]> = [
+    [undefined, 30_000],
+    ["1", 1],
+    ["2147483647", 2_147_483_647],
+    ["2147483648", 30_000],
+    ["1e12", 30_000],
+    ["NaN", 30_000],
+    ["0", 30_000],
+    ["-5", 30_000],
+    ["1.5", 30_000],
+  ];
+  for (const [raw, expected] of cases) {
+    await withEnv({ LINEAR_REQUEST_TIMEOUT_MS: raw }, async () => {
+      assert.equal(resolveRequestTimeoutMs(), expected, `LINEAR_REQUEST_TIMEOUT_MS=${String(raw)}`);
+    });
   }
 });
 

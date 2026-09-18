@@ -835,6 +835,8 @@ async function fetchAllLinearIssues(
 // ---------------------------------------------------------------------------
 const DEFAULT_LINEAR_API_BASE_URL = "https://api.linear.app/graphql";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Largest delay Node's timers honour (2^31 - 1 ms); larger values are clamped, not rejected. */
+const MAX_TIMER_MS = 2_147_483_647;
 const MAX_RETRIES = 4;
 
 interface LinearEndpoint {
@@ -881,14 +883,18 @@ function resolveLinearEndpoint(): LinearEndpoint {
 /**
  * Resolve the request timeout from the environment.
  *
- * Only finite positive integers are accepted; malformed, zero, negative, and
- * fractional values fall back to the safe 30-second default.
+ * Only integers from 1 through 2^31-1 ms are accepted; malformed, zero,
+ * negative, fractional, and oversized values fall back to the safe 30-second
+ * default. Exported because the chosen value is not observable through a
+ * request in bounded time (proving a 30 s fallback would take 30 s).
  */
-function resolveRequestTimeoutMs(): number {
+export function resolveRequestTimeoutMs(): number {
   const raw = process.env["LINEAR_REQUEST_TIMEOUT_MS"];
   if (!raw) return DEFAULT_REQUEST_TIMEOUT_MS;
   const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : DEFAULT_REQUEST_TIMEOUT_MS;
+  // Node clamps timers above 2^31-1 ms (about 24.8 days) instead of rejecting
+  // them, so an oversized value would silently disable the timeout.
+  return Number.isInteger(value) && value > 0 && value <= MAX_TIMER_MS ? value : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
 class RetriableHttpError extends Error {
