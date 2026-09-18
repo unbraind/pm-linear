@@ -1127,3 +1127,180 @@ async function harness_runCommand_json(
     global: { json: true },
   });
 }
+// ---------------------------------------------------------------------------
+// Non-JSON handler branches (the harness defaults to json:true; these opt out)
+// ---------------------------------------------------------------------------
+
+test("linear sync --dry-run prints the full human preview with maps (non-json, env team)", async () => {
+  const harness = await getHarness();
+  const root = freshWorkspace();
+  try {
+    await withEnv({ LINEAR_DEFAULT_TEAM: "ENG" }, async () => {
+      // passthrough project map + status map + field map -> every preview line.
+      const { result } = await harness.runCommand({
+        command: "linear sync",
+        options: { "dry-run": true, "project-map": true, "status-map": "In Progress=blocked", "map": "identifier=ignore" },
+        pmRoot: root,
+        global: { json: false },
+      });
+      const plan = result as { dryRun: boolean; projectMap: { passthrough: boolean } };
+      assert.equal(plan.dryRun, true);
+      assert.equal(plan.projectMap.passthrough, true);
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear sync --dry-run prints the explicit project map (non-json)", async () => {
+  const harness = await getHarness();
+  const root = freshWorkspace();
+  try {
+    const { result } = await harness.runCommand({
+      command: "linear sync",
+      options: { team: "ENG", "dry-run": true, "project-map": "Mobile App=mobile" },
+      pmRoot: root,
+      global: { json: false },
+    });
+    const plan = result as { projectMap: { enabled: boolean; passthrough: boolean; map: Record<string, string> } };
+    assert.equal(plan.projectMap.enabled, true);
+    assert.equal(plan.projectMap.passthrough, false);
+    assert.equal(plan.projectMap.map["mobile app"], "mobile");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear sync writes items non-json with an env team and logs the default-team message", async () => {
+  const server = await issuesServer();
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_DEFAULT_TEAM: "eng" },
+      async () => {
+        const { result } = await (await getHarness()).runCommand({
+          command: "linear sync",
+          options: {},
+          pmRoot: root,
+          global: { json: false },
+        });
+        const r = result as { synced: number; teamSource: string };
+        assert.equal(r.synced, 2);
+        assert.equal(r.teamSource, "env");
+      },
+    );
+    assert.equal(itemCount(root), 2);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear validate --check-network prints the human reachability line (non-json)", async () => {
+  const server = await viewerServer();
+  const harness = await getHarness();
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const { result } = await harness.runCommand({
+          command: "linear validate",
+          options: { "check-network": true },
+          pmRoot: root,
+          global: { json: false },
+        });
+        const diag = result as { networkChecked: boolean; networkOk: boolean };
+        assert.equal(diag.networkChecked, true);
+        assert.equal(diag.networkOk, true);
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear import writes items non-json with an env team and logs the default-team message", async () => {
+  const server = await issuesServer();
+  const root = freshWorkspace();
+  const harness = await getHarness();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_DEFAULT_TEAM: "eng" },
+      async () => {
+        const { result } = await harness.runImporter({
+          importer: "linear",
+          options: {},
+          pmRoot: root,
+          global: { json: false },
+        });
+        const r = result as { imported: number; teamSource: string };
+        assert.equal(r.imported, 2);
+        assert.equal(r.teamSource, "env");
+      },
+    );
+    assert.equal(itemCount(root), 2);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear export --push non-json with an env team logs the default-team message", async () => {
+  const server = await issuesServerTeamPush();
+  const harness = await getHarness();
+  const root = freshWorkspace();
+  try {
+    const add = spawnSync(
+      PM_BIN,
+      ["--path", root, "create", "--title", "Env push nj", "--status", "open", "--priority", "1", "--description", "fresh"],
+      PM_SPAWN_OPTS,
+    );
+    assert.strictEqual(add.status, 0, `pm create failed: ${add.stderr}`);
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_DEFAULT_TEAM: "eng" },
+      async () => {
+        const { result } = await harness.runExporter({
+          exporter: "linear",
+          options: { push: true },
+          pmRoot: root,
+          global: { json: false },
+        });
+        const r = result as { pushed: boolean; created: number; teamSource: string };
+        assert.equal(r.pushed, true);
+        assert.equal(r.created, 1);
+        assert.equal(r.teamSource, "env");
+      },
+    );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("linear-sync import non-json with an env team logs the default-team message", async () => {
+  const server = await issuesServer();
+  const root = freshWorkspace();
+  const harness = await getHarness();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_DEFAULT_TEAM: "eng" },
+      async () => {
+        const { result } = await harness.runImporter({
+          importer: "linear-sync",
+          options: {},
+          pmRoot: root,
+          global: { json: false },
+        });
+        const r = result as { synced: number; teamSource: string };
+        assert.equal(r.synced, 2);
+        assert.equal(r.teamSource, "env");
+      },
+    );
+    assert.equal(itemCount(root), 2);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
