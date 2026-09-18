@@ -871,7 +871,7 @@ function resolveLinearEndpoint(): LinearEndpoint {
     );
   }
   return {
-    hostname: url.hostname,
+    hostname: url.hostname.replace(/^\[(.*)\]$/, "$1"),
     port: url.port ? Number(url.port) : useTls ? 443 : 80,
     path: url.pathname + url.search,
     useTls,

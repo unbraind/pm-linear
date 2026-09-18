@@ -86,7 +86,10 @@ interface LinearTestServer {
  * @param respond - The per-request responder.
  * @returns The running server handle plus its URL and received-request log.
  */
-async function startLinearServer(respond: LinearResponder): Promise<LinearTestServer> {
+async function startLinearServer(
+  respond: LinearResponder,
+  host = "127.0.0.1",
+): Promise<LinearTestServer> {
   const log: Array<{ query?: string; variables?: Record<string, unknown> }> = [];
   let counter = 0;
   const server = http.createServer((req, res) => {
@@ -118,14 +121,15 @@ async function startLinearServer(respond: LinearResponder): Promise<LinearTestSe
   server.headersTimeout = 1_000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, host, () => {
       server.removeListener("error", reject);
       resolve();
     });
   });
   const port = getPort(server);
+  const displayHost = host.includes(":") ? `[${host}]` : host;
   return {
-    url: "http://127.0.0.1:" + port,
+    url: "http://" + displayHost + ":" + port,
     received: log,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
@@ -517,6 +521,24 @@ test("a per-request timeout is retried as a timeout and eventually exhausted", a
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url, LINEAR_REQUEST_TIMEOUT_MS: "40" },
       /Linear API unavailable after 5 attempts \(HTTP timeout\)/,
     );
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPv6 loopback endpoint reaches a real local GraphQL server", async () => {
+  const server = await startLinearServer(() => ({ body: issuesPage([issue("ENG-IPV6")]) }), "::1");
+  const root = freshWorkspace();
+  try {
+    await withEnv(
+      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
+      async () => {
+        const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(result.synced, 1);
+      },
+    );
+    assert.equal(server.received.length, 1);
   } finally {
     await server.close();
     fs.rmSync(root, { recursive: true, force: true });
