@@ -760,7 +760,7 @@ export function buildImportRequestPlan(
   if (flags.state) variables.state = state;
   if (flags.cycle) variables.cycle = cycle;
   return {
-    endpoint: LINEAR_API_BASE_URL,
+    endpoint: linearApiBaseUrl(),
     method: "POST",
     query: buildIssuesQuery(flags),
     variables,
@@ -841,11 +841,21 @@ async function fetchAllLinearIssues(
  * client at a Linear-compatible proxy or self-hosted gateway, and so the
  * network-facing code paths (request, retry, auth, pagination, team resolve)
  * can be exercised against a local server speaking the real wire format —
- * without monkey-patching `fetch` or `https`. The value is resolved once per
- * process and parsed with `URL`, so a malformed override fails fast at the
- * first request rather than silently hitting the wrong host.
+ * without monkey-patching `fetch` or `https`. The value is resolved per
+ * request (not captured at module load) so a caller can re-point the client
+ * within a process, and parsed with `URL`, so a malformed override fails fast
+ * at the first request rather than silently hitting the wrong host.
  */
-const LINEAR_API_BASE_URL = process.env["LINEAR_API_BASE_URL"] ?? "https://api.linear.app/graphql";
+const DEFAULT_LINEAR_API_BASE_URL = "https://api.linear.app/graphql";
+
+/**
+ * Read the configured Linear GraphQL endpoint, defaulting to the public API.
+ *
+ * @returns The raw endpoint URL string.
+ */
+function linearApiBaseUrl(): string {
+  return process.env["LINEAR_API_BASE_URL"] ?? DEFAULT_LINEAR_API_BASE_URL;
+}
 
 /**
  * Resolved Linear endpoint pieces for `http.request` / `https.request`.
@@ -868,7 +878,7 @@ interface LinearEndpoint {
  * @returns The hostname, port, path, and TLS flag for the request options.
  */
 function resolveLinearEndpoint(): LinearEndpoint {
-  const url = new URL(LINEAR_API_BASE_URL);
+  const url = new URL(linearApiBaseUrl());
   return {
     hostname: url.hostname,
     port: url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
@@ -877,9 +887,20 @@ function resolveLinearEndpoint(): LinearEndpoint {
   };
 }
 
-const REQUEST_TIMEOUT_MS = process.env["LINEAR_REQUEST_TIMEOUT_MS"]
-  ? Number(process.env["LINEAR_REQUEST_TIMEOUT_MS"])
-  : 30_000;
+/**
+ * Resolve the per-request timeout in milliseconds.
+ *
+ * Defaults to 30s; the `LINEAR_REQUEST_TIMEOUT_MS` env var overrides it (read
+ * per request, not captured at module load, so a caller can shorten it within a
+ * process — e.g. a test exercising the timeout/retry-exhaustion path).
+ *
+ * @returns The per-request timeout in milliseconds.
+ */
+function resolveRequestTimeoutMs(): number {
+  const raw = process.env["LINEAR_REQUEST_TIMEOUT_MS"];
+  return raw ? Number(raw) : 30_000;
+}
+
 const MAX_RETRIES = 4;
 
 class RetriableHttpError extends Error {
@@ -978,7 +999,7 @@ function linearRequestOnce<TData>(
             port: endpoint.port,
             path: endpoint.path,
             method: "POST",
-            timeout: REQUEST_TIMEOUT_MS,
+            timeout: resolveRequestTimeoutMs(),
             headers: {
               "Content-Type": "application/json",
               "Content-Length": Buffer.byteLength(body),
@@ -993,7 +1014,7 @@ function linearRequestOnce<TData>(
             port: endpoint.port,
             path: endpoint.path,
             method: "POST",
-            timeout: REQUEST_TIMEOUT_MS,
+            timeout: resolveRequestTimeoutMs(),
             headers: {
               "Content-Type": "application/json",
               "Content-Length": Buffer.byteLength(body),
