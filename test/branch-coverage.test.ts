@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -242,6 +243,64 @@ test("export-plan target state null and default cycle warning sink are covered",
       {},
     ),
   );
+});
+
+test("export human branches render dry-run and payload previews from a real pm item", async () => {
+  const root = workspace();
+  const pm = process.platform === "win32" ? "pm.cmd" : "pm";
+  const init = spawnSync(pm, ["--path", root, "init", "test"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  assert.equal(init.status, 0, init.stderr);
+  const add = spawnSync(
+    pm,
+    [
+      "--path",
+      root,
+      "create",
+      "--title",
+      "Export branches",
+      "--status",
+      "in_progress",
+      "--priority",
+      "3",
+      "--description",
+      "[linear] linear_id=lin-1 linear_url=https://linear.app/ENG-1",
+      "--body",
+      "Body",
+      "--tags",
+      "bug,estimate:5,cycle:Sprint 1",
+      "--deadline",
+      "2026-01-02",
+      "--assignee",
+      "ada@example.com",
+    ],
+    { encoding: "utf8", shell: process.platform === "win32" },
+  );
+  assert.equal(add.status, 0, add.stderr);
+  try {
+    const h = await getHarness();
+    const dry = await h.runExporter({
+      exporter: "linear",
+      options: { "dry-run": true },
+      pmRoot: root,
+      global: { json: false },
+    });
+    assert.equal((dry.result as { dryRun: boolean; wouldUpdate: number }).dryRun, true);
+    assert.equal((dry.result as { wouldUpdate: number }).wouldUpdate, 1);
+
+    const preview = await h.runExporter({
+      exporter: "linear",
+      options: {},
+      pmRoot: root,
+      global: { json: false },
+    });
+    assert.equal((preview.result as { pushed: boolean; wouldUpdate: number }).pushed, false);
+    assert.equal((preview.result as { wouldUpdate: number }).wouldUpdate, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("preflight override skips unrelated read-only commands", async () => {
