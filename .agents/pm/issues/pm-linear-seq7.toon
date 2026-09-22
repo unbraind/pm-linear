@@ -1,0 +1,23 @@
+id: pm-linear-seq7
+title: A publish that npm accepts late is reported as failed and the GitHub Release is skipped on bun mirror lag
+description: "Companion item pm-cli-website-3y5d. Two changes to this repository's own release.yml: (1) a 10-minute npm visibility window after a reported publish error, read with --prefer-online, and an honest message when nothing becomes visible (the unattested-occupant refusal is unchanged; max_attempts is declared before the function that expands it); (2) the GitHub Release depends only on the publish and tag-push outcomes, and bun gets a 21-attempt 10-minute window with a final re-check, failing the job visibly through a separate gate step. A backfill step was proposed and removed after review: an npm attestation alone does not prove a tag's commit produced the artifact, and this fleet's provenance names the trigger commit (pm-cli-website-nodo), so provenance-ancestry verification moves to pm-cli-website-mxrp."
+type: Issue
+status: closed
+priority: 1
+tags[2]: release,reliability
+created_at: "2026-09-22T05:57:38.475Z"
+updated_at: "2026-09-22T06:27:42.445Z"
+closed_at: "2026-09-22T06:07:25.384Z"
+completed_at: "2026-09-22T06:07:25.384Z"
+author: fleet-wave-script
+resolution: "Widened the npm visibility window after a reported publish error to 10 minutes and made the GitHub Release depend only on the publish and tag-push outcomes, with bun verification failing the job visibly through a gate step. A proposed backfill step was removed after review (provenance-ancestry verification tracked as pm-cli-website-mxrp)."
+expected_result: "A publish that npm accepts late is reconciled instead of reported as failed, and the GitHub Release is created whenever the publish and the tag push succeed, even when bun's mirror lags; a bun failure still fails the job visibly."
+actual_result: "Final release.yml is byte-identical to a fresh run of the anchored applier on origin/main (identical), names only unbraind/pm-linear, and passes the stub harness 5/5 (the unpatched file fails the four fix scenarios). Review follow-ups folded in: bun end-of-window re-check, backfill removed, max_attempts declared before use."
+comments[1]{created_at,author,text}:
+  "2026-09-22T06:17:24.124Z",fleet-wave-script,"Review follow-up (Greptile on pm-brief#124 and pm-linear#121): the backfill step is removed from this wave. It treated any npm attestation as proof that a tag's artifact was ours. The right check is not attested-commit equals tag-commit: this fleet's provenance records the workflow trigger commit (companion item pm-cli-website-nodo), measured as the tag's direct parent on pm-linear 2026.9.18, pm-github 2026.9.11 and pm-todos 2026.9.11. The check has to be repository plus workflow path plus ancestry, and it returns in the canonical pm-ops release verifier (companion pm-cli-website-mxrp). The other two changes, the 10-minute npm visibility window and the Release decoupled from bun lag, fix the root causes on their own. The three historical orphans were backfilled by hand on 2026-09-22."
+files[1]{path,scope}:
+  .github/workflows/release.yml,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,fleet-wave-script,"2026-09-22T05:57:48.762Z",local_mutation,pm-cli-2026-9-21-canonical-merge-driver-release-window
+close_reason: "Final release.yml is byte-identical to a fresh run of the anchored applier on origin/main and names only unbraind/pm-linear. The stub harness passes the 5 applicable scenarios on it (late-visible publish, never-visible, unattested occupant, bun failure with Release plus red job, bun resolving at the 10-minute mark), and the unpatched file fails the four fix scenarios. The backfill was removed in review."
+body: ""

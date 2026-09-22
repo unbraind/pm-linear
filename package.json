@@ -36,7 +36,7 @@
     "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
     "prepublishOnly": "npm run release:check",
     "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date-from-version --item-url-base https://github.com/unbraind/pm-linear/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded",
-    "prepare": "node scripts/prepare-merge-driver.mjs",
+    "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "verify:release-changelog-date": "node scripts/verify-release-changelog-date.ts"
@@ -60,9 +60,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "@unbrained/pm-cli": "2026.9.17",
-    "pm-changelog": "2026.9.16",
-    "pm-ops": "2026.9.13",
+    "@unbrained/pm-cli": "2026.9.21",
+    "pm-changelog": "2026.9.18",
+    "pm-ops": "2026.9.18",
     "typescript": "^7.0.2"
   },
   "engines": {
