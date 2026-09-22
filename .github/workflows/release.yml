@@ -691,6 +691,9 @@ jobs:
           # forbids overwriting a published version. It needs a human, and saying
           # so is more useful than a green run over an artifact the release notes
           # will misdescribe.
+          # Declared before any function that expands it: bindings are established
+          # before use so visibility never depends on call-time reasoning.
+          max_attempts=3
           refuse_unattested_or_fail() {
             if registry_has_version; then
               echo "::error::${pkg_name}@${NPM_VERSION} exists on the registry WITHOUT a visible provenance attestation. This workflow only ever publishes with --provenance, so either that artifact did not come from this job, or its attestation never became visible. Refusing to tag and release around it; investigate before re-running."
@@ -715,7 +718,6 @@ jobs:
             npm publish --access public --provenance --ignore-scripts
           }
           attempt=0
-          max_attempts=3
           while (( attempt < max_attempts )); do
             attempt=$(( attempt + 1 ))
             if publish_with_provenance; then
