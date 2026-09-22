@@ -1,0 +1,21 @@
+id: pm-linear-seq7
+title: A publish that npm accepts late is reported as failed and the GitHub Release is skipped on bun mirror lag
+description: "Companion item pm-cli-website-3y5d. Three changes to this repository's own release.yml: a 10-minute npm visibility window with --prefer-online and an honest never-visible message (attestation refusal unchanged); the GitHub Release depends only on the publish and tag-push outcomes, bun gets a 21-attempt 10-minute window with a final re-check and fails the job visibly through a gate step; a continue-on-error backfill step creates missing Releases for attested fleet-shaped tags (vYYYY.MM.DD[-N]) with tag-scoped pm-changelog notes. Proven by a stub harness executing the changed run blocks: 7/7 scenarios, and the unpatched file fails the fix scenarios."
+type: Issue
+status: closed
+priority: 1
+tags[2]: release,reliability
+created_at: "2026-09-22T05:57:38.475Z"
+updated_at: "2026-09-22T06:07:29.164Z"
+closed_at: "2026-09-22T06:07:25.384Z"
+completed_at: "2026-09-22T06:07:25.384Z"
+author: fleet-wave-script
+resolution: "Widened the npm visibility window, decoupled the GitHub Release from bun mirror lag with a visible gate, and added a best-effort backfill."
+expected_result: "A late-visible publish is reconciled, the Release is created whenever publish and tag succeed, and missing Releases for attested tags are backfilled."
+actual_result: "Applied by the anchored applier to this repository's own release.yml (matched, identity asserted: the file names only unbraind/pm-linear). Harness 7/7 on the same patch; release:check exits 0."
+files[1]{path,scope}:
+  .github/workflows/release.yml,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,fleet-wave-script,"2026-09-22T05:57:48.762Z",local_mutation,pm-cli-2026-9-21-canonical-merge-driver-release-window
+close_reason: "Applied by the anchored applier to this repository's own release.yml (matched, identity asserted: the file names only unbraind/pm-linear). Harness 7/7 on the same patch; release:check exits 0."
+body: ""

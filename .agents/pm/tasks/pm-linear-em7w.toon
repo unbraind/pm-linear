@@ -1,0 +1,26 @@
+id: pm-linear-em7w
+title: Certify pm CLI 2026.9.21 and install merge drivers through the canonical pm-ops launcher
+description: "Fleet wave 2026-09-22 (companion epic pm-cli-website-5s6z). Pins @unbrained/pm-cli 2026.9.21, pm-ops 2026.9.18 and pm-changelog 2026.9.18 exactly. The prepare hook becomes a thin launcher over pm-ops/merge-driver instead of a vendored implementation, and CI installs the drivers before pm health --strict-exit --require-merge-drivers, so a fresh clone that lacks them fails the gate instead of silently hard-conflicting tracker files."
+type: Task
+status: closed
+priority: 1
+tags[4]: certify,merge-driver,multi-agent,pm-cli-2026.9.21
+created_at: "2026-09-22T05:57:37.869Z"
+updated_at: "2026-09-22T06:07:27.572Z"
+closed_at: "2026-09-22T06:07:22.661Z"
+completed_at: "2026-09-22T06:07:22.661Z"
+author: fleet-wave-script
+acceptance_criteria: "package.json and package-lock.json pin pm-cli 2026.9.21, pm-ops 2026.9.18, pm-changelog 2026.9.18; scripts/prepare-merge-driver.ts is the thin pm-ops/merge-driver launcher; no vendored implementation remains; CI runs pm merge install before pm health --strict-exit --require-merge-drivers"
+resolution: Pinned the fleet toolchain and moved the prepare hook onto pm-ops/merge-driver; CI now requires the drivers.
+expected_result: "A fresh clone registers the merge drivers from npm ci, and CI fails if they are missing."
+actual_result: "Pins: @unbrained/pm-cli 2026.9.17 -> 2026.9.21, pm-changelog 2026.9.16 -> 2026.9.18, pm-ops 2026.9.13 -> 2026.9.18 (package.json and package-lock.json verified). Launcher replaces scripts/prepare-merge-driver.mjs; removed: scripts/prepare-merge-driver.mjs. git config lists the pm merge drivers after npm ci; pm health --strict-exit --require-merge-drivers exits 0; release:check exits 0."
+files[5]{path,scope}:
+  .github/workflows/ci.yml,project
+  package-lock.json,project
+  package.json,project
+  README.md,project
+  scripts/prepare-merge-driver.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,fleet-wave-script,"2026-09-22T05:57:47.443Z",local_mutation,pm-cli-2026-9-21-canonical-merge-driver-release-window
+close_reason: "Pins: @unbrained/pm-cli 2026.9.17 -> 2026.9.21, pm-changelog 2026.9.16 -> 2026.9.18, pm-ops 2026.9.13 -> 2026.9.18 (package.json and package-lock.json verified). Launcher replaces scripts/prepare-merge-driver.mjs; removed: scripts/prepare-merge-driver.mjs. git config lists the pm merge drivers after npm ci; pm health --strict-exit --require-merge-drivers exits 0; release:check exits 0."
+body: ""
