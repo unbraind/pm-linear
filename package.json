@@ -60,9 +60,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "@unbrained/pm-cli": "2026.9.21",
-    "pm-changelog": "2026.9.18",
-    "pm-ops": "2026.9.18",
+    "@unbrained/pm-cli": "2026.9.23",
+    "pm-changelog": "2026.9.23",
+    "pm-ops": "2026.9.23",
     "typescript": "^7.0.2"
   },
   "engines": {
