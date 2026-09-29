@@ -86,6 +86,46 @@ jobs:
             exit 0
           fi
 
+          # A protected release PR can merge before npm accepts the artifact.
+          # The next run must complete that committed version, even after the
+          # release date changes. Only a package.json last changed by the
+          # release commit is eligible; an unrelated manual bump fails closed.
+          if [[ -n "$latest_tag" ]]; then
+            current_version="$(node -p "require('./package.json').version")"
+            tagged_version="$(git show "${latest_tag}:package.json" | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).version")"
+            if [[ "$current_version" != "$tagged_version" ]]; then
+              release_subject="$(git log -1 --format=%s -- package.json)"
+              if ! printf '%s\n' "$release_subject" | grep -Eq '^Release pm-linear v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$'; then
+                echo "::error::package.json is ahead of ${latest_tag} without a recognized release commit. Resolve its version before releasing."
+                exit 1
+              fi
+              tag="${release_subject##* }"
+              version_core="${tag#v}"
+              year="${version_core%%.*}"
+              version_tail="${version_core#*.}"
+              month="${version_tail%%.*}"
+              day_and_suffix="${version_tail#*.}"
+              day="${day_and_suffix%%-*}"
+              suffix="${day_and_suffix#"$day"}"
+              npm_version="$((10#$year)).$((10#$month)).$((10#$day))${suffix}"
+              if [[ "$npm_version" != "$current_version" ]]; then
+                echo "::error::Release commit ${tag} disagrees with package.json version ${current_version}."
+                exit 1
+              fi
+              if git show-ref --verify --quiet "refs/tags/${tag}"; then
+                echo "::error::Release tag ${tag} already exists but ${latest_tag} was selected as latest. Resolve tag ordering before releasing."
+                exit 1
+              fi
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+              echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+              echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              echo "npm_version=$npm_version" >> "$GITHUB_OUTPUT"
+              echo "Resuming committed but untagged release ${tag}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+
           release_date="$(TZ="$RELEASE_TIMEZONE" date +%Y.%m.%d)"
           base_tag="v${release_date}"
           max_suffix=-1

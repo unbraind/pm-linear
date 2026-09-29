@@ -2,10 +2,22 @@ id: pm-linear-yyr9
 title: A release that merges but fails to publish is abandoned by the next day's run
 description: "Decide release computes the version from today's date and the existing tags, and the tag is pushed only after npm publish succeeds. If the protected release PR merges and publication then fails, main carries release metadata for a version that was never tagged or published. The next day's run sees the old latest tag, computes a new version from the new date, and commits it over the merged metadata, so the earlier version is silently skipped on npm. Needs a guard in Decide release that detects a committed-but-untagged version and resumes it rather than computing a new one."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-08-09T13:46:47.559Z"
-updated_at: "2026-08-09T13:46:47.559Z"
+updated_at: "2026-09-29T16:29:55.004Z"
+assignee: codex
+claim_principal: codex
 author: claude
+acceptance_criteria: A failed publish after a merged release resumes the committed package version and release tag on later runs; Ordinary unreleased source changes receive a new date-based version and an unrelated manual version bump fails closed; A disposable Git fixture executes the actual workflow decision for both paths; The package release gate and exact-head CI and review gates pass before merge
+risk: high
+notes[1]{created_at,author,text}:
+  "2026-09-29T16:29:55.004Z",codex,"2026-09-29 candidate: the disposable Git fixture failed on the previous workflow (new date tag instead of committed v2000.01.02), then passed after the decision resumed that tag. It also verifies a fresh feature gets a new version, later source commits preserve the pending version, and an unrelated manual version bump is refused. npm run release:check passed 219/219 tests, docstring 49/49 declarations across 8 files, audit 0 production vulnerabilities, and attestation gate 1/1 publish path; coverage measured 99.29% lines, 96.68% branches, 100% functions, below the requested 100% floor. pm health --strict-exit fails on two pre-existing merge receipts for pm-linear-unfa and pm-linear-4yle; pm merge reconcile --dry-run reports no_receipt_set_proves_snapshot for both, so neither was forced. Rollback: revert the workflow decision change before any release run; no registry or hosted state was changed by this candidate."
+files[2]{path,scope,note}:
+  .github/workflows/release.yml,project,release decision and retry
+  test/release-decision.test.ts,project,disposable Git acceptance
+tests[2]{command,path,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/release-decision.test.ts,test/release-decision.test.ts,project,codex,"2026-09-29T16:24:31.307Z",local_mutation,fix/resume-untagged-linear-release-2026-09-29
+  "npm run release:check",package.json,project,codex,"2026-09-29T16:24:31.307Z",local_mutation,fix/resume-untagged-linear-release-2026-09-29
 body: ""
