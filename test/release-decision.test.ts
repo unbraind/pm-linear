@@ -40,6 +40,20 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     }));
   }
 
+  /** Assert the decision stops before writing release outputs on an unsafe state. */
+  function refuse(message: RegExp): void {
+    const output = join(root, "output");
+    writeFileSync(output, "");
+    const result = spawnSync("bash", ["-c", script], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(root, "summary"), RELEASE_TIMEZONE: "Europe/Vienna" },
+    });
+    assert.notEqual(result.status, 0, "an unsafe release state must fail closed");
+    assert.match(result.stdout, message);
+    assert.equal(readFileSync(output, "utf8"), "", "no release outputs may escape a refused decision");
+  }
+
   try {
     run("git", ["init", "-b", "main", project], root);
     run("git", ["config", "user.email", "fixture@example.invalid"]);
@@ -69,22 +83,46 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     assert.equal(retry.npm_version, "2000.1.2");
     assert.equal(retry.base_sha, run("git", ["rev-parse", "HEAD"]));
 
+    const unrelatedCommit = run("git", ["commit-tree", run("git", ["rev-parse", "HEAD^{tree}"]), "-m", "Unrelated release"]);
+    const conflictingTag = spawnSync("git", ["tag", "-a", "v2000.01.02", "-m", "Conflicting release tag", unrelatedCommit], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, GIT_COMMITTER_DATE: "2000-01-02T00:00:00Z" },
+    });
+    assert.equal(conflictingTag.status, 0, conflictingTag.stderr);
+    refuse(/already exists/);
+    run("git", ["tag", "-d", "v2000.01.02"]);
+
     writeFileSync(join(project, "source.txt"), "third\n");
     run("git", ["add", "source.txt"]);
     run("git", ["commit", "-m", "Document the failed release"]);
-    const laterRetry = decide();
-    assert.equal(laterRetry.tag, "v2000.01.02", "later source commits must not mint another version");
+    refuse(/main advanced past release commit/);
 
     writeFileSync(join(project, "package.json"), '{"name":"pm-linear","version":"2000.1.3"}\n');
     run("git", ["add", "package.json"]);
+    run("git", ["commit", "-m", "Release pm-linear v2000.01.02"]);
+    refuse(/disagrees with package.json version/);
+
+    writeFileSync(join(project, "package.json"), '{"name":"pm-linear","version":"2000.1.4"}\n');
+    run("git", ["add", "package.json"]);
     run("git", ["commit", "-m", "Manually change the package version"]);
-    const refused = spawnSync("bash", ["-c", script], {
+    refuse(/without a recognized release commit/);
+
+    const initialCommit = run("git", ["rev-list", "--max-parents=0", "HEAD"]);
+    const futureDatedOldTag = spawnSync("git", ["tag", "-a", "v1999.01.01", "-m", "Old release with a future tagger date", initialCommit], {
       cwd: project,
       encoding: "utf8",
-      env: { ...process.env, GITHUB_OUTPUT: join(root, "output"), GITHUB_STEP_SUMMARY: join(root, "summary"), RELEASE_TIMEZONE: "Europe/Vienna" },
+      env: { ...process.env, GIT_COMMITTER_DATE: "2099-01-01T00:00:00Z" },
     });
-    assert.notEqual(refused.status, 0, "an unrelated version change needs an explicit resolution");
-    assert.match(refused.stdout, /without a recognized release commit/);
+    assert.equal(futureDatedOldTag.status, 0, futureDatedOldTag.stderr);
+    run("git", ["tag", "v2000.01.04"]);
+    writeFileSync(join(project, "source.txt"), "fourth\n");
+    run("git", ["add", "source.txt"]);
+    run("git", ["commit", "-m", "Add another feature"]);
+    assert.equal(run("git", ["tag", "--sort=-creatordate"]).split("\n")[0], "v1999.01.01");
+    const afterClockSkew = decide();
+    assert.equal(afterClockSkew.latest_tag, "v2000.01.04", "choose the nearest reachable release tag, not the newest tagger clock");
+    assert.equal(afterClockSkew.should_release, "true");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

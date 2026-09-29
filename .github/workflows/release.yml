@@ -78,7 +78,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --force --tags
-          latest_tag="$(git tag --sort=-creatordate | head -n 1 || true)"
+          # Creator dates can be out of order. Release ancestry, not tagger
+          # clocks, determines which version this main commit follows.
+          latest_tag="$(git describe --first-parent --tags --match 'v[0-9]*' --abbrev=0 HEAD 2>/dev/null || true)"
           if [[ -n "$latest_tag" ]] && git diff --quiet "$latest_tag"..HEAD -- .; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
@@ -88,12 +90,14 @@ jobs:
 
           # A protected release PR can merge before npm accepts the artifact.
           # The next run must complete that committed version, even after the
-          # release date changes. Only a package.json last changed by the
-          # release commit is eligible; an unrelated manual bump fails closed.
+          # release date changes. The release commit must still be HEAD: a
+          # later commit could otherwise receive a tag for bytes npm already
+          # accepted from the earlier one. That case needs separate recovery.
           if [[ -n "$latest_tag" ]]; then
             current_version="$(node -p "require('./package.json').version")"
             tagged_version="$(git show "${latest_tag}:package.json" | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).version")"
             if [[ "$current_version" != "$tagged_version" ]]; then
+              release_commit="$(git log -1 --format=%H -- package.json)"
               release_subject="$(git log -1 --format=%s -- package.json)"
               if ! printf '%s\n' "$release_subject" | grep -Eq '^Release pm-linear v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$'; then
                 echo "::error::package.json is ahead of ${latest_tag} without a recognized release commit. Resolve its version before releasing."
@@ -110,6 +114,10 @@ jobs:
               npm_version="$((10#$year)).$((10#$month)).$((10#$day))${suffix}"
               if [[ "$npm_version" != "$current_version" ]]; then
                 echo "::error::Release commit ${tag} disagrees with package.json version ${current_version}."
+                exit 1
+              fi
+              if [[ "$release_commit" != "$(git rev-parse HEAD)" ]]; then
+                echo "::error::main advanced past release commit ${release_commit}. Refusing to tag or publish newer source as ${tag}; recover the original release transaction before scheduling another."
                 exit 1
               fi
               if git show-ref --verify --quiet "refs/tags/${tag}"; then

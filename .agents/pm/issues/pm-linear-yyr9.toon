@@ -6,15 +6,16 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-08-09T13:46:47.559Z"
-updated_at: "2026-09-29T16:31:15.876Z"
+updated_at: "2026-09-29T16:40:30.460Z"
 assignee: codex
 claim_principal: codex
 author: claude
-acceptance_criteria: A failed publish after a merged release resumes the committed package version and release tag on later runs; Ordinary unreleased source changes receive a new date-based version and an unrelated manual version bump fails closed; A disposable Git fixture executes the actual workflow decision for both paths; The package release gate and exact-head CI and review gates pass before merge
+acceptance_criteria: "A failed publish after a merged release resumes the committed package version and release tag on later runs; Ordinary unreleased source changes receive a new date-based version and an unrelated manual version bump fails closed; A disposable Git fixture executes the actual workflow decision for both paths; The package release gate and exact-head CI and review gates pass before merge; If main has advanced past the release commit, the workflow refuses to publish or tag that pending version from a different source revision"
 risk: high
-notes[2]{created_at,author,text}:
+notes[3]{created_at,author,text}:
   "2026-09-29T16:29:55.004Z",codex,"2026-09-29 candidate: the disposable Git fixture failed on the previous workflow (new date tag instead of committed v2000.01.02), then passed after the decision resumed that tag. It also verifies a fresh feature gets a new version, later source commits preserve the pending version, and an unrelated manual version bump is refused. npm run release:check passed 219/219 tests, docstring 49/49 declarations across 8 files, audit 0 production vulnerabilities, and attestation gate 1/1 publish path; coverage measured 99.29% lines, 96.68% branches, 100% functions, below the requested 100% floor. pm health --strict-exit fails on two pre-existing merge receipts for pm-linear-unfa and pm-linear-4yle; pm merge reconcile --dry-run reports no_receipt_set_proves_snapshot for both, so neither was forced. Rollback: revert the workflow decision change before any release run; no registry or hosted state was changed by this candidate."
   "2026-09-29T16:31:15.876Z",codex,"Implementation PR: https://github.com/unbraind/pm-linear/pull/126 . Candidate code commit: https://github.com/unbraind/pm-linear/commit/45ee8b3faf309f1d671f6f8009bc003635bc73f8 . Awaiting exact-head CI and configured bot review; leave unmerged while coverage and local strict-health blockers remain."
+  "2026-09-29T16:40:30.460Z",codex,"Review reconciliation 2026-09-29: Greptile correctly found that a retry after later source commits could tag the newer HEAD for an already-published version. The candidate now refuses that state before emitting release outputs; automatic recovery across a newer main head requires a separate provenance-safe design. Greptile also identified two missing refusal cases; the disposable Git fixture now covers a conflicting tag on unrelated history and a release-subject/package-version mismatch. CodeRabbit correctly found tagger-clock order could select an older release; the workflow now selects the nearest reachable mainline release tag and a skewed-tagger-date fixture exercises it. None of these findings are treated as resolved until exact-head gates and re-review complete."
 files[2]{path,scope,note}:
   .github/workflows/release.yml,project,release decision and retry
   test/release-decision.test.ts,project,disposable Git acceptance
