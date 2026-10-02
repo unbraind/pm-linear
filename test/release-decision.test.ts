@@ -23,7 +23,7 @@ test("a merged but untagged release keeps its committed version on retry", () =>
   }
 
   /** Capture the workflow's machine-readable decision without publishing anything. */
-  function decide(): Record<string, string> {
+  function decide(repositoryName = "pm-linear"): Record<string, string> {
     const output = join(root, "output");
     const summary = join(root, "summary");
     writeFileSync(output, "");
@@ -31,7 +31,7 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     const result = spawnSync("bash", ["-c", script], {
       cwd: project,
       encoding: "utf8",
-      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RELEASE_TIMEZONE: "Europe/Vienna" },
+      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RELEASE_TIMEZONE: "Europe/Vienna", GITHUB_REPOSITORY: `unbraind/${repositoryName}` },
     });
     assert.equal(result.status, 0, `release decision failed: ${result.stderr}`);
     return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map((line) => {
@@ -41,13 +41,13 @@ test("a merged but untagged release keeps its committed version on retry", () =>
   }
 
   /** Assert the decision stops before writing release outputs on an unsafe state. */
-  function refuse(message: RegExp): void {
+  function refuse(message: RegExp, repositoryName = "pm-linear"): void {
     const output = join(root, "output");
     writeFileSync(output, "");
     const result = spawnSync("bash", ["-c", script], {
       cwd: project,
       encoding: "utf8",
-      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(root, "summary"), RELEASE_TIMEZONE: "Europe/Vienna" },
+      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(root, "summary"), RELEASE_TIMEZONE: "Europe/Vienna", GITHUB_REPOSITORY: `unbraind/${repositoryName}` },
     });
     assert.notEqual(result.status, 0, "an unsafe release state must fail closed");
     assert.match(result.stdout, message);
@@ -62,7 +62,8 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     writeFileSync(join(project, "source.txt"), "first\n");
     run("git", ["add", "."]);
     run("git", ["commit", "-m", "Initial release"]);
-    run("git", ["tag", "v2000.01.01"]);
+    run("git", ["tag", "-a", "v2000.01.01", "-m", "Initial production-style release"]);
+    assert.equal(run("git", ["cat-file", "-t", "v2000.01.01"]), "tag", "production release tags are annotated");
     run("git", ["init", "--bare", remote], root);
     run("git", ["remote", "add", "origin", remote]);
     run("git", ["push", "origin", "main", "--tags"]);
@@ -80,8 +81,24 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     const retry = decide();
     assert.equal(retry.should_release, "true");
     assert.equal(retry.tag, "v2000.01.02");
+    assert.equal(retry.latest_tag, "v2000.01.01", "the retry selects the annotated mainline tag");
     assert.equal(retry.npm_version, "2000.1.2");
     assert.equal(retry.base_sha, run("git", ["rev-parse", "HEAD"]));
+
+    const releaseHead = run("git", ["rev-parse", "HEAD"]);
+    writeFileSync(join(project, "package.json"), '{"name":"pm-linear","version":"2000.1.2","dependencies":{"fixture":"1.0.0"}}\n');
+    run("git", ["add", "package.json"]);
+    run("git", ["commit", "-m", "Update dependencies after failed publication"]);
+    refuse(/without a recognized release commit/);
+    run("git", ["reset", "--hard", releaseHead]);
+
+    run("git", ["commit", "--amend", "-m", "Release pm-linear.fork v2000.01.02"]);
+    const renamedRetry = decide("pm-linear.fork");
+    assert.equal(renamedRetry.latest_tag, "v2000.01.01");
+    assert.equal(renamedRetry.tag, "v2000.01.02");
+    assert.equal(renamedRetry.npm_version, "2000.1.2");
+    refuse(/without a recognized release commit/, "pm-linearXfork");
+    run("git", ["reset", "--hard", releaseHead]);
 
     const unrelatedCommit = run("git", ["commit-tree", run("git", ["rev-parse", "HEAD^{tree}"]), "-m", "Unrelated release"]);
     const conflictingTag = spawnSync("git", ["tag", "-a", "v2000.01.02", "-m", "Conflicting release tag", unrelatedCommit], {

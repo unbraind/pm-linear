@@ -99,11 +99,12 @@ jobs:
             if [[ "$current_version" != "$tagged_version" ]]; then
               release_commit="$(git log -1 --format=%H -- package.json)"
               release_subject="$(git log -1 --format=%s -- package.json)"
-              if ! printf '%s\n' "$release_subject" | grep -Eq '^Release pm-linear v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$'; then
+              release_prefix="Release ${GITHUB_REPOSITORY##*/} "
+              tag="${release_subject#"$release_prefix"}"
+              if [[ "$release_subject" != "$release_prefix"* ]] || ! printf '%s\n' "$tag" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$'; then
                 echo "::error::package.json is ahead of ${latest_tag} without a recognized release commit. Resolve its version before releasing."
                 exit 1
               fi
-              tag="${release_subject##* }"
               version_core="${tag#v}"
               year="${version_core%%.*}"
               version_tail="${version_core#*.}"
