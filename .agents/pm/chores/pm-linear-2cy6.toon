@@ -1,0 +1,27 @@
+id: pm-linear-2cy6
+title: Certify pm-linear on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates
+description: "Raise the exact development pin @unbrained/pm-cli to 2026.10.4 together with pm-ops 2026.10.4 and pm-changelog 2026.9.25; consolidate Dependabot #129 (pm-cli), #130 (@types/node), #128 (pm-ops), #131 (pm-changelog) and #125 (codeql-action pinned SHA group 2892aa5); keep the canonical pm-ops merge-driver launcher byte-identical; certify with the full release gate plus isolated real-tracker dogfooding of the read-only Linear surfaces via npm and Bun."
+type: Chore
+status: in_progress
+priority: 2
+tags[4]: cli,dependencies,release-readiness,sdk
+created_at: "2026-10-04T10:29:00.394Z"
+updated_at: "2026-10-04T10:40:38.568Z"
+author: pi-glm
+acceptance_criteria: "npm run release:check passes with the configured 99/96/100 coverage thresholds unchanged; pm health with the repo-pinned 2026.10.4 binary is clean; packed tarball exercises the read-only/dry-run command surface via npx @unbrained/pm-cli@2026.10.4 and bunx with zero hosted-service mutation"
+actual_result: "Pins raised: @unbrained/pm-cli 2026.9.23->2026.10.4, pm-ops->2026.10.4, pm-changelog->2026.9.25; @types/node 26.6.4 in range; codeql-action pinned SHA group 2892aa5 carried from Dependabot #125. Canonical pm-ops 2026.10.4 prepare-merge-driver.ts recopied byte-for-byte. npm audit and npm audit --omit=dev both 0 vulnerabilities. Full npm run release:check PASS: typecheck, build, docstring, coverage at the configured 99/96/100 thresholds (unchanged), audit, pack dry-run, changelog check, changelog-date and publish-attestation gates. npx pm health exit 0 with zero warnings. Offline read-only dogfood on the packed tarball passed via npx and bunx (linear validate, sync/import --dry-run GraphQL plans, export payload render) with zero Linear network calls. pm-github 2026.10.4 managed extension registered with read-only previews only."
+comments[3]{created_at,author,text}:
+  "2026-10-04T10:29:07.291Z",pi-glm,"Starting at cb914b2 (Release pm-linear v2026.10.03). Plan: pm-cli 2026.9.23->2026.10.4, pm-ops->2026.10.4, pm-changelog->2026.9.25, @types/node ->26.6.4 in range, codeql-action pinned SHA b96794f->2892aa5 from #125; recopy canonical prepare-merge-driver.ts from pm-ops 2026.10.4; full release gate + read-only dogfood + pm-github preview. Linear itself is a hosted service - dogfood stays strictly on read-only/dry-run surfaces; no hosted-service mutation."
+  "2026-10-04T10:37:53.910Z",pi-glm,"Real-tracker dogfood PASS (strictly offline; zero Linear network calls, zero hosted-service mutation). Packed pm-linear-2026.10.3.tgz installed into a scratch copy of this repo's real .agents/pm and registered via pm package install with CLI 2026.10.4. npm path (npx -y @unbrained/pm-cli@2026.10.4): linear validate (offline) -> correct config report (apiKeyPresent false, readyForWrites false, networkChecked false); linear sync --team ENG --dry-run -> offline GraphQL plan, 'no Linear network call is made'; linear import --team ENG --dry-run -> same offline plan; linear export -> real create payloads rendered from the actual tracker items (team-less preview notice + full JSON). bun path (bunx @unbrained/pm-cli@2026.10.4): linear validate, linear sync --dry-run, linear export, linear import --dry-run all identical and exit 0. Scratch deleted after evidence capture."
+  "2026-10-04T10:40:23.808Z",pi-glm,"pm-github installed as managed project extension at latest npm 2026.10.4. Read-only previews against unbraind/pm-linear: github validate -> ok (HTTP 200); github export --dry-run -> plan only, writes nothing; github sync --dry-run -> planned 0, no mutation. No issues created/modified, no scheduled sync enabled."
+files[4]{path,scope,note}:
+  .github/workflows/codeql.yml,project,codeql-action pinned SHA group 2892aa5 from #125
+  package-lock.json,project,Resolved dependency graph with consolidated Dependabot bumps
+  package.json,project,Exact CLI/ops/changelog pins raised
+  scripts/prepare-merge-driver.ts,project,Canonical pm-ops 2026.10.4 launcher recopied byte-for-byte
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,pi-glm,"2026-10-04T10:40:28.470Z",local_mutation,chore/pm-linear-pm-cli-2026-10-4
+  npx pm health,project,pi-glm,"2026-10-04T10:40:29.199Z",local_mutation,chore/pm-linear-pm-cli-2026-10-4
+  npx -y @unbrained/pm-cli@2026.10.4 linear export,project,pi-glm,"2026-10-04T10:40:30.052Z",local_mutation,chore/pm-linear-pm-cli-2026-10-4
+  bunx @unbrained/pm-cli@2026.10.4 linear sync --team ENG --dry-run,project,pi-glm,"2026-10-04T10:40:31.002Z",local_mutation,chore/pm-linear-pm-cli-2026-10-4
+body: ""
