@@ -1,0 +1,12 @@
+id: pm-linear-jloc
+title: Assess the inherited historical-provenance warning reported by PM health
+description: "Pinned PM CLI 2026.10.4 health exits 0 with advisory provenance_value_domain_invalid:claude-code:role:single_digit:26. The single_digit audit records already exist in origin/main history_repair context.provenance_normalization.invalid_values receipts from August, which say observations were removed. Do not rewrite those audit records. Determine whether reporting these historical audit values is intentional or a reproducible CLI defect before changing history or filing upstream. The certification also has one unrelated stale-item advisory and no gate-failing health findings."
+type: Issue
+status: open
+priority: 2
+tags[2]: health,provenance
+created_at: "2026-10-04T11:44:05.071Z"
+updated_at: "2026-10-04T11:44:05.071Z"
+author: codex-sol
+acceptance_criteria: Classify the historical warning with a disposable synthetic reproduction; preserve normalization audit receipts and verified history chains; file upstream only for a confirmed defect after duplicate search
+body: ""
