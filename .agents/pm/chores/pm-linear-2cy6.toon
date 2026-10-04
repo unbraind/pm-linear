@@ -1,0 +1,71 @@
+id: pm-linear-2cy6
+title: Certify pm-linear on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates
+description: "Raise the exact development pin @unbrained/pm-cli to 2026.10.4 together with pm-ops 2026.10.4 and pm-changelog 2026.9.25; consolidate Dependabot #129 (pm-cli), #130 (@types/node), #128 (pm-ops), #131 (pm-changelog) and #125 (codeql-action pinned SHA group 2892aa5); keep the canonical pm-ops merge-driver launcher byte-identical; certify with the full release gate plus isolated real-tracker dogfooding of the read-only Linear surfaces via npm and Bun."
+type: Chore
+status: in_progress
+priority: 2
+tags[4]: cli,dependencies,release-readiness,sdk
+created_at: "2026-10-04T10:29:00.394Z"
+updated_at: "2026-10-04T11:44:07.534Z"
+author: pi-glm
+acceptance_criteria: "npm run release:check passes with the configured 99/96/100 coverage thresholds unchanged; pm health with the repo-pinned 2026.10.4 binary is clean; packed tarball exercises the read-only/dry-run command surface via npx @unbrained/pm-cli@2026.10.4 and bunx with zero hosted-service mutation"
+actual_result: "Exact development pins: CLI/ops/changelog 2026.10.4, Node types 26.6.4, TypeScript 7.0.2. Canonical launcher unchanged; requested incomplete/dangling and lookup error fixtures, portable junctions and isolated NODE_PATH all pass 9/9, no new skips. Clean npm ci and serialized release:check PASS: 222/222 tests, zero skips, unchanged 99/96/100 coverage thresholds. Both audits clean; no open Dependabot alerts. Packed real tracker npx/bunx offline validate/sync preview/import preview/export preview all pass; no Linear API calls or writes; scratch removed. Managed pm-github read-only preview planned 0. Health exits 0 with 2 inherited advisory categories (stale item and historical role normalization receipts), no gate-failing findings; follow-up assesses provenance reporting without rewriting history. Review receipts pending; leave item and PR open."
+comments[5]{created_at,author,text}:
+  "2026-10-04T10:29:07.291Z",pi-glm,"Starting at cb914b2 (Release pm-linear v2026.10.03). Plan: pm-cli 2026.9.23->2026.10.4, pm-ops->2026.10.4, pm-changelog->2026.9.25, @types/node ->26.6.4 in range, codeql-action pinned SHA b96794f->2892aa5 from #125; recopy canonical prepare-merge-driver.ts from pm-ops 2026.10.4; full release gate + read-only dogfood + pm-github preview. Linear itself is a hosted service - dogfood stays strictly on read-only/dry-run surfaces; no hosted-service mutation."
+  "2026-10-04T10:37:53.910Z",pi-glm,"Real-tracker dogfood PASS (strictly offline; zero Linear network calls, zero hosted-service mutation). Packed pm-linear-2026.10.3.tgz installed into a scratch copy of this repo's real .agents/pm and registered via pm package install with CLI 2026.10.4. npm path (npx -y @unbrained/pm-cli@2026.10.4): linear validate (offline) -> correct config report (apiKeyPresent false, readyForWrites false, networkChecked false); linear sync --team ENG --dry-run -> offline GraphQL plan, 'no Linear network call is made'; linear import --team ENG --dry-run -> same offline plan; linear export -> real create payloads rendered from the actual tracker items (team-less preview notice + full JSON). bun path (bunx @unbrained/pm-cli@2026.10.4): linear validate, linear sync --dry-run, linear export, linear import --dry-run all identical and exit 0. Scratch deleted after evidence capture."
+  "2026-10-04T10:40:23.808Z",pi-glm,"pm-github installed as managed project extension at latest npm 2026.10.4. Read-only previews against unbraind/pm-linear: github validate -> ok (HTTP 200); github export --dry-run -> plan only, writes nothing; github sync --dry-run -> planned 0, no mutation. No issues created/modified, no scheduled sync enabled."
+  "2026-10-04T11:32:02.914Z",codex-sol,"Resumed PR #132 after reading current comments/reviews. Address Greptile missing incomplete-directory and dangling-link fixtures, plus the verified lookup-loop, Windows junction and inherited NODE_PATH isolation findings from this same certification. Keep the canonical launcher unchanged and run all new fixtures without new skips. Finish exact development pins and latest pm-changelog 2026.10.4; clean install, full locked gate and packed real-tracker npm/bun offline checks. No Linear API calls or hosted writes."
+  "2026-10-04T11:44:05.826Z",codex-sol,"Resumption validation PASS: all development pins exact, CLI/ops/changelog 2026.10.4; clean npm ci; flock-serialized npm run release:check passed with unchanged 99/96/100 thresholds, zero skipped tests, both audit scopes 0. Launcher fixtures and linked hostile NODE_PATH run pass 9/9, no new skips; canonical launcher unchanged. Packed real tracker offline npm/bun dogfood: npx -y @unbrained/pm-cli@2026.10.4 linear validate; linear sync --team ENG --dry-run; linear import --team ENG --dry-run; linear export --dry-run; equivalent bunx commands all exit 0, readyForWrites false and networkChecked false, real create payloads rendered, no Linear API calls/writes. Scratch removed. Managed pm-github sync --dry-run --repo unbraind/pm-linear plans 0. Pinned npx pm health exits 0 with stale_in_progress_items:1 and historical provenance_value_domain_invalid:claude-code:role:single_digit:26 advisories, no gate-failing findings. This corrects the earlier zero-warning receipt; matching August normalization audit records already exist on origin/main. A separate follow-up assesses that advisory without rewriting audited history."
+files[5]:
+  - path: .github/workflows/codeql.yml
+    scope: project
+    note: codeql-action pinned SHA group 2892aa5 from #125
+  - path: package-lock.json
+    scope: project
+    note: Resolved dependency graph with consolidated Dependabot bumps
+  - path: package.json
+    scope: project
+    note: Exact CLI/ops/changelog pins raised
+  - path: scripts/prepare-merge-driver.ts
+    scope: project
+    note: Canonical pm-ops 2026.10.4 launcher recopied byte-for-byte
+  - path: test/prepare-merge-driver.test.ts
+    scope: project
+tests[5]:
+  - command: "npm run release:check"
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-04T10:40:28.470Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-linear-pm-cli-2026-10-4
+  - command: npx pm health
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-04T10:40:29.199Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-linear-pm-cli-2026-10-4
+  - command: npx -y @unbrained/pm-cli@2026.10.4 linear export
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-04T10:40:30.052Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-linear-pm-cli-2026-10-4
+  - command: bunx @unbrained/pm-cli@2026.10.4 linear sync --team ENG --dry-run
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-04T10:40:31.002Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-linear-pm-cli-2026-10-4
+  - command: "env NODE_PATH=\"$PWD/node_modules\" node --test test/prepare-merge-driver.test.ts"
+    scope: project
+    pm_context_mode: tracker
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-04T11:32:06.890Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-linear-pm-cli-2026-10-4
+body: ""
