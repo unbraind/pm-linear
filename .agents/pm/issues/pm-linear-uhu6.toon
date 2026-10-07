@@ -1,0 +1,15 @@
+id: pm-linear-uhu6
+title: Legacy Linear upsert to a closed status omits the required close reason
+description: "Offline real-tracker reproduction during issue 134 tests: seed a closed item with Linear provenance, feed a synthetic completed Linear issue through syncLinearIssues without atomic mode, and the update subprocess fails under governance.require_close_reason because its arguments have no close reason. Atomic import supplies an explicit close mutation reason. This is independent of whole-corpus reading; no provider access or credentials were used."
+type: Issue
+status: open
+priority: 2
+tags[3]: governance,linear,terminal-status
+created_at: "2026-10-07T11:57:30.772Z"
+updated_at: "2026-10-07T11:58:54.348Z"
+author: codex-sol
+files[1]{path,scope}:
+  index.ts,project
+docs[1]{path,scope}:
+  README.md,project
+body: ""

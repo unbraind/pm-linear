@@ -1108,37 +1108,80 @@ interface PmItem {
   deadline?: string;
 }
 
-const PM_LIST_MAX_BUFFER = 16 * 1024 * 1024;
+const COMPLETE_READ_RECOVERY =
+  "Upgrade @unbrained/pm-cli to >=2026.10.4, repair any unreadable tracker items, " +
+  "and retry with listAllComplete({ includeBody: true }); diagnostic CLI: " +
+  "pm list --all --full --include-body --strict-read --no-truncate " +
+  "--output-budget unbounded --output-limit unbounded --json.";
 
 /**
- * Read the local pm item list via the `pm list --json` subprocess.
+ * Certify a whole-tracker SDK answer and validate the fields consumed by Linear.
  *
- * Shells out with a large buffer because a full workspace dump can exceed the
- * default maxBuffer; a non-zero exit or unparseable stdout is turned into a
- * `CommandError` rather than returning an empty list that would look like a
- * clean sync of zero items.
+ * The public SDK validator checks source, projection, pagination and omission
+ * receipts. Its certificate covers row identities, so this boundary additionally
+ * requires bodies and well-typed matching/export fields. It validates the entire
+ * corpus before returning even one row to a mutation planner.
  *
- * @param pmRoot - The workspace root passed to `pm --path`.
- * @returns The parsed pm items.
+ * @param candidate - Untrusted complete-read envelope, including its certificate.
+ * @returns Full items only after every completeness and row check succeeds.
  */
-function readPmItems(pmRoot: string): PmItem[] {
-  const result = spawnSync(
-    "pm",
-    ["--path", pmRoot, "--json", "list", "--full", "--include-body", "--limit", "10000"],
-    { encoding: "utf-8", maxBuffer: PM_LIST_MAX_BUFFER }
-  );
-  if (result.error) {
-    throw new CommandError(`pm list failed: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new CommandError(result.stderr || "pm list failed");
-  }
+export async function certifyPmItems(candidate: unknown): Promise<PmItem[]> {
   try {
-    const parsed = JSON.parse(result.stdout);
-    const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
-    return items as PmItem[];
-  } catch {
-    throw new CommandError("Could not parse `pm list --json` output.");
+    const sdk = await import("@unbrained/pm-cli/sdk/runtime");
+    const result = sdk.certifyCompleteListResult(candidate);
+    const certificate = (candidate as Record<string, unknown>).complete_list;
+    if (typeof certificate !== "object" || certificate === null || Array.isArray(certificate)) {
+      throw new Error("missing or malformed complete_list certificate");
+    }
+    const proof = certificate as Record<string, unknown>;
+    for (const [key, value] of Object.entries(result.complete_list)) {
+      if (proof[key] !== value) throw new Error(`invalid complete_list certificate: ${key}`);
+    }
+    if (result.filters?.include_body !== true) throw new Error("body projection unproven");
+    for (const [index, item] of result.items.entries()) {
+      const row = item as unknown as Record<string, unknown>;
+      const requiredStrings = ["id", "title", "status"];
+      const optionalStrings = ["description", "deadline"];
+      if (requiredStrings.some((key) => typeof row[key] !== "string" || !row[key].trim()) ||
+          typeof row.body !== "string" ||
+          optionalStrings.some((key) => row[key] !== undefined && typeof row[key] !== "string") ||
+          (row.priority !== undefined &&
+            (!Number.isInteger(row.priority) || Number(row.priority) < 0 || Number(row.priority) > 4)) ||
+          (row.tags !== undefined &&
+            (!Array.isArray(row.tags) || row.tags.some((tag: unknown) => typeof tag !== "string")))) {
+        throw new Error(`malformed local item row ${index + 1}`);
+      }
+    }
+    return result.items;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new CommandError(`Complete local item read refused: ${message}. ${COMPLETE_READ_RECOVERY}`);
+  }
+}
+
+/**
+ * Read every local item in-process, including terminal work and complete bodies.
+ *
+ * Disables extension discovery so this observational read cannot invoke hooks or
+ * recursively re-enter this extension. Lazy loading preserves command discovery
+ * when an old or standalone host cannot resolve the SDK, but reading fails with
+ * an actionable CommandError. There is no bounded subprocess fallback.
+ *
+ * @param pmRoot - Explicit tracker root supplied by the command runtime.
+ * @returns A certified whole corpus, never a page or an empty fallback.
+ */
+async function readPmItems(pmRoot: string): Promise<PmItem[]> {
+  try {
+    const sdk = await import("@unbrained/pm-cli/sdk/runtime");
+    const result = await sdk.listAllComplete(
+      { includeBody: true },
+      { pmRoot, noExtensions: true },
+    );
+    return await certifyPmItems(result);
+  } catch (err: unknown) {
+    if (err instanceof CommandError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new CommandError(`Complete local item read refused: ${message}. ${COMPLETE_READ_RECOVERY}`);
   }
 }
 
@@ -1172,7 +1215,7 @@ export interface SyncRunDependencies {
     filters: FetchFilters,
   ) => Promise<LinearIssue[]>;
   /** Inject the local pm item read. */
-  readItems?: (pmRoot: string) => PmItem[];
+  readItems?: (pmRoot: string) => PmItem[] | Promise<PmItem[]>;
   /** Inject the atomic commit (offline/dry-run tests). */
   commitAtomic?: typeof importLinearAtomic;
 }
@@ -1304,10 +1347,10 @@ interface ImportDryRunPlan {
   projectMap: ProjectMap;
 }
 
-function buildImportDryRunPlan(
+async function buildImportDryRunPlan(
   options: SyncOptions,
   pm_root: string
-): ImportDryRunPlan {
+): Promise<ImportDryRunPlan> {
   const request = buildImportRequestPlan(options.team, options.limit, {
     project: options.project,
     assignee: options.assignee,
@@ -1318,14 +1361,9 @@ function buildImportDryRunPlan(
   });
   // Local-only read; no Linear network call. Reports how many already-linked pm
   // items exist so the preview can hint at create-vs-update without fetching.
-  let existingLinkedItems = 0;
-  try {
-    existingLinkedItems = Object.keys(
-      indexItemsByLinearId(readPmItems(pm_root))
-    ).length;
-  } catch {
-    existingLinkedItems = 0;
-  }
+  const existingLinkedItems = Object.keys(
+    indexItemsByLinearId(await readPmItems(pm_root))
+  ).length;
   return {
     dryRun: true,
     team: options.team.toUpperCase(),
@@ -1745,6 +1783,8 @@ export async function syncLinearIssues(
   const scope = scopeBits.length ? ` (${scopeBits.join(", ")})` : "";
   console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
 
+  // Certify the entire matching corpus before provider access or item writes.
+  const existingByLinearId = indexItemsByLinearId(await (dependencies.readItems ?? readPmItems)(pm_root));
   const issues = await (dependencies.fetchIssues ?? fetchAllLinearIssues)(apiKey ?? "", options.team, options.limit, filters);
 
   if (issues.length === 0) {
@@ -1753,12 +1793,6 @@ export async function syncLinearIssues(
   }
 
   const statusMap = options.statusMap ?? {};
-
-  // Idempotency: index existing items by stored Linear id so a re-import
-  // UPDATES the matching item rather than creating a duplicate. We only read
-  // the workspace when actually writing (dry-run is read-free on Linear's side
-  // but we still want the preview to report create-vs-update accurately).
-  const existingByLinearId = indexItemsByLinearId((dependencies.readItems ?? readPmItems)(pm_root));
 
   // `skipped` is shared by both the atomic and legacy paths; `created`/`updated`
   // are declared with the legacy loop below (the atomic path returns before it
@@ -2576,12 +2610,12 @@ function isJsonMode(ctx: CommandHandlerContext | ImportExportContext): boolean {
  * @param teamSource - Where the team came from, for an explanatory log line.
  * @returns The JSON-mode payload object.
  */
-function renderImportDryRun(
+async function renderImportDryRun(
   ctx: CommandHandlerContext | ImportExportContext,
   options: SyncOptions,
   teamSource?: TeamSource
-): Record<string, unknown> {
-  const plan = buildImportDryRunPlan(options, ctx.pm_root);
+): Promise<Record<string, unknown>> {
+  const plan = await buildImportDryRunPlan(options, ctx.pm_root);
   if (!isJsonMode(ctx)) {
     if (teamSource === "env") {
       console.error(`Using LINEAR_DEFAULT_TEAM=${plan.team} (no --team provided).`);
@@ -2909,7 +2943,7 @@ export default defineExtension({
       // --atomic --dry-run shares the atomic prep/matching path (fetches issues,
       // reports counts, no commit) - handled inside syncLinearIssues.
       if (dryRun && !atomic) {
-        const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
+        const plan = await renderImportDryRun(ctx, syncOpts, teamSelection.source);
         return { imported: 0, created: 0, updated: 0, skipped: 0, ...plan };
       }
 
@@ -2961,7 +2995,7 @@ export default defineExtension({
       const teamSelection = resolveTeamSelection(ctx.options);
       const teamKey = teamSelection?.team;
       const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
-      const items = readPmItems(ctx.pm_root);
+      const items = await readPmItems(ctx.pm_root);
       const payloads = items.map((it) => itemToLinearPayload(it, fieldMap));
 
       // --dry-run: build + print the exact would-be Linear GraphQL mutations
@@ -3203,7 +3237,7 @@ export default defineExtension({
       // syncLinearIssues would see dryRun=false and turn a requested preview
       // into a real workspace write.
       if (dryRun && !atomic) {
-        const plan = renderImportDryRun(ctx, syncOpts, teamSelection.source);
+        const plan = await renderImportDryRun(ctx, syncOpts, teamSelection.source);
         return {
           synced: 0,
           created: 0,

@@ -187,7 +187,7 @@ test("syncLinearIssues without LINEAR_API_KEY or a fetch seam throws USAGE", asy
 test("syncLinearIssues reaches the https request branch for an https endpoint", async () => {
   // No server: an https request to a dead port fails fast with a connection
   // error, exercising the https.request branch (useTls true) end to end.
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-cmd-"));
+  const root = freshWorkspace();
   try {
     await withEnv(
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: "https://127.0.0.1:1/graphql" },
@@ -377,10 +377,10 @@ test("importLinearAtomic surfaces a WorkspaceTransactionInterruptedError as resu
 });
 
 // ---------------------------------------------------------------------------
-// readPmItems failure branches (status non-zero + spawn error)
+// Certified in-process read failures and PATH independence
 // ---------------------------------------------------------------------------
 
-test("readPmItems surfaces a non-zero pm list exit as a CommandError (export preview)", async () => {
+test("readPmItems surfaces a missing tracker as a CommandError (export preview)", async () => {
   const harness = await getHarness();
   const badRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-cmd-"));
   try {
@@ -388,7 +388,7 @@ test("readPmItems surfaces a non-zero pm list exit as a CommandError (export pre
       () => harness.runExporter({ exporter: "linear", options: {}, pmRoot: badRoot }),
       (err: unknown) => {
         assert.ok(err instanceof CommandError);
-        assert.match((err as Error).message, /tracker_/);
+        assert.match((err as Error).message, /Complete local item read refused:.*Tracker is not initialized/);
         return true;
       },
     );
@@ -397,41 +397,37 @@ test("readPmItems surfaces a non-zero pm list exit as a CommandError (export pre
   }
 });
 
-test("readPmItems surfaces a spawn failure when pm is not on PATH", async () => {
+test("readPmItems reads in-process when pm is not on PATH", async () => {
   const harness = await getHarness();
   const root = freshWorkspace();
   const savedPath = process.env["PATH"];
   try {
     delete process.env["PATH"];
-    await assert.rejects(
-      () => harness.runExporter({ exporter: "linear", options: {}, pmRoot: root }),
-      (err: unknown) => {
-        assert.ok(err instanceof CommandError);
-        assert.match((err as Error).message, /pm list failed: /);
-        return true;
-      },
-    );
+    const { result } = await harness.runExporter({ exporter: "linear", options: {}, pmRoot: root });
+    assert.equal((result as { exported: number }).exported, 0);
   } finally {
     process.env["PATH"] = savedPath;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("buildImportDryRunPlan tolerates a pm read failure and reports zero linked items", async () => {
-  // A sync --dry-run against a non-workspace root must still succeed: the dry-
-  // run plan catches the readPmItems failure and reports existingLinkedItems=0.
+test("buildImportDryRunPlan refuses an uncertified local matching count", async () => {
   const harness = await getHarness();
   const badRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-cmd-"));
   try {
-    const { result } = await harness.runCommand({
-      command: "linear sync",
-      options: { team: "ENG", "dry-run": true },
-      pmRoot: badRoot,
-      global: { json: true },
-    });
-    const plan = result as { dryRun: boolean; existingLinkedItems: number };
-    assert.equal(plan.dryRun, true);
-    assert.equal(plan.existingLinkedItems, 0);
+    await assert.rejects(
+      () => harness.runCommand({
+        command: "linear sync",
+        options: { team: "ENG", "dry-run": true },
+        pmRoot: badRoot,
+        global: { json: true },
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof CommandError);
+        assert.match(err.message, /Complete local item read refused/);
+        return true;
+      },
+    );
   } finally {
     fs.rmSync(badRoot, { recursive: true, force: true });
   }

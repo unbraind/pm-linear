@@ -34,7 +34,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 ## Requirements
 
-- pm-cli `>=2026.7.29`
+- pm-cli / `@unbrained/pm-cli` SDK `>=2026.10.4`, resolvable from the installed extension
 - Node.js `>=22.18.0`
 - A Linear API key with read access to the relevant teams (only for **live**
   paths; every `--dry-run` and offline `validate` works without one)
@@ -177,6 +177,37 @@ pm linear import --team ENG --dry-run
 
 Requires `LINEAR_API_KEY` (or falls back to `LINEAR_DEFAULT_TEAM` for the team). When
 the key is missing it exits non-zero with a structured error rather than crashing.
+
+## Complete local reads
+
+Sync/import matching, offline import previews, and export read the entire local
+tracker through the public in-process SDK `listAllComplete({ includeBody: true })`.
+The read includes closed and canceled items, all item types, full metadata and
+bodies, with strict source checks and unbounded row/output budgets. Extension
+hooks are disabled for this observational read. There is no 10,000-item limit or
+CLI JSON buffer ceiling.
+
+Before planning writes, pm-linear verifies the completeness certificate, source
+and output receipts, and the fields used for matching/export. It refuses missing
+`items`, missing or invalid certificates, partial/unverified scans, pagination,
+count mismatches, duplicate/invalid IDs, partial projections, field omissions,
+compacted/omitted output, read-session projections, missing bodies, and malformed
+rows with a `CommandError`. Import certifies before fetching issues; export
+certifies before provider lookups or mutations. An unreadable tracker also fails
+an offline preview instead of reporting a misleading zero matching count.
+
+The error includes a recovery hint: install/upgrade the SDK, repair unreadable
+tracker artifacts, and retry. For a diagnostic complete CLI read, use:
+
+```bash
+pm list --all --full --include-body --strict-read --no-truncate --output-budget unbounded --output-limit unbounded --json
+```
+
+See [real-tracker acceptance and refusal evidence](docs/complete-local-reads.md).
+
+The extension loads the SDK lazily so command discovery still works on older or
+standalone hosts. Local reads require a resolvable SDK at the minimum version;
+an unavailable SDK fails with the same recovery hint.
 
 ## `pm linear export`
 
