@@ -1,0 +1,37 @@
+id: pm-linear-ldqw
+title: Certify complete local item reads before Linear reconciliation and export
+description: "GitHub issue https://github.com/unbraind/pm-linear/issues/134. Replace the bounded local reader with certified all-status full unbounded reads; refuse incomplete or malformed corpora before writes. Prove large-corpus, terminal matching, refusal and re-import behavior using real trackers, with old-reader negative controls and both release gates."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: linear,read-integrity,sdk
+created_at: "2026-10-07T11:48:24.692Z"
+updated_at: "2026-10-07T12:37:14.419Z"
+author: codex-sol
+comments[9]{created_at,author,text}:
+  "2026-10-07T11:48:48.768Z",codex-sol,"Read GitHub issue 134 and SDK complete-list declarations/docs. Plan: all-status full strict unbounded in-process reads including bodies; validate the SDK certificate and payload fields used by matching/export; certify before writes. Use real SDK trackers, synthetic remote issue inputs, degraded real envelopes, old-reader negative controls, and npm/Bun release gates. No live provider access."
+  "2026-10-07T11:56:13.234Z",codex-sol,"Implementation uses lazy public sdk/runtime listAllComplete with includeBody and noExtensions, validates the complete-list certificate and every consumed row field, and refuses local read failures in offline previews. Raised the SDK peer floor to the tested 2026.10.4 contract. Real degraded-envelope controls pass; terminal matching and second imports pass in both legacy and atomic modes. Large fixture generation uses public commitImportedItem in-process with real TOON/history writes."
+  "2026-10-07T11:58:51.136Z",codex-sol,"Out-of-scope offline finding recorded as pm-linear-uhu6: the legacy closed-status update lacks governance closure evidence. Terminal matching tests deliberately use upstream open issues to verify that closed and canceled local items are found and updated, followed by a second import creating zero items. Atomic replays may report recoveredItems instead of fresh updates."
+  "2026-10-07T12:00:51.567Z",codex-sol,"Old-reader negative control in a disposable source copy: restoring the original readPmItems helper causes terminal fixtures to create 3 items instead of the expected 1 in both legacy and atomic modes. Exposing the original JSON decoder to the same real-envelope degradation cases causes all 48 refusal controls to fail. The package implementation remains certified; the large-corpus old-reader control is still running."
+  "2026-10-07T12:01:33.987Z",codex-sol,"Negative control complete: the original reader exports only 10,000 of 10,002 real items; both terminal matching tests create 3 items instead of 1; the original decoder fails all 48 refusal controls. Updated existing failure-path fixtures to initialize real trackers, because local certification now precedes provider reads instead of relying on an uninitialized tracker being ignored."
+  "2026-10-07T12:02:56.170Z",codex-sol,"Large-corpus acceptance passes: 10,002 exports with retained final body and matching beyond 10,000. Packed npm and native Bun consumers both read a closed item and full body with an empty PATH. Acceptance mechanism, refusal table, and original-reader/decoder negative controls are documented in docs/complete-local-reads.md. SDK certificate validates identities only; pm-linear supplies the consumed-field guard."
+  "2026-10-07T12:04:57.195Z",codex-sol,"Initial release gate found six historical network-error fixtures that lacked initialized trackers and a manifest/peer minimum mismatch. The fixtures now initialize trackers; all six focused network-error cases pass, and manifest pm_min_version matches the new SDK peer floor. Full corrected release gates remain required. Coverage thresholds are unchanged."
+  "2026-10-07T12:15:33.176Z",codex-sol,"Verified implementation commit 18ae4df: npm run release:check and bun run release:check both pass, each with 276 tests, zero failures/skips, 99.36% lines, 97.30% branches and 100% functions against unchanged 99/96/100 thresholds. Docstring, production audit (zero vulnerabilities), pack, changelog, release-date and publish-attestation gates pass. Linked pm refusal run passed 49 tests. Revert control failed 52 tests as expected (10,000 versus 10,002 exports, duplicate terminal creates, 48 refusal failures). Final packed npm and native Bun acceptance pass. SDK identity-only row certification is supplemented with consumed-field validation; no SDK issue filed. Independent legacy closure follow-up pm-linear-uhu6 remains open. Releasing the claim with the issue still in progress for review."
+  "2026-10-07T12:37:14.419Z",claude-orchestrator,"Orchestrator review: the two inline import('@unbrained/pm-cli/sdk/runtime') call sites now share one documented module-level loader (importRuntimeSdk), keeping the peer a type-only edge at module load. Behavioural revert: with only readPmItems reverted to the old 'pm list --limit 10000' reader, 4 of 54 complete-read tests fail (>10,000 export, malformed-tracker refusal, terminal matching + second import for atomic=false/true); restored 54/54. npm+Bun release:check pass after the change (276 tests). Coverage remains at the repo's configured thresholds (99.36/97.30/100), not 100 — follow-up."
+files[8]{path,scope}:
+  index.ts,project
+  manifest.json,project
+  package-lock.json,project
+  package.json,project
+  test/branch-coverage.test.ts,project
+  test/commands.test.ts,project
+  test/complete-local-reads.test.ts,project
+  test/network.test.ts,project
+tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-name-pattern=every.degraded test/complete-local-reads.test.ts,project,120,codex-sol,"2026-10-07T11:56:39.336Z",local_mutation,fix/complete-local-reads
+  "npm run release:check",project,2400,codex-sol,"2026-10-07T11:58:52.106Z",local_mutation,fix/complete-local-reads
+  "bun run release:check",project,2400,codex-sol,"2026-10-07T11:58:52.106Z",local_mutation,fix/complete-local-reads
+docs[2]{path,scope}:
+  docs/complete-local-reads.md,project
+  README.md,project
+body: ""

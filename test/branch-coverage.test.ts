@@ -90,6 +90,8 @@ test("option readers cover non-string teams, numeric limits, and project-map spe
   assert.deepEqual(resolveTeamSelection({ team: 123 }), { team: "123", source: "flag" });
 
   const root = workspace();
+  const initialized = spawnSync("pm", ["--path", root, "init", "fixture"], { encoding: "utf8" });
+  assert.equal(initialized.status, 0, initialized.stderr);
   try {
     const h = await getHarness();
     const numeric = await h.runCommand({

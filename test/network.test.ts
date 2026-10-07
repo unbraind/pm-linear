@@ -356,7 +356,7 @@ test("fetchAllLinearIssues surfaces a GraphQL errors envelope as a CommandError"
   const server = await startLinearServer(() => ({
     body: JSON.stringify({ errors: [{ message: "rate limited by upstream" }] }),
   }));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await assertSyncRejects(
       { team: "ENG", limit: 100 },
@@ -494,7 +494,7 @@ test("a persistent 503 exhausts retries and reports HTTP 503", async () => {
     headers: { "retry-after": "0" },
     body: "{}",
   }));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await assertSyncRejects(
       { team: "ENG", limit: 100 },
@@ -510,7 +510,7 @@ test("a persistent 503 exhausts retries and reports HTTP 503", async () => {
 
 test("a per-request timeout is retried as a timeout and eventually exhausted", async () => {
   const server = await startLinearServer(() => ({ hang: true }));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await assertSyncRejects(
       { team: "ENG", limit: 100 },
@@ -650,7 +650,7 @@ test("bare HTTP and HTTPS endpoint defaults fail through the real diagnostic pat
 
 test("a 401 auth failure is non-retriable and yields a USAGE CommandError", async () => {
   const server = await startLinearServer(() => ({ status: 401, body: "{}" }));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await withEnv(
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
@@ -674,7 +674,7 @@ test("a 401 auth failure is non-retriable and yields a USAGE CommandError", asyn
 
 test("a 200 with a non-JSON body surfaces a parse-failure CommandError", async () => {
   const server = await startLinearServer(() => ({ status: 200, body: "<<not json>>" }));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await assertSyncRejects(
       { team: "ENG", limit: 100 },
@@ -689,7 +689,7 @@ test("a 200 with a non-JSON body surfaces a parse-failure CommandError", async (
 });
 
 test("a connection refused (no server) surfaces a request-failure CommandError", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-net-"));
+  const root = freshWorkspace();
   try {
     await assertSyncRejects(
       { team: "ENG", limit: 100 },
