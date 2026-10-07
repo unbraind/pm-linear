@@ -112,3 +112,17 @@ An independent legacy-upsert limitation found during testing is recorded as
 [pm-linear-uhu6](../.agents/pm/issues/pm-linear-uhu6.toon): a legacy update to a
 closed state omits the close reason required by strict governance. This change
 certifies matching; that closure behavior remains follow-up work.
+
+Both full release gates passed on implementation commit `18ae4df`:
+
+| Command | Tests passed | Failures / skips | Lines | Branches | Functions |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `npm run release:check` | 276 | 0 / 0 | 99.36% | 97.30% | 100% |
+| `bun run release:check` | 276 | 0 / 0 | 99.36% | 97.30% | 100% |
+
+Production audit found zero vulnerabilities. Docstrings, packing, changelog,
+release-date and publish-attestation checks passed. The final follow-up commit
+records tracker/documentation evidence only; runtime source, manifest/package
+metadata and tests retain the tested implementation bytes. Final identity/privacy
+and changelog checks validate the evidence commit. The issue stays active for
+review and its implementation claim is released.
