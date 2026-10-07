@@ -1115,6 +1115,13 @@ const COMPLETE_READ_RECOVERY =
   "--output-budget unbounded --output-limit unbounded --json.";
 
 /**
+ * Load the runtime SDK lazily. Module load keeps `@unbrained/pm-cli` a
+ * type-only edge (see the file header), so a missing peer surfaces as a
+ * CommandError from the reader instead of a failed extension import.
+ */
+const importRuntimeSdk = (): Promise<typeof import("@unbrained/pm-cli/sdk/runtime")> => import("@unbrained/pm-cli/sdk/runtime");
+
+/**
  * Certify a whole-tracker SDK answer and validate the fields consumed by Linear.
  *
  * The public SDK validator checks source, projection, pagination and omission
@@ -1127,7 +1134,7 @@ const COMPLETE_READ_RECOVERY =
  */
 export async function certifyPmItems(candidate: unknown): Promise<PmItem[]> {
   try {
-    const sdk = await import("@unbrained/pm-cli/sdk/runtime");
+    const sdk = await importRuntimeSdk();
     const result = sdk.certifyCompleteListResult(candidate);
     const certificate = (candidate as Record<string, unknown>).complete_list;
     if (typeof certificate !== "object" || certificate === null || Array.isArray(certificate)) {
@@ -1172,7 +1179,7 @@ export async function certifyPmItems(candidate: unknown): Promise<PmItem[]> {
  */
 async function readPmItems(pmRoot: string): Promise<PmItem[]> {
   try {
-    const sdk = await import("@unbrained/pm-cli/sdk/runtime");
+    const sdk = await importRuntimeSdk();
     const result = await sdk.listAllComplete(
       { includeBody: true },
       { pmRoot, noExtensions: true },
