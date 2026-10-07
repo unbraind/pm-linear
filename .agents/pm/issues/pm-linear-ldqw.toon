@@ -2,11 +2,13 @@ id: pm-linear-ldqw
 title: Certify complete local item reads before Linear reconciliation and export
 description: "GitHub issue https://github.com/unbraind/pm-linear/issues/134. Replace the bounded local reader with certified all-status full unbounded reads; refuse incomplete or malformed corpora before writes. Prove large-corpus, terminal matching, refusal and re-import behavior using real trackers, with old-reader negative controls and both release gates."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[3]: linear,read-integrity,sdk
 created_at: "2026-10-07T11:48:24.692Z"
-updated_at: "2026-10-07T12:37:14.419Z"
+updated_at: "2026-10-07T13:09:50.325Z"
+closed_at: "2026-10-07T13:09:49.837Z"
+completed_at: "2026-10-07T13:09:49.837Z"
 author: codex-sol
 comments[9]{created_at,author,text}:
   "2026-10-07T11:48:48.768Z",codex-sol,"Read GitHub issue 134 and SDK complete-list declarations/docs. Plan: all-status full strict unbounded in-process reads including bodies; validate the SDK certificate and payload fields used by matching/export; certify before writes. Use real SDK trackers, synthetic remote issue inputs, degraded real envelopes, old-reader negative controls, and npm/Bun release gates. No live provider access."
@@ -34,4 +36,5 @@ tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/complete-local-reads.md,project
   README.md,project
+close_reason: "Merged in #136 (691724c). The local reader now uses the public SDK listAllComplete + certifyCompleteListResult and refuses incomplete or malformed answers before provider access or writes. Orchestrator verification: reader-only behavioural revert fails 4 of 54 complete-read tests (>10,000 export, malformed tracker, terminal matching + idempotent re-import for atomic on/off); npm+Bun release:check pass (276 tests); CodeRabbit full review: no findings."
 body: ""

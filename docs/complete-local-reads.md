@@ -124,5 +124,6 @@ Production audit found zero vulnerabilities. Docstrings, packing, changelog,
 release-date and publish-attestation checks passed. The final follow-up commit
 records tracker/documentation evidence only; runtime source, manifest/package
 metadata and tests retain the tested implementation bytes. Final identity/privacy
-and changelog checks validate the evidence commit. The issue stays active for
-review and its implementation claim is released.
+and changelog checks validate the evidence commit. The orchestrator verified the
+change independently and closed the issue after
+[#136](https://github.com/unbraind/pm-linear/pull/136) merged.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Certify complete local item reads before Linear reconciliation and export ([pm-linear-ldqw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ldqw.toon))
+
 ## 2026.10.5 - 2026-10-05
 
 ### Other
