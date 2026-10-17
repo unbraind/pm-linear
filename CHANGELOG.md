@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
+
 ## 2026.10.8 - 2026-10-08
 
 ### Fixed
