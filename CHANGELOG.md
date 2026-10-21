@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Enable the gated GitHub issue sync ([pm-linear-rgol](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-rgol.toon))
+- Adopt pm-github 2026.10.16: default-branch-safe gated sync and daily gated closeout PRs ([pm-linear-1taz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1taz.toon))
+
+### Fixed
+
+- Harden the release merge wait against mergeStateStatus deadlock ([pm-linear-niyz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-niyz.toon))
+- A release that merges but fails to publish is abandoned by the next day's run ([pm-linear-yyr9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-yyr9.toon))
+- The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([pm-linear-vc2f](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-vc2f.toon))
+- The publish-attestation gate misses a publish routed through an unquoted shell variable ([pm-linear-pa9x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-pa9x.toon))
+- The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([pm-linear-9hw2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-9hw2.toon))
+- A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([pm-linear-kq42](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-kq42.toon))
+
+### Other
+
+- Cover every pm-linear code path with behavioural tests and raise the coverage gate to 100 ([pm-linear-xw01](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-xw01.toon))
+- Certify pm-linear on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-linear-2cy6](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-2cy6.toon))
+
 ## 2026.10.21 - 2026-10-21
 
 ### Fixed
