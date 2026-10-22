@@ -2970,6 +2970,7 @@ export default defineExtension({
         { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore,priority=ignore\". Optional." },
         { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
+        { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
         { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
         { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
@@ -3096,11 +3097,9 @@ export default defineExtension({
         }, ctx.pm_root);
       },
     });
-    for (const command of ["linear sync", "linear import", "linear-sync import"]) {
-      api.registerFlags(command, [
-        { long: "--schema-version", value_name: "version", description: "Require the version from linear schema before local changes." },
-      ]);
-    }
+    api.registerFlags("linear-sync import", [
+      { long: "--schema-version", value_name: "version", description: "Require the version from linear schema before local changes." },
+    ]);
     api.registerCommand({
       name: "linear validate",
       description: "Check pm-linear configuration + Linear API readiness",
@@ -3156,6 +3155,7 @@ export default defineExtension({
       { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore\"." },
       { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
+      { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
       { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ]);

@@ -75,7 +75,8 @@ test("extension activates cleanly and registers expected capabilities", async ()
   linearHarness.assertImporter({ importer: "linear-sync" });
   linearHarness.assertExporter({ exporter: "linear" });
   linearHarness.assertPreflightOverride();
-  linearHarness.assertFlags({ targetCommand: "linear import", flags: ["--team", "--dry-run"] });
+  linearHarness.assertFlags({ targetCommand: "linear import", flags: ["--team", "--dry-run", "--schema-version"] });
+  linearHarness.assertFlags({ targetCommand: "linear-sync import", flags: ["--schema-version"] });
   linearHarness.assertFlags({ targetCommand: "linear export", flags: ["--push", "--dry-run"] });
 });
 

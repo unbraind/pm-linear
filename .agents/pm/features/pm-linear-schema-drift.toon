@@ -6,20 +6,24 @@ status: in_progress
 priority: 2
 tags[3]: changed,linear,schema
 created_at: "2026-10-22T15:20:15.967Z"
-updated_at: "2026-10-22T15:38:38.245Z"
+updated_at: "2026-10-22T15:44:50.143Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Deleted labels and renamed states invalidate old plans; Missing permissions fail before local changes; Compact TOON/JSON report, remedies, docs and no-git real-data validation"
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-22T15:20:20.235Z",codex-agent,"Overlap check rerun: the pinned core SDK schemaList/schemaShowStatus model local types and statuses; neither negotiates provider metadata. Sibling pm-jira maps Jira workflow categories and field projections; pm-ado owns Azure fields and revision checks. Their provider metadata is not reusable for Linear. Existing linear validate probes configuration/viewer only. Reuse the runtime SDK loader, certified listAllComplete reads, schemaList, registered command/flags and existing atomic commitItemMutations path. Add deterministic provider/local mapping version and mandatory read-only metadata gate before sync writes; recheck after issue fetch. No provider writes are needed."
   "2026-10-22T15:28:38.270Z",codex-agent,"Implemented typed negotiation and refusal contracts, a native linear schema command, and schema-version on sync/native/legacy import. Mandatory live sync discovery covers paginated workflow states and team/workspace labels, settings, local status definitions and overrides; a second discovery precedes writes. Reports contain counts, exact state mapping preview (32 rows maximum), omission count and label digest, never issue bodies. Existing transport fixtures now serve metadata separately so issue and export regressions retain their transport assertions. CI adds explicit npm and Bun release-gate jobs at existing thresholds. Local typecheck and docstring lint pass; targeted fault controls and real public-tracker copy validation are in progress."
   "2026-10-22T15:32:27.299Z",codex-agent,"Validation: linked node --test --test-concurrency=1 test/schema-drift.test.ts passed 44/44 through pm test --run --progress. Targeted transport/schema retest passed 6/6. npm run typecheck, npm run build:test, npm run docstring and git diff --check passed. Behavioral revert proof: disabling only the schemaVersion comparison made deleted-label and renamed-state tests fail 2/2; disabling only sync metadata negotiation made GraphQL-denial and hidden-team tests fail 2/2. Restored production functions after each probe. Public main tracker copy: 100 certified items, 208 source files, 6 local statuses, 66 distinct tag/fixture labels; atomic preview 100 creates/0 updates/0 writes, report 946 JSON bytes/733 TOON bytes, 6 metadata requests/1 issue request, 620 ms, zero copied source changes. Synthetic deleted-label, renamed-state and permission controls all refused. This is real local-data acceptance with a synthetic provider, not live Linear account validation. Details in docs/schema-negotiation.md. Full npm/Bun release gates are delegated to CI at unchanged thresholds."
   "2026-10-22T15:38:38.244Z",codex-agent,"Review PR: https://github.com/unbraind/pm-linear/pull/163 (ready, not draft). Related canonical terminal mapping defect is tracked and fixed in pm-linear-canonical-terminal-states, with 3/3 passing regressions and a 3/3 failing mapper revert. Fresh public-copy rerun after mapper correction retained the same 100 items/208 unchanged files/6 statuses/66 labels, 946 JSON/733 TOON bytes, 6 metadata/1 issue requests and all three refusal controls; elapsed 2120 ms. Registry CLI is 2026.10.22; retained the repository-pinned 2026.10.15 per queue policy. Local strict health is not a pass: host-specific global pm-github version skew and the inherited generated merge fence differ from the pinned setup. No merge-driver work was undertaken. CI fresh-checkout health and explicit npm/Bun gates remain pending; no health or reviewer approval is inferred."
-files[3]{path,scope}:
+  "2026-10-22T15:44:47.245Z",codex-agent,"First full CI gate run 39806898979 executed 323 tests per runtime: 321 passed and 2 integration failures. Coverage met unchanged thresholds (99.69 percent lines, 96.91 percent branches, 100 percent functions). Fixed both findings: schema-version is now declared in each command's existing flag set (one registerFlags registration per importer), and the runtime matrix uses explicit conditional npm/Bun commands so publish attestation can prove the executable. Targeted activation/workflow regressions now pass 2/2; publish-attestation verifier, typecheck and docstring lint pass. Fresh-checkout Node 22 health passed, distinguishing the earlier host-only health findings. Full npm/Bun gates must rerun before completion."
+files[6]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
+  test/commands.test.ts,project
+  test/network.test.ts,project
   test/schema-drift.test.ts,project
+  test/smoke.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=1 test/schema-drift.test.ts,project,codex-agent,"2026-10-22T15:28:51.102Z",local_mutation,feat/schema-drift
 docs[2]{path,scope}:

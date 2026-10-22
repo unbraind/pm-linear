@@ -102,5 +102,9 @@ jobs:
           cache: npm
       - uses: oven-sh/setup-bun@v2.2.0
       - run: npm ci
-      - name: Full release gate
-        run: ${{ matrix.runtime }} run release:check
+      - name: Full npm release gate
+        if: matrix.runtime == 'npm'
+        run: npm run release:check
+      - name: Full Bun release gate
+        if: matrix.runtime == 'bun'
+        run: bun run release:check
