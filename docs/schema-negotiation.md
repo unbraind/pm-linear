@@ -1,0 +1,95 @@
+# Versioned Linear mapping example
+
+```ts
+import {
+  negotiateLinearSchema, syncLinearIssues, LinearSchemaRefusal,
+  type LinearSchemaOptions,
+} from "pm-linear";
+
+// The caller supplies an existing tracker root; no git repository is required.
+export async function importReviewedTeam(pmRoot: string) {
+  const mapping: LinearSchemaOptions = {
+    team: "ENG", statusMap: { Review: "in_progress" },
+  };
+  try {
+    const report = await negotiateLinearSchema(mapping, pmRoot);
+    // Persist/review this compact report before applying in a later invocation.
+    return await syncLinearIssues({
+      ...mapping, schemaVersion: report.schemaVersion, limit: 100, atomic: true,
+    }, pmRoot);
+  } catch (error: unknown) {
+    if (error instanceof LinearSchemaRefusal) {
+      return { refused: true, code: error.code, remedy: error.remedy };
+    }
+    throw error;
+  }
+}
+```
+
+The report deliberately omits issue content and the full label catalog. Labels
+map by name to pm tags. The label digest/version binds both IDs and names, so a
+replacement label with the same name also invalidates a saved version. Explicit
+state mappings must refer to existing provider states and registered local pm
+statuses. Custom pm statuses come from `schemaList`; this package does not create
+or migrate pm schema definitions.
+
+The underlying read operations and permission model are documented in the
+[Linear GraphQL guide](https://linear.app/developers/graphql) and
+[API key permissions](https://linear.app/docs/api-and-webhooks).
+Metadata field names and filters were checked against Linear's
+[published GraphQL schema](https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql).
+The CI runtime matrix follows [GitHub's matrix contract](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations).
+
+## Validation procedure
+
+Use an archive of the public fleet tracker's committed `.agents/pm` tree in a
+scratch directory outside git. Read it using `PmClient` with `noExtensions: true`
+and `listAllComplete({ includeBody: true })`. Certify and preview against that
+whole corpus. Derive synthetic workflow states from its actual status registry
+and synthetic labels from its actual tags, and serve these through a loopback
+GraphQL fixture. This tests real local content without requiring a Linear account
+or disclosing any credentials. It is not live Linear service acceptance.
+
+Make the copied source files read-only, remove git from PATH and set the git
+ceiling to the scratch parent. Negotiate, run an atomic dry-run, then repeat
+with deleted-label, renamed-state and denied-permission controls. Compare all
+copied source bytes before and after. Never apply a sync to this evidence copy.
+
+The regression suite additionally initializes real temporary SDK trackers and
+runs with a PATH containing no git executable. It checks custom local statuses,
+independent state/label pagination, malformed/partial responses, duplicate IDs,
+repeated cursors, metadata changes during issue fetch, both writer paths, and
+schema-version forwarding through sync and both importer surfaces.
+
+## Measured public-tracker acceptance
+
+Source: `unbraind/pm-linear` main commit
+`7f2473765ca6a1fd5e479a990f37ea9ab38cbb2e`, copied before this feature's pm item.
+
+| Measurement | Result |
+| --- | ---: |
+| Certified real pm items | 100 |
+| Copied source files hashed before/after | 208 |
+| Actual statuses represented | 6 |
+| Distinct real tag names represented as fixture labels | 66 |
+| Existing status counts | 7 open, 5 in progress, 1 blocked, 86 closed, 1 canceled |
+| Atomic preview | 100 creates, 0 updates, 0 writes |
+| Compact report | 946 JSON bytes / 733 TOON bytes |
+| Metadata requests / issue requests | 6 / 1 |
+| Changed copied source files | 0 |
+| Negotiation, preview and three negative controls | 620 ms |
+
+The synthetic deleted-label control refused with `schema_drift`; the synthetic
+renamed-state control refused with `mapping_invalid` because its explicit old
+state override no longer existed; the denied-permission control refused with
+`access_denied`. All three refused before an issue request/local change. No live
+Linear credentials or live Linear account were used. SDK runtime caches may be
+created outside the set of copied source artifacts.
+
+Aggregate SHA-256 of the copied source names and bytes before and after:
+`67049e730b26c6b6983aa71da60632ad9eb57df2693a52d8d5155ed37677aae1`.
+
+Behavioral revert proof: disabling only the negotiated-version comparison made
+both deleted-label and renamed-state regressions fail (2/2). Restoring it and
+disabling only sync's metadata negotiation made both GraphQL-denial and hidden-team
+regressions fail (2/2). The production functions were restored after each probe.

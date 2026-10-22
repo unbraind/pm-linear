@@ -123,9 +123,19 @@ interface LinearServer {
 /** Start a local Linear-shaped server returning one issues page for any query. */
 async function issuesServer(count = 2): Promise<LinearServer> {
   const nodes = count === 1 ? [issue("ENG-1")] : [issue("ENG-1"), issue("ENG-2")];
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(issuesPage(nodes));
+  const server = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
+    req.on("end", () => {
+      const request = JSON.parse(raw) as { query: string; variables: { key: string } };
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(request.query.includes("query LinearSchema") ? JSON.stringify({ data: {
+        teams: { nodes: [{ id: "team", key: request.variables.key,
+          cyclesEnabled: false, triageEnabled: false, issueEstimationType: "notUsed", defaultIssueState: null,
+          states: { nodes: [{ id: "todo", name: "Todo", type: "unstarted" }], pageInfo: { hasNextPage: false, endCursor: null } },
+        }] }, issueLabels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      } }) : issuesPage(nodes));
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -196,7 +206,7 @@ test("syncLinearIssues reaches the https request branch for an https endpoint", 
           () => syncLinearIssues({ team: "ENG", limit: 10 }, root),
           (err: unknown) => {
             assert.ok(err instanceof CommandError);
-            assert.match((err as Error).message, /Linear request failed: /);
+            assert.match((err as Error).message, /schema_unavailable/);
             return true;
           },
         );

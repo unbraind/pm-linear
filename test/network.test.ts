@@ -36,6 +36,7 @@ import {
 import extension, {
   CommandError,
   resolveRequestTimeoutMs,
+  LinearSchemaRefusal,
   syncLinearIssues,
   type LinearIssue,
 } from "../index.ts";
@@ -100,6 +101,19 @@ async function startLinearServer(respond: LinearResponder): Promise<LinearTestSe
         parsed = JSON.parse(raw);
       } catch {
         parsed = {};
+      }
+      // Existing network cases isolate issue/push transport behavior. Supply a
+      // complete metadata endpoint; schema failure/drift has its own wire suite.
+      if (parsed.query?.includes("query LinearSchema")) {
+        res.setHeader("Connection", "close");
+        res.end(JSON.stringify({ data: {
+          teams: { nodes: [{ id: "team", key: parsed.variables?.key,
+            cyclesEnabled: false, triageEnabled: false, issueEstimationType: "notUsed", defaultIssueState: null,
+            states: { nodes: [{ id: "todo", name: "Todo", type: "unstarted" }], pageInfo: { hasNextPage: false, endCursor: null } },
+          }] },
+          issueLabels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        } }));
+        return;
       }
       log.push(parsed);
       const spec = respond(parsed, counter++);
@@ -538,7 +552,8 @@ test("a bracketed IPv6 loopback endpoint is dialled as ::1, not resolved as a ho
           () => syncLinearIssues({ team: "ENG", limit: 100 }, root),
           (err: unknown) => {
             assert.ok(err instanceof CommandError);
-            assert.match(err.message, /Linear request failed:/);
+            assert.ok(err instanceof LinearSchemaRefusal);
+            assert.equal(err.code, "schema_unavailable");
             assert.doesNotMatch(err.message, /getaddrinfo|ENOTFOUND|EAI_AGAIN/);
             return true;
           },
@@ -567,7 +582,8 @@ test("HTTP endpoint validation rejects non-loopback hosts before any request", a
             () => syncLinearIssues({ team: "ENG", limit: 100 }, root),
             (err: unknown) => {
               assert.ok(err instanceof CommandError);
-              assert.match((err as Error).message, /LINEAR_API_BASE_URL/);
+              assert.ok(err instanceof LinearSchemaRefusal);
+              assert.equal(err.code, "schema_unavailable");
               return true;
             },
           );
@@ -695,7 +711,7 @@ test("a connection refused (no server) surfaces a request-failure CommandError",
       { team: "ENG", limit: 100 },
       root,
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: "http://127.0.0.1:1/graphql" },
-      /Linear request failed: /,
+      /schema_unavailable/,
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
