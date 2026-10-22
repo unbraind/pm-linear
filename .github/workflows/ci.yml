@@ -96,6 +96,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 26
