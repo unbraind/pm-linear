@@ -8,7 +8,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 | Capability | Surface |
 |------------|---------|
-| `commands` | `pm linear sync`, `pm linear validate` |
+| `commands` | `pm linear sync`, `pm linear validate`, `pm linear schema` |
 | `importers` | `pm linear import` (+ legacy `linear-sync` importer) |
 | `importers` (exporter) | `pm linear export` |
 | `schema` | `linear_id`, `linear_url` item fields + command/importer/exporter flags |
@@ -263,6 +263,70 @@ pm linear export --push --team ENG
 pm linear export --dry-run --team ENG
 ```
 
+## Linear schema negotiation
+
+`pm linear schema --team ENG` reads the team's current workflow states, team and
+workspace labels, cycle/triage/estimation settings and default state. It uses the
+pm SDK's local status registry to check every `--status-map` target. This command
+always reaches Linear and needs a key with **Read** access to the target team.
+It performs no tracker or Linear writes. `linear validate` remains a configuration
+and credential diagnostic; it does not certify mapping compatibility.
+
+```bash
+# Compact TOON by default; JSON for a persisted automation receipt
+pm linear schema --team ENG --status-map "Review=in_progress"
+pm --json linear schema --team ENG --status-map "Review=in_progress"
+
+# Copy schemaVersion from the report; use the same mapping when applying
+pm linear sync --team ENG --atomic --status-map "Review=in_progress" \
+  --schema-version "linear-schema-v1:<reported-sha256>"
+```
+
+Every live sync, native import and legacy import negotiates automatically before
+fetching issues and rechecks the version after fetching, before local writes.
+`--schema-version` additionally binds an invocation to an earlier reviewed report.
+Deleted/archived labels, label renames, state renames (even with the same status),
+state type changes, team identity/settings changes, local status definition
+changes and override changes invalidate the old version. Discovery follows both
+metadata connections to completion, including workspace labels; partial metadata,
+duplicate IDs and broken pagination fail closed. There are at most 1,000 pages.
+
+Reports use format version `1` and a `linear-schema-v1:` SHA-256 version. Digest
+ordering uses UTF-16 code units, independent of runtime locale and ICU. Reports
+include settings, total counts, the first 32 state mappings, `omittedStates`, and
+a digest of **all** labels. Negotiation and hashing always cover every mapping
+and label; preview truncation never weakens the check. Sync also returns the
+report in its structured `schema` field and emits it to stderr before applying.
+No issue bodies or credentials appear in the report.
+
+SDK callers can import `negotiateLinearSchema`, `LinearSchemaOptions`,
+`LinearSchemaReport`, `SyncOptions`, `SyncResult`, `LinearSchemaRefusal` and
+`LinearSchemaRefusalCode` from `pm-linear`. Refusals carry `code`, `remedy`, exit
+code `2`, and a fresh `report` when a version comparison fails.
+
+| Refusal | Remedy |
+| --- | --- |
+| `access_denied` | Restore Read permission for the target team, states, settings and labels; check the team key/API schema support. |
+| `schema_unavailable` | Restore connectivity or repair the local SDK/schema, then retry discovery. |
+| `metadata_incomplete` | Restore full metadata and stable, complete pagination before retrying. |
+| `mapping_invalid` | Remove stale overrides or register/correct the target pm status. |
+| `schema_drift` | Run `linear schema` again, review the new report and use its version. |
+
+An offline `--dry-run` still makes no network request and cannot certify remote
+metadata. `--atomic --dry-run` negotiates and previews against current metadata.
+Negotiation proves **read** access for importing; it does not attest Linear write
+permissions or gate export/push. Linear exposes no cross-request metadata snapshot
+transaction: a provider change after the final check remains a race. Run schema
+review and apply close together; `--atomic` protects the local batch.
+
+See the [SDK example and measured validation](docs/schema-negotiation.md).
+
+## Without git
+
+Schema negotiation, validate, sync/import and export work in plain pm trackers.
+They need no git repository. Live provider operations still need Linear access;
+offline previews work without credentials.
+
 ## `pm linear validate`
 
 Readiness diagnostics. Reports whether `LINEAR_API_KEY` and `LINEAR_DEFAULT_TEAM`
@@ -344,10 +408,10 @@ The importer maps every Linear issue to one of pm's four statuses —
 | Linear state type / name | pm status |
 |--------------------------|-----------|
 | type `started` (In Progress, In Review) | `in_progress` |
-| type `completed` / `cancelled` | `closed` |
+| type `completed` / `canceled` / `duplicate` (also legacy `cancelled`) | `closed` |
 | name contains "in progress" / "in review" | `in_progress` |
 | name contains "blocked" | `blocked` |
-| name contains "done" / "completed" / "cancelled" | `closed` |
+| name contains "done" / "completed" / "canceled" / "cancelled" | `closed` |
 | everything else (Todo, Backlog, Triage, unstarted) | `open` |
 
 A `--status-map "Linear State=pm_status,…"` overrides this heuristic

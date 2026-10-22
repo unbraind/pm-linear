@@ -324,7 +324,7 @@ function mapStatus(
   const type = stateType.toLowerCase();
   const name = stateName.toLowerCase();
 
-  if (type === "completed" || type === "cancelled") return "closed";
+  if (type === "completed" || type === "canceled" || type === "cancelled" || type === "duplicate") return "closed";
   if (type === "started") return "in_progress";
 
   // Fallback: match on state name
@@ -332,7 +332,7 @@ function mapStatus(
     return "in_progress";
   if (name.includes("blocked")) return "blocked";
   if (name.includes("done") || name.includes("completed")) return "closed";
-  if (name.includes("cancelled")) return "closed";
+  if (name.includes("canceled") || name.includes("cancelled")) return "closed";
 
   return "open"; // triage / backlog / unstarted
 }
@@ -850,6 +850,11 @@ function linearApiBaseUrl(): string {
   return process.env["LINEAR_API_BASE_URL"] ?? DEFAULT_LINEAR_API_BASE_URL;
 }
 
+/** Fixed validation text that is safe to expose without the configured URL. */
+const LINEAR_INVALID_ENDPOINT = "LINEAR_API_BASE_URL must be a valid https URL, or an http URL on the loopback host (127.0.0.1, ::1, or localhost).";
+/** Fixed transport-policy text; never interpolate endpoint credentials or queries. */
+const LINEAR_PROHIBITED_ENDPOINT = "LINEAR_API_BASE_URL must use https, or http only with the loopback host (127.0.0.1, ::1, or localhost).";
+
 /**
  * Resolve the endpoint seam without permitting credentials to leave the host
  * over cleartext HTTP. HTTPS may target any host; HTTP is restricted to exact
@@ -861,7 +866,7 @@ function resolveLinearEndpoint(): LinearEndpoint {
     url = new URL(linearApiBaseUrl());
   } catch {
     throw new Error(
-      "LINEAR_API_BASE_URL must be a valid https URL, or an http URL on the loopback host (127.0.0.1, ::1, or localhost).",
+      LINEAR_INVALID_ENDPOINT,
     );
   }
   const useTls = url.protocol === "https:";
@@ -869,7 +874,7 @@ function resolveLinearEndpoint(): LinearEndpoint {
   const loopback = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
   if (!useTls && (!isHttp || !loopback.has(url.hostname))) {
     throw new Error(
-      "LINEAR_API_BASE_URL must use https, or http only with the loopback host (127.0.0.1, ::1, or localhost).",
+      LINEAR_PROHIBITED_ENDPOINT,
     );
   }
   return {
@@ -1192,10 +1197,240 @@ async function readPmItems(pmRoot: string): Promise<PmItem[]> {
   }
 }
 
+/** Versioned, read-only mapping negotiation inputs shared by sync and agents. */
+export interface LinearSchemaOptions {
+  team: string;
+  statusMap?: Record<string, string>;
+  /** Opaque version returned by a previous negotiation; changes refuse apply. */
+  schemaVersion?: string;
+}
+
+/** Stable refusal categories; callers can recover without parsing prose. */
+export type LinearSchemaRefusalCode =
+  | "access_denied" | "schema_unavailable" | "metadata_incomplete"
+  | "mapping_invalid" | "schema_drift";
+
+/** Compact compatibility evidence; no issue bodies or credentials are returned. */
+export interface LinearSchemaReport {
+  formatVersion: 1;
+  compatible: true;
+  schemaVersion: string;
+  team: string;
+  teamId: string;
+  settings: { cyclesEnabled: boolean; triageEnabled: boolean; issueEstimationType: string; defaultStateId: string | null };
+  counts: { states: number; labels: number; localStatuses: number };
+  /** First 32 mappings; negotiation and versioning always cover every state. */
+  states: Array<{ id: string; name: string; type: string; status: string }>;
+  omittedStates: number;
+  labels: { policy: "name_to_tag"; digest: string };
+}
+
+/** Handled refusal with a machine-readable code, remedy and optional fresh report. */
+export class LinearSchemaRefusal extends CommandError {
+  /** Stable category suitable for agent branching. */
+  readonly code: LinearSchemaRefusalCode;
+  /** Recovery action safe to show in CLI and SDK output. */
+  readonly remedy: string;
+  /** Fresh negotiation when an old version was invalidated. */
+  readonly report?: LinearSchemaReport;
+  constructor(code: LinearSchemaRefusalCode, remedy: string, report?: LinearSchemaReport) {
+    super(`Linear schema refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearSchemaRefusal";
+    this.code = code;
+    this.remedy = remedy;
+    this.report = report;
+  }
+}
+
+/** Metadata queries include workspace labels and paginate both connections independently. */
+const SCHEMA_QUERY = `query LinearSchema($key: String!, $statesAfter: String, $labelsAfter: String) {
+  teams(filter: {key: {eq: $key}}, first: 2) {
+    nodes {
+      id key cyclesEnabled triageEnabled issueEstimationType defaultIssueState { id }
+      states(first: 250, after: $statesAfter) { nodes { id name type } pageInfo { hasNextPage endCursor } }
+    }
+  }
+  issueLabels(first: 250, after: $labelsAfter, filter: {or: [{team: {key: {eq: $key}}}, {team: {null: true}}]}) {
+    nodes { id name } pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Narrow the untrusted GraphQL JSON object before using a field. */
+function schemaObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new LinearSchemaRefusal("metadata_incomplete", "Restore full team metadata read access and retry linear schema.");
+  }
+  return value as Record<string, unknown>;
+}
+
+/** Require a nonempty metadata identifier or name instead of hashing missing fields. */
+function schemaString(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new LinearSchemaRefusal("metadata_incomplete", "Restore complete team states, labels and settings, then retry linear schema.");
+  }
+  return value;
+}
+
+/** Hash canonical, sorted metadata; the format prefix makes future migrations explicit. */
+function schemaDigest(value: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+/** Validate a connection and reject truncated pages or a non-advancing cursor. */
+function schemaPage(value: unknown, seen: Set<string>): { rows: Record<string, unknown>[]; next: string | null } {
+  const connection = schemaObject(value);
+  const page = schemaObject(connection.pageInfo);
+  if (!Array.isArray(connection.nodes) || typeof page.hasNextPage !== "boolean" ||
+      !(page.endCursor === null || typeof page.endCursor === "string")) {
+    throw new LinearSchemaRefusal("metadata_incomplete", "Retry with complete paginated metadata responses.");
+  }
+  let next: string | null = null;
+  if (page.hasNextPage) {
+    next = schemaString(page.endCursor);
+    if (seen.has(next) || connection.nodes.length === 0) {
+      throw new LinearSchemaRefusal("metadata_incomplete", "Retry metadata discovery; pagination did not advance.");
+    }
+    seen.add(next);
+  }
+  return { rows: connection.nodes.map(schemaObject), next };
+}
+
+/** Order digest inputs by UTF-16 code units, independent of host locale and ICU. */
+function compareSchemaKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Read local lifecycle definitions through the SDK, suppressing filesystem details on failure. */
+async function readSchemaStatuses(pmRoot: string) {
+  try {
+    const sdk = await importRuntimeSdk();
+    const local = await sdk.schemaList({ pmRoot, noExtensions: true });
+    return [...local.statuses.builtin, ...local.statuses.custom].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  } catch {
+    throw new LinearSchemaRefusal("schema_unavailable", "Repair the local tracker schema or upgrade the resolvable pm SDK, then retry linear schema.");
+  }
+}
+
+/**
+ * Discover current Linear states, labels and settings and negotiate local statuses.
+ * Uses the public pm schema SDK and the existing retrying HTTP client. No git,
+ * tracker writes or Linear mutations are involved. Versions bind stable IDs,
+ * exact names, team settings, local status definitions and explicit overrides.
+ * A stale version always fails closed, even when a rename maps to the same pm status.
+ */
+export async function negotiateLinearSchema(
+  options: LinearSchemaOptions,
+  pmRoot: string,
+): Promise<LinearSchemaReport> {
+  const apiKey = process.env["LINEAR_API_KEY"];
+  if (!apiKey) throw new LinearSchemaRefusal("access_denied", "Set LINEAR_API_KEY with Read access to the target team, then retry linear schema.");
+  const statuses = await readSchemaStatuses(pmRoot);
+  const stateRows = new Map<string, { id: string; name: string; type: string }>();
+  const labelRows = new Map<string, { id: string; name: string }>();
+  const stateCursors = new Set<string>();
+  const labelCursors = new Set<string>();
+  let statesAfter: string | null = null;
+  let labelsAfter: string | null = null;
+  let statesDone = false;
+  let labelsDone = false;
+  let teamId = "";
+  let team = "";
+  let settings: LinearSchemaReport["settings"] | undefined;
+  for (let pageCount = 0; ; pageCount++) {
+    if (pageCount >= 1000) throw new LinearSchemaRefusal("metadata_incomplete", "Reduce metadata size or retry after provider pagination stabilizes.");
+    let response: LinearResponse<unknown>;
+    try {
+      response = await linearRequest<unknown>(apiKey, SCHEMA_QUERY, {
+        key: options.team.trim().toUpperCase(), statesAfter, labelsAfter,
+      });
+    } catch (error: unknown) {
+      const denied = error instanceof CommandError && /rejected the API key/.test(error.message);
+      // Only our fixed endpoint-validation messages may cross this boundary.
+      // Other request errors can contain configured paths, queries or secrets.
+      const endpointCause = error instanceof CommandError
+        ? [LINEAR_INVALID_ENDPOINT, LINEAR_PROHIBITED_ENDPOINT].find(
+          (message) => error.message === `Linear request failed: ${message}`,
+        )
+        : undefined;
+      throw new LinearSchemaRefusal(denied ? "access_denied" : "schema_unavailable",
+        denied ? "Restore Read permission for the target team and retry linear schema."
+          : "Check Linear connectivity and LINEAR_API_BASE_URL, then retry linear schema; no local changes were made." +
+            (endpointCause ? ` Cause: ${endpointCause}` : ""));
+    }
+    if (response.errors?.length) {
+      throw new LinearSchemaRefusal("access_denied", "Restore access to team settings, workflow states and labels; check API schema support, then retry linear schema.");
+    }
+    const data = schemaObject(response.data);
+    const teams = schemaObject(data.teams);
+    if (!Array.isArray(teams.nodes) || teams.nodes.length !== 1) {
+      throw new LinearSchemaRefusal("access_denied", "Check the team key and grant the API key Read access to that team, then retry linear schema.");
+    }
+    const node = schemaObject(teams.nodes[0]);
+    const nextTeamId = schemaString(node.id);
+    const nextTeam = schemaString(node.key);
+    if (nextTeam !== options.team.trim().toUpperCase() ||
+        typeof node.cyclesEnabled !== "boolean" || typeof node.triageEnabled !== "boolean") {
+      throw new LinearSchemaRefusal("metadata_incomplete", "Retry with full settings for the requested team.");
+    }
+    const nextSettings = {
+      cyclesEnabled: node.cyclesEnabled, triageEnabled: node.triageEnabled,
+      issueEstimationType: schemaString(node.issueEstimationType),
+      defaultStateId: node.defaultIssueState === null ? null : schemaString(schemaObject(node.defaultIssueState).id),
+    };
+    if (settings && (teamId !== nextTeamId || JSON.stringify(settings) !== JSON.stringify(nextSettings))) {
+      throw new LinearSchemaRefusal("schema_drift", "Team settings changed during discovery. Retry linear schema.");
+    }
+    teamId = nextTeamId;
+    team = nextTeam;
+    settings = nextSettings;
+    if (!statesDone) {
+      const page = schemaPage(node.states, stateCursors);
+      for (const row of page.rows) {
+        const id = schemaString(row.id);
+        if (stateRows.has(id)) throw new LinearSchemaRefusal("metadata_incomplete", "Retry discovery; duplicate workflow state IDs were returned.");
+        stateRows.set(id, { id, name: schemaString(row.name), type: schemaString(row.type) });
+      }
+      statesAfter = page.next;
+      statesDone = statesAfter === null;
+    }
+    if (!labelsDone) {
+      const page = schemaPage(data.issueLabels, labelCursors);
+      for (const row of page.rows) {
+        const id = schemaString(row.id);
+        if (labelRows.has(id)) throw new LinearSchemaRefusal("metadata_incomplete", "Retry discovery; duplicate label IDs were returned.");
+        labelRows.set(id, { id, name: schemaString(row.name) });
+      }
+      labelsAfter = page.next;
+      labelsDone = labelsAfter === null;
+    }
+    if (statesDone && labelsDone) break;
+  }
+  const states = [...stateRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  const labels = [...labelRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  const overrides = Object.entries(options.statusMap ?? {}).map(([name, status]) => [name.trim().toLowerCase(), status] as const).sort(([a], [b]) => compareSchemaKeys(a, b));
+  if (!states.length || new Set(overrides.map(([name]) => name)).size !== overrides.length ||
+      overrides.some(([name, status]) => !states.some((state) => state.name.toLowerCase() === name) || !statuses.some((s) => s.id === status))) {
+    throw new LinearSchemaRefusal("mapping_invalid", "Remove stale state overrides and map each workflow state to a registered pm status using --status-map.");
+  }
+  const mappings = states.map((state) => ({ ...state, status: resolveStatus(state.type, state.name, Object.fromEntries(overrides)) }));
+  const schemaVersion = `linear-schema-v1:${schemaDigest({ teamId, team, settings, states, labels, statuses, overrides, mappings })}`;
+  const report: LinearSchemaReport = {
+    formatVersion: 1, compatible: true, schemaVersion, team, teamId, settings,
+    counts: { states: states.length, labels: labels.length, localStatuses: statuses.length },
+    states: mappings.slice(0, 32), omittedStates: Math.max(0, mappings.length - 32), labels: { policy: "name_to_tag", digest: schemaDigest(labels) },
+  };
+  if (options.schemaVersion !== undefined && options.schemaVersion !== schemaVersion) {
+    throw new LinearSchemaRefusal("schema_drift", "Run linear schema again, review the new mapping and retry with its --schema-version.", report);
+  }
+  return report;
+}
+
 // ---------------------------------------------------------------------------
 // Core sync logic — shared between command and importer
 // ---------------------------------------------------------------------------
-interface SyncOptions {
+/** Shared sync controls, including a previously negotiated schema version. */
+export interface SyncOptions {
+  schemaVersion?: string;
   team: string;
   stateFilter?: string;
   cycleFilter?: string;
@@ -1214,6 +1449,8 @@ interface SyncOptions {
 
 /** Test seams for {@link syncLinearIssues}; each defaults to the live path. */
 export interface SyncRunDependencies {
+  /** Inject metadata negotiation together with an offline issue provider. */
+  negotiateSchema?: typeof negotiateLinearSchema;
   /** Inject the Linear fetch (offline tests). */
   fetchIssues?: (
     apiKey: string,
@@ -1227,7 +1464,9 @@ export interface SyncRunDependencies {
   commitAtomic?: typeof importLinearAtomic;
 }
 
-interface SyncResult {
+/** Counts and schema evidence returned by either supported writer path. */
+export interface SyncResult {
+  schema?: LinearSchemaReport;
   synced: number;
   created: number;
   updated: number;
@@ -1759,11 +1998,8 @@ export async function syncLinearIssues(
   // caller supplies its own fetch so the atomic prep/dry-run path is exercisable
   // offline without leaking the requirement onto the test seam.
   if (!apiKey && !dependencies.fetchIssues) {
-    throw new CommandError(
-      "LINEAR_API_KEY environment variable is not set. " +
-        "Get your API key at https://linear.app/settings/api",
-      EXIT_CODE.USAGE
-    );
+    throw new LinearSchemaRefusal("access_denied",
+      "LINEAR_API_KEY environment variable is not set. Get your API key with Read access at https://linear.app/settings/api and retry.");
   }
 
   const filters: FetchFilters = {
@@ -1792,11 +2028,19 @@ export async function syncLinearIssues(
 
   // Certify the entire matching corpus before provider access or item writes.
   const existingByLinearId = indexItemsByLinearId(await (dependencies.readItems ?? readPmItems)(pm_root));
+  const negotiate = dependencies.negotiateSchema ?? (dependencies.fetchIssues && options.schemaVersion === undefined ? undefined : negotiateLinearSchema);
+  const schema = await negotiate?.(options, pm_root);
   const issues = await (dependencies.fetchIssues ?? fetchAllLinearIssues)(apiKey ?? "", options.team, options.limit, filters);
+
+  if (schema) {
+    // Revalidate after the provider read and before either writer path.
+    await negotiate!({ ...options, schemaVersion: schema.schemaVersion }, pm_root);
+    console.error(JSON.stringify({ linearSchema: schema }));
+  }
 
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
-    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
+    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues: [] };
   }
 
   const statusMap = options.statusMap ?? {};
@@ -1863,7 +2107,7 @@ export async function syncLinearIssues(
         created: wouldCreate,
         updated: wouldUpdate,
         skipped,
-        team: options.team,
+        team: options.team, ...(schema ? { schema } : {}),
         issues: [],
         atomic: true,
         dryRun: true,
@@ -1884,7 +2128,7 @@ export async function syncLinearIssues(
         created: 0,
         updated: 0,
         skipped,
-        team: options.team,
+        team: options.team, ...(schema ? { schema } : {}),
         issues: [],
         atomic: true,
       };
@@ -1905,7 +2149,7 @@ export async function syncLinearIssues(
       created: atomicResult.imported,
       updated: atomicResult.updated,
       skipped,
-      team: options.team,
+      team: options.team, ...(schema ? { schema } : {}),
       issues: [],
       atomic: true,
       transactionId: atomicResult.transactionId,
@@ -2012,7 +2256,7 @@ export async function syncLinearIssues(
     created,
     updated,
     skipped,
-    team: options.team,
+    team: options.team, ...(schema ? { schema } : {}),
     issues,
   };
 }
@@ -2745,6 +2989,7 @@ export default defineExtension({
         { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore,priority=ignore\". Optional." },
         { long: "--project-map", value_name: "map", description: "Tag items by Linear project name. Bare flag tags with the verbatim name; \"Mobile=mobile,Web=web\" remaps. Optional." },
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
+        { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
         { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
         { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
@@ -2777,6 +3022,7 @@ export default defineExtension({
         const syncOpts: SyncOptions = {
           team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
           statusMap, fieldMap, projectMap, limit, dryRun, atomic,
+          schemaVersion: readStringOption(ctx.options, "schema-version"),
         };
 
         // --dry-run is fully offline: print the literal GraphQL request, no call.
@@ -2804,6 +3050,7 @@ export default defineExtension({
               skipped: result.skipped,
               team: result.team.toUpperCase(),
               teamSource: teamSelection.source,
+              ...(result.schema ? { schema: result.schema } : {}),
               atomic: true,
               dryRun: Boolean(result.dryRun),
               ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
@@ -2829,6 +3076,7 @@ export default defineExtension({
             skipped: result.skipped,
             team: result.team.toUpperCase(),
             teamSource: teamSelection.source,
+            ...(result.schema ? { schema: result.schema } : {}),
             dryRun: false,
           };
         } catch (err: unknown) {
@@ -2842,11 +3090,35 @@ export default defineExtension({
     });
 
     // -----------------------------------------------------------------------
-    // Command: pm linear validate — readiness diagnostics. Reports whether the
+    // Commands: schema negotiation and configuration diagnostics.
+    // pm linear validate — readiness diagnostics. Reports whether the
     // API key + default team are configured WITHOUT leaking the key, and
     // whether push-on-write is enabled. Offline by default; --check-network
     // (opt-in) probes the Linear API. --json returns the structured object.
     // -----------------------------------------------------------------------
+    api.registerCommand({
+      name: "linear schema",
+      description: "Negotiate a versioned Linear workflow mapping before sync",
+      intent: "Inspect team settings, states and labels without writes",
+      examples: ["pm linear schema --team ENG", "pm --json linear schema --team ENG"],
+      flags: [
+        { long: "--team", value_name: "slug", description: "Team key, or LINEAR_DEFAULT_TEAM." },
+        { long: "--status-map", value_name: "map", description: "Linear state to registered pm status overrides." },
+        { long: "--schema-version", value_name: "version", description: "Refuse if this previously negotiated version changed." },
+      ],
+      async run(ctx) {
+        const selection = resolveTeamSelection(ctx.options);
+        if (!selection) throw new LinearSchemaRefusal("mapping_invalid", "Pass --team or set LINEAR_DEFAULT_TEAM, then retry linear schema.");
+        return negotiateLinearSchema({
+          team: selection.team,
+          statusMap: parseStatusMap(readStringOption(ctx.options, "status-map")),
+          schemaVersion: readStringOption(ctx.options, "schema-version"),
+        }, ctx.pm_root);
+      },
+    });
+    api.registerFlags("linear-sync import", [
+      { long: "--schema-version", value_name: "version", description: "Require the version from linear schema before local changes." },
+    ]);
     api.registerCommand({
       name: "linear validate",
       description: "Check pm-linear configuration + Linear API readiness",
@@ -2902,6 +3174,7 @@ export default defineExtension({
       { long: "--map", value_name: "map", description: "Remap Linear->pm fields, e.g. \"identifier=ignore\"." },
       { long: "--project-map", value_name: "map", description: "Tag items by Linear project name (bare flag = verbatim; \"Mobile=mobile\" remaps)." },
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
+      { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
       { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ]);
@@ -2944,6 +3217,7 @@ export default defineExtension({
       const syncOpts: SyncOptions = {
         team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
         statusMap, fieldMap, projectMap, limit, dryRun, atomic,
+        schemaVersion: readStringOption(ctx.options, "schema-version"),
       };
 
       // --dry-run is fully offline: emit the literal GraphQL request, no call.
@@ -2974,6 +3248,7 @@ export default defineExtension({
           skipped: result.skipped,
           team: result.team.toUpperCase(),
           teamSource: teamSelection.source,
+          ...(result.schema ? { schema: result.schema } : {}),
           dryRun: Boolean(result.dryRun),
           ...(result.atomic ? { atomic: true } : {}),
           ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
@@ -3235,6 +3510,7 @@ export default defineExtension({
       const syncOpts: SyncOptions = {
         team, project, stateFilter, cycleFilter, assignee, label,
         statusMap, projectMap, limit, dryRun, atomic,
+        schemaVersion: readStringOption(ctx.options, "schema-version"),
       };
 
       // --dry-run is fully offline: emit the literal GraphQL request, no call
@@ -3271,6 +3547,7 @@ export default defineExtension({
         skipped: result.skipped,
         team: result.team.toUpperCase(),
         teamSource: teamSelection.source,
+        ...(result.schema ? { schema: result.schema } : {}),
         dryRun: Boolean(result.dryRun),
         ...(result.atomic ? { atomic: true } : {}),
         ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
