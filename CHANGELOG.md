@@ -16,11 +16,6 @@
 - The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([pm-linear-9hw2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-9hw2.toon))
 - A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([pm-linear-kq42](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-kq42.toon))
 
-### Other
-
-- Cover every pm-linear code path with behavioural tests and raise the coverage gate to 100 ([pm-linear-xw01](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-xw01.toon))
-- Certify pm-linear on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-linear-2cy6](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-2cy6.toon))
-
 ## 2026.10.21 - 2026-10-21
 
 ### Fixed
