@@ -1,0 +1,24 @@
+id: pm-linear-canonical-terminal-states
+title: Map Linear canonical canceled and duplicate state types to closed
+description: Published Linear GraphQL WorkflowState.type includes canceled and duplicate. The existing mapper recognized cancelled but treated both canonical terminal types as open. Negotiation must report the same correct terminal mapping that sync applies.
+type: Issue
+status: in_progress
+priority: 2
+tags[3]: changed,linear,schema
+created_at: "2026-10-22T15:36:04.749Z"
+updated_at: "2026-10-22T15:37:48.447Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: Canonical canceled and duplicate state types map to closed; cancelled compatibility spelling remains supported
+comments[1]{created_at,author,text}:
+  "2026-10-22T15:37:41.025Z",codex-agent,"No matching issue found in canceled/duplicate state searches. Linear published GraphQL schema documents canceled and duplicate as terminal workflow type values. The shared mapper now maps those types to closed and also recognizes Canceled in the name fallback, retaining cancelled compatibility. Added three regressions: 3/3 pass; reverting only mapStatus to the base function makes all 3 fail, restoring makes 3/3 pass. Typecheck, test typecheck and docstring lint pass. Schema versions now also hash resolved mappings so future mapping-algorithm changes invalidate old plans. Parent context: pm-linear-schema-drift."
+files[2]{path,scope}:
+  index.ts,project
+  test/schema-drift.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"canonical Linear terminal\" test/schema-drift.test.ts",project,codex-agent,"2026-10-22T15:37:20.839Z",local_mutation,feat/schema-drift
+docs[2]{path,scope}:
+  docs/schema-negotiation.md,project
+  README.md,project
+body: ""

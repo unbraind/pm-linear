@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues } from "../index.ts";
+import extension, { LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues, resolveStatus } from "../index.ts";
 
 /** Complete provider metadata with deliberately custom state names. */
 function metadata() {
@@ -290,3 +290,9 @@ test("schema-version is enforced by sync and both importer commands", async (t) 
     await assert.rejects(harness.runImporter({ importer, pmRoot: root, options: { team: "ENG", "schema-version": "old" }, global: { json: true } }), refusal("schema_drift"));
   }
 });
+
+for (const [type, name] of [["canceled", "Retired"], ["duplicate", "Duplicate"], ["unknown", "Canceled"]]) {
+  test(`canonical Linear terminal mapping ${type}/${name}`, () => {
+    assert.equal(resolveStatus(type, name, {}), "closed");
+  });
+}

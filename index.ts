@@ -324,7 +324,7 @@ function mapStatus(
   const type = stateType.toLowerCase();
   const name = stateName.toLowerCase();
 
-  if (type === "completed" || type === "cancelled") return "closed";
+  if (type === "completed" || type === "canceled" || type === "cancelled" || type === "duplicate") return "closed";
   if (type === "started") return "in_progress";
 
   // Fallback: match on state name
@@ -332,7 +332,7 @@ function mapStatus(
     return "in_progress";
   if (name.includes("blocked")) return "blocked";
   if (name.includes("done") || name.includes("completed")) return "closed";
-  if (name.includes("cancelled")) return "closed";
+  if (name.includes("canceled") || name.includes("cancelled")) return "closed";
 
   return "open"; // triage / backlog / unstarted
 }
@@ -1394,7 +1394,7 @@ export async function negotiateLinearSchema(
     throw new LinearSchemaRefusal("mapping_invalid", "Remove stale state overrides and map each workflow state to a registered pm status using --status-map.");
   }
   const mappings = states.map((state) => ({ ...state, status: resolveStatus(state.type, state.name, Object.fromEntries(overrides)) }));
-  const schemaVersion = `linear-schema-v1:${schemaDigest({ teamId, team, settings, states, labels, statuses, overrides })}`;
+  const schemaVersion = `linear-schema-v1:${schemaDigest({ teamId, team, settings, states, labels, statuses, overrides, mappings })}`;
   const report: LinearSchemaReport = {
     formatVersion: 1, compatible: true, schemaVersion, team, teamId, settings,
     counts: { states: states.length, labels: labels.length, localStatuses: statuses.length },

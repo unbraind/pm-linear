@@ -407,10 +407,10 @@ The importer maps every Linear issue to one of pm's four statuses —
 | Linear state type / name | pm status |
 |--------------------------|-----------|
 | type `started` (In Progress, In Review) | `in_progress` |
-| type `completed` / `cancelled` | `closed` |
+| type `completed` / `canceled` / `duplicate` (also legacy `cancelled`) | `closed` |
 | name contains "in progress" / "in review" | `in_progress` |
 | name contains "blocked" | `blocked` |
-| name contains "done" / "completed" / "cancelled" | `closed` |
+| name contains "done" / "completed" / "canceled" / "cancelled" | `closed` |
 | everything else (Todo, Backlog, Triage, unstarted) | `open` |
 
 A `--status-map "Linear State=pm_status,…"` overrides this heuristic

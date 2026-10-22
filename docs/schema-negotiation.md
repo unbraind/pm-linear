@@ -77,7 +77,7 @@ Source: `unbraind/pm-linear` main commit
 | Compact report | 946 JSON bytes / 733 TOON bytes |
 | Metadata requests / issue requests | 6 / 1 |
 | Changed copied source files | 0 |
-| Negotiation, preview and three negative controls | 620 ms |
+| Negotiation, preview and three negative controls | 620 ms initial / 2,120 ms after mapper correction |
 
 The synthetic deleted-label control refused with `schema_drift`; the synthetic
 renamed-state control refused with `mapping_invalid` because its explicit old
@@ -93,3 +93,9 @@ Behavioral revert proof: disabling only the negotiated-version comparison made
 both deleted-label and renamed-state regressions fail (2/2). Restoring it and
 disabling only sync's metadata negotiation made both GraphQL-denial and hidden-team
 regressions fail (2/2). The production functions were restored after each probe.
+
+The shared status mapper also recognizes Linear's canonical `canceled` and
+`duplicate` workflow types as closed, retaining the legacy `cancelled` spelling.
+All three canonical/fallback regressions pass; reverting only the mapper makes
+all three fail. Resolved mappings participate in schema versions, so a future
+mapper behavior change invalidates old reports even with identical metadata.
