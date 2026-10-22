@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "sourceRepository": "https://github.com/unbraind/pm-linear",
+  "sourceCommit": "7f2473765ca6a1fd5e479a990f37ea9ab38cbb2e",
+  "sourceTree": ".agents/pm",
+  "provider": "synthetic loopback responses derived from real local statuses and tags",
+  "liveLinearValidated": false,
+  "gitAvailableOnPath": false,
+  "items": 100,
+  "sourceFiles": 208,
+  "states": 6,
+  "labels": 66,
+  "statusCounts": {
+    "draft": 0,
+    "open": 7,
+    "in_progress": 5,
+    "blocked": 1,
+    "closed": 86,
+    "canceled": 1
+  },
+  "reportJsonBytes": 946,
+  "reportToonBytes": 733,
+  "previewCreated": 100,
+  "previewUpdated": 0,
+  "metadataRequests": 6,
+  "issueRequests": 1,
+  "negativeControls": {
+    "deleted": "schema_drift",
+    "renamed": "mapping_invalid",
+    "denied": "access_denied"
+  },
+  "changedSourceFiles": 0,
+  "elapsedMs": 2120,
+  "sourceHash": "67049e730b26c6b6983aa71da60632ad9eb57df2693a52d8d5155ed37677aae1"
+}

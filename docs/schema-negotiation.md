@@ -63,6 +63,8 @@ schema-version forwarding through sync and both importer surfaces.
 
 ## Measured public-tracker acceptance
 
+[Machine-readable measurement receipt](schema-negotiation-validation.json).
+
 Source: `unbraind/pm-linear` main commit
 `7f2473765ca6a1fd5e479a990f37ea9ab38cbb2e`, copied before this feature's pm item.
 
@@ -99,3 +101,23 @@ The shared status mapper also recognizes Linear's canonical `canceled` and
 All three canonical/fallback regressions pass; reverting only the mapper makes
 all three fail. Resolved mappings participate in schema versions, so a future
 mapper behavior change invalidates old reports even with identical metadata.
+
+## Full implementation gates
+
+[CI run 39807792715](https://github.com/unbraind/pm-linear/actions/runs/39807792715)
+passed on implementation commit `4a6758f8e4170ce51e6dfb71b8ca8a7370dd5f7d`:
+
+| Job | Passed tests | Failed tests |
+| --- | ---: | ---: |
+| `npm run release:check` | 323 | 0 |
+| `bun run release:check` | 323 | 0 |
+| Node 22 CI checks | 323 | 0 |
+| Node 26 CI checks | 323 | 0 |
+
+The npm/Bun gates each measured 99.69% lines, 96.90% branches and 100% functions
+over the package source, exceeding the unchanged 99/96/100 thresholds. Both
+production dependency audits found zero vulnerabilities. Type checking,
+docstrings, package contents, changelog/date and publish attestation passed.
+Both fresh-checkout health checks passed, although local strict health reported
+host-specific extension version skew and inherited merge-fence differences.
+The latest PR checks also cover the final evidence/claim-release commit.
