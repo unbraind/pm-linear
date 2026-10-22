@@ -850,6 +850,11 @@ function linearApiBaseUrl(): string {
   return process.env["LINEAR_API_BASE_URL"] ?? DEFAULT_LINEAR_API_BASE_URL;
 }
 
+/** Fixed validation text that is safe to expose without the configured URL. */
+const LINEAR_INVALID_ENDPOINT = "LINEAR_API_BASE_URL must be a valid https URL, or an http URL on the loopback host (127.0.0.1, ::1, or localhost).";
+/** Fixed transport-policy text; never interpolate endpoint credentials or queries. */
+const LINEAR_PROHIBITED_ENDPOINT = "LINEAR_API_BASE_URL must use https, or http only with the loopback host (127.0.0.1, ::1, or localhost).";
+
 /**
  * Resolve the endpoint seam without permitting credentials to leave the host
  * over cleartext HTTP. HTTPS may target any host; HTTP is restricted to exact
@@ -861,7 +866,7 @@ function resolveLinearEndpoint(): LinearEndpoint {
     url = new URL(linearApiBaseUrl());
   } catch {
     throw new Error(
-      "LINEAR_API_BASE_URL must be a valid https URL, or an http URL on the loopback host (127.0.0.1, ::1, or localhost).",
+      LINEAR_INVALID_ENDPOINT,
     );
   }
   const useTls = url.protocol === "https:";
@@ -869,7 +874,7 @@ function resolveLinearEndpoint(): LinearEndpoint {
   const loopback = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
   if (!useTls && (!isHttp || !loopback.has(url.hostname))) {
     throw new Error(
-      "LINEAR_API_BASE_URL must use https, or http only with the loopback host (127.0.0.1, ::1, or localhost).",
+      LINEAR_PROHIBITED_ENDPOINT,
     );
   }
   return {
@@ -1290,12 +1295,17 @@ function schemaPage(value: unknown, seen: Set<string>): { rows: Record<string, u
   return { rows: connection.nodes.map(schemaObject), next };
 }
 
+/** Order digest inputs by UTF-16 code units, independent of host locale and ICU. */
+function compareSchemaKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /** Read local lifecycle definitions through the SDK, suppressing filesystem details on failure. */
 async function readSchemaStatuses(pmRoot: string) {
   try {
     const sdk = await importRuntimeSdk();
     const local = await sdk.schemaList({ pmRoot, noExtensions: true });
-    return [...local.statuses.builtin, ...local.statuses.custom].sort((a, b) => a.id.localeCompare(b.id));
+    return [...local.statuses.builtin, ...local.statuses.custom].sort((a, b) => compareSchemaKeys(a.id, b.id));
   } catch {
     throw new LinearSchemaRefusal("schema_unavailable", "Repair the local tracker schema or upgrade the resolvable pm SDK, then retry linear schema.");
   }
@@ -1335,8 +1345,17 @@ export async function negotiateLinearSchema(
       });
     } catch (error: unknown) {
       const denied = error instanceof CommandError && /rejected the API key/.test(error.message);
+      // Only our fixed endpoint-validation messages may cross this boundary.
+      // Other request errors can contain configured paths, queries or secrets.
+      const endpointCause = error instanceof CommandError
+        ? [LINEAR_INVALID_ENDPOINT, LINEAR_PROHIBITED_ENDPOINT].find(
+          (message) => error.message === `Linear request failed: ${message}`,
+        )
+        : undefined;
       throw new LinearSchemaRefusal(denied ? "access_denied" : "schema_unavailable",
-        denied ? "Restore Read permission for the target team and retry linear schema." : "Check Linear connectivity and retry linear schema; no local changes were made.");
+        denied ? "Restore Read permission for the target team and retry linear schema."
+          : "Check Linear connectivity and LINEAR_API_BASE_URL, then retry linear schema; no local changes were made." +
+            (endpointCause ? ` Cause: ${endpointCause}` : ""));
     }
     if (response.errors?.length) {
       throw new LinearSchemaRefusal("access_denied", "Restore access to team settings, workflow states and labels; check API schema support, then retry linear schema.");
@@ -1386,9 +1405,9 @@ export async function negotiateLinearSchema(
     }
     if (statesDone && labelsDone) break;
   }
-  const states = [...stateRows.values()].sort((a, b) => a.id.localeCompare(b.id));
-  const labels = [...labelRows.values()].sort((a, b) => a.id.localeCompare(b.id));
-  const overrides = Object.entries(options.statusMap ?? {}).map(([name, status]) => [name.trim().toLowerCase(), status] as const).sort(([a], [b]) => a.localeCompare(b));
+  const states = [...stateRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  const labels = [...labelRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  const overrides = Object.entries(options.statusMap ?? {}).map(([name, status]) => [name.trim().toLowerCase(), status] as const).sort(([a], [b]) => compareSchemaKeys(a, b));
   if (!states.length || new Set(overrides.map(([name]) => name)).size !== overrides.length ||
       overrides.some(([name, status]) => !states.some((state) => state.name.toLowerCase() === name) || !statuses.some((s) => s.id === status))) {
     throw new LinearSchemaRefusal("mapping_invalid", "Remove stale state overrides and map each workflow state to a registered pm status using --status-map.");

@@ -7,15 +7,20 @@ import {
 } from "pm-linear";
 
 // The caller supplies an existing tracker root; no git repository is required.
-export async function importReviewedTeam(pmRoot: string) {
-  const mapping: LinearSchemaOptions = {
-    team: "ENG", statusMap: { Review: "in_progress" },
-  };
+const mapping: LinearSchemaOptions = {
+  team: "ENG", statusMap: { Review: "in_progress" },
+};
+
+/** Discover a read-only report to persist and review before a later apply. */
+export async function discoverTeamSchema(pmRoot: string) {
+  return negotiateLinearSchema(mapping, pmRoot);
+}
+
+/** Apply only the version that the caller has already persisted and reviewed. */
+export async function importReviewedTeam(pmRoot: string, reviewedSchemaVersion: string) {
   try {
-    const report = await negotiateLinearSchema(mapping, pmRoot);
-    // Persist/review this compact report before applying in a later invocation.
     return await syncLinearIssues({
-      ...mapping, schemaVersion: report.schemaVersion, limit: 100, atomic: true,
+      ...mapping, schemaVersion: reviewedSchemaVersion, limit: 100, atomic: true,
     }, pmRoot);
   } catch (error: unknown) {
     if (error instanceof LinearSchemaRefusal) {
@@ -25,6 +30,12 @@ export async function importReviewedTeam(pmRoot: string) {
   }
 }
 ```
+
+First call `discoverTeamSchema(pmRoot)`, persist the returned report and review
+its mapping. In a separate apply invocation, pass the saved `schemaVersion` to
+`importReviewedTeam(pmRoot, reviewedSchemaVersion)`. The apply function does not
+replace that reviewed value with a freshly discovered version; drift returns a
+typed refusal instead of silently approving a new mapping.
 
 The report deliberately omits issue content and the full label catalog. Labels
 map by name to pm tags. The label digest/version binds both IDs and names, so a

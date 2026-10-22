@@ -1,13 +1,15 @@
 /** Schema negotiation exercises real SDK trackers and the HTTP wire without git. */
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues, resolveStatus } from "../index.ts";
+import extension, { LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues, resolveStatus, type LinearSchemaReport } from "../index.ts";
 
 /** Complete provider metadata with deliberately custom state names. */
 function metadata() {
@@ -35,6 +37,7 @@ async function fixture(t: TestContext) {
     data: metadata() as unknown,
     errors: undefined as unknown,
     status: 200,
+    rawBody: undefined as string | undefined,
     issues: [] as unknown[],
     onRequest: undefined as ((query: string, variables: Record<string, unknown>) => void) | undefined,
   };
@@ -46,7 +49,7 @@ async function fixture(t: TestContext) {
       requests.push(request);
       state.onRequest?.(request.query, request.variables);
       res.writeHead(state.status, { "Content-Type": "application/json", "Connection": "close" });
-      res.end(JSON.stringify(request.query.includes("LinearSchema")
+      res.end(state.rawBody ?? JSON.stringify(request.query.includes("LinearSchema")
         ? { data: state.data, errors: state.errors }
         : { data: { issues: { nodes: state.issues, pageInfo: { hasNextPage: false, endCursor: null } } } }));
     });
@@ -296,3 +299,106 @@ for (const [type, name] of [["canceled", "Retired"], ["duplicate", "Duplicate"],
     assert.equal(resolveStatus(type, name, {}), "closed");
   });
 }
+
+/** Run actual Node code asynchronously so the parent HTTP fixture can respond. */
+function runNode(args: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`Node fixture exited ${code}: ${stderr}`));
+    });
+  });
+}
+
+test("documented reviewed apply retains the saved version across discovery and apply", async (t) => {
+  const { root, state, requests } = await fixture(t);
+  const documentation = await readFile(join(import.meta.dirname, "..", "docs", "schema-negotiation.md"), "utf8");
+  const example = documentation.match(/```ts\n([\s\S]*?)\n```/)?.[1];
+  assert.ok(example, "the documented TypeScript example must remain executable");
+  const exampleFile = join(root, "reviewed-example.ts");
+  const indexUrl = pathToFileURL(join(import.meta.dirname, "..", "index.ts")).href;
+  await writeFile(exampleFile, example.replace('from "pm-linear";', `from ${JSON.stringify(indexUrl)};`) + `
+const result = process.argv[3] === "discover"
+  ? await discoverTeamSchema(process.argv[2])
+  : await importReviewedTeam(process.argv[2], process.argv[3]);
+console.log(JSON.stringify(result));
+`);
+  const before = await durable(root);
+  const report = JSON.parse(await runNode([exampleFile, root, "discover"])) as LinearSchemaReport;
+  assert.equal(report.compatible, true);
+  assert.equal(requests.length, 1, "discovery must not fetch issues or apply");
+  const changed = metadata();
+  changed.issueLabels.nodes = [];
+  state.data = changed;
+  const result = JSON.parse(await runNode([exampleFile, root, report.schemaVersion])) as { refused: boolean; code: string };
+  assert.equal(result.refused, true);
+  assert.equal(result.code, "schema_drift");
+  assert.ok(requests.every(({ query }) => query.includes("LinearSchema")), "stale reviewed apply must refuse before issue fetch");
+  assert.deepEqual(await durable(root), before);
+});
+
+for (const [endpoint, diagnostic] of [
+  ["not-a-url?secret=synthetic-endpoint-secret", "must be a valid https URL"],
+  ["http://example.invalid/graphql?secret=synthetic-endpoint-secret", "must use https"],
+] as const) {
+  test(`schema endpoint validation preserves only its fixed diagnostic (${diagnostic})`, async (t) => {
+    const { root, requests } = await fixture(t);
+    process.env.LINEAR_API_BASE_URL = endpoint;
+    await assert.rejects(negotiateLinearSchema({ team: "ENG" }, root), (error: unknown) => {
+      refusal("schema_unavailable")(error);
+      assert.match((error as Error).message, /Cause: LINEAR_API_BASE_URL/);
+      assert.ok((error as Error).message.includes(diagnostic));
+      assert.doesNotMatch((error as Error).message, /synthetic-endpoint-secret|example\.invalid|not-a-url/);
+      return true;
+    });
+    assert.equal(requests.length, 0);
+  });
+}
+
+test("schema transport refusals redact arbitrary response errors and configured queries", async (t) => {
+  const { root, state } = await fixture(t);
+  process.env.LINEAR_API_BASE_URL += "?secret=synthetic-query-secret";
+  state.rawBody = "synthetic-response-secret is not JSON";
+  await assert.rejects(negotiateLinearSchema({ team: "ENG" }, root), (error: unknown) => {
+    refusal("schema_unavailable")(error);
+    assert.match((error as Error).message, /LINEAR_API_BASE_URL/);
+    assert.doesNotMatch((error as Error).message, /Cause:|synthetic-query-secret|synthetic-response-secret/);
+    return true;
+  });
+});
+
+test("schema versions and label digests match across real English and Swedish locales", async (t) => {
+  const { root, pm, state } = await fixture(t);
+  await pm.schemaAddStatus("ärende", { role: ["active"] });
+  await pm.schemaAddStatus("z_review", { role: ["active"] });
+  const before = await durable(root);
+  const data = metadata();
+  data.teams.nodes[0].states.nodes = [
+    { id: "state-ä", name: "Ä Ready", type: "unstarted" },
+    { id: "state-z", name: "Z Review", type: "started" },
+  ];
+  data.issueLabels.nodes = [{ id: "label-ä", name: "Ä label" }, { id: "label-z", name: "Z label" }];
+  state.data = data;
+  const indexUrl = pathToFileURL(join(import.meta.dirname, "..", "index.ts")).href;
+  const options = { team: "ENG", statusMap: { "Ä Ready": "ärende", "Z Review": "z_review" } };
+  const source = `import { negotiateLinearSchema } from ${JSON.stringify(indexUrl)};
+console.log(JSON.stringify({ locale: new Intl.Collator().resolvedOptions().locale,
+  report: await negotiateLinearSchema(${JSON.stringify(options)}, ${JSON.stringify(root)}) }));`;
+  const reports: Array<{ locale: string; report: LinearSchemaReport }> = [];
+  for (const locale of ["en_US.UTF-8", "sv_SE.UTF-8"]) {
+    reports.push(JSON.parse(await runNode(["--input-type=module", "-e", source], {
+      LANG: locale, LC_ALL: locale, LANGUAGE: locale,
+    })) as { locale: string; report: LinearSchemaReport });
+  }
+  assert.notEqual(reports[0].locale, reports[1].locale, "the subprocesses must actually use different locales");
+  assert.equal(reports[0].report.schemaVersion, reports[1].report.schemaVersion);
+  assert.equal(reports[0].report.labels.digest, reports[1].report.labels.digest);
+  assert.deepEqual(reports[0].report, reports[1].report);
+  assert.deepEqual(await durable(root), before);
+});

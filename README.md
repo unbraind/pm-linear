@@ -291,7 +291,8 @@ changes and override changes invalidate the old version. Discovery follows both
 metadata connections to completion, including workspace labels; partial metadata,
 duplicate IDs and broken pagination fail closed. There are at most 1,000 pages.
 
-Reports use format version `1` and a `linear-schema-v1:` SHA-256 version. They
+Reports use format version `1` and a `linear-schema-v1:` SHA-256 version. Digest
+ordering uses UTF-16 code units, independent of runtime locale and ICU. Reports
 include settings, total counts, the first 32 state mappings, `omittedStates`, and
 a digest of **all** labels. Negotiation and hashing always cover every mapping
 and label; preview truncation never weakens the check. Sync also returns the
