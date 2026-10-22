@@ -132,3 +132,24 @@ docstrings, package contents, changelog/date and publish attestation passed.
 Both fresh-checkout health checks passed, although local strict health reported
 host-specific extension version skew and inherited merge-fence differences.
 The latest PR checks also cover the final evidence/claim-release commit.
+
+## Review-round verification
+
+The reviewed-apply example is executed directly from this page against a real
+no-git tracker, proving that a saved version cannot be replaced by fresh
+discovery. Endpoint validation retains only the two fixed safe diagnostics;
+arbitrary response errors and configured query values remain redacted. All
+four digest-input sorts use UTF-16 code-unit ordering; actual English/Swedish
+Node processes agree on reports with Unicode metadata and SDK-created statuses.
+
+Behavioral reverts fail as expected: example apply function 1/1, schema
+negotiation endpoint handling 2/2, schema negotiation ordering 1/1, and local
+status reader ordering separately 1/1. Restored review controls pass 5/5, and
+the complete linked schema suite passes 52/52.
+
+[Review-fix CI run 39825310519](https://github.com/unbraind/pm-linear/actions/runs/39825310519)
+passed on `c430b7e0c49acbf5fef9c96bb7280b27382e0476`: npm and Bun full release
+gates plus Node 22/26 checks each passed 328/328 tests. Source coverage measured
+99.69% lines, 97.05% branches and 100% functions at unchanged 99/96/100
+thresholds. Package/audit/changelog/date/attestation checks passed. The latest
+PR checks cover the subsequent evidence-only commit as well.
