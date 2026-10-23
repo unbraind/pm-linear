@@ -1624,7 +1624,10 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
   const previous = existing.notes.filter((entry) => entry.author === "pm-linear" && entry.event_type === note.type)
     .map((entry) => threadObject(entry.data)).filter((entry) => entry.threadId === note.threadId);
   const last = previous.at(-1);
-  const previousSourceRevision = last ? threadString(last.sourceRevision) : null;
+  const previousSourceRevision = last ? last.sourceRevision : null;
+  if (previousSourceRevision !== null && (typeof previousSourceRevision !== "string" || !/^[a-f0-9]{64}$/.test(previousSourceRevision))) {
+    throw new ThreadCaptureRefusal("target_unavailable", "The target contains an invalid capture revision. Preserve its history and select another existing target or restore valid capture metadata through supported PM tooling.");
+  }
   const report: ThreadCaptureReport = {
     formatVersion: 1, mode: options.apply ? "apply" : "plan", itemId: existing.id, revision,
     sourceChanged: previousSourceRevision !== null && previousSourceRevision !== note.sourceRevision,

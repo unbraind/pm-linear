@@ -151,6 +151,12 @@ test("large unrelated note history cannot hide replay identity or source edits",
   assert.equal(replay.previousSourceRevision, plan.proposedNote.sourceRevision);
 });
 
+test("malformed prior revisions refuse without disclosing arbitrary private note fields", async (t) => {
+  const { root, pm, options } = await fixture(t);
+  await pm.notes("existing", { author: "pm-linear", addJson: JSON.stringify({ type: "linear.thread-evidence.v1", threadId: "root", sourceRevision: "transport-secret" }) });
+  await assert.rejects(captureLinearThread(options, root), refused("target_unavailable"));
+});
+
 test("registered command supports camel/kebab flags, native output objects and typed refusals", async (t) => {
   const { root, options } = await fixture(t);
   const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
