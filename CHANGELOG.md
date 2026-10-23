@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Release recovery refuses a release commit merged with the GitHub squash suffix ([pm-linear-1cpw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-1cpw.toon))
 - Harden the release merge wait against mergeStateStatus deadlock ([pm-linear-niyz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-niyz.toon))
 - A release that merges but fails to publish is abandoned by the next day's run ([pm-linear-yyr9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-yyr9.toon))
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([pm-linear-vc2f](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-vc2f.toon))

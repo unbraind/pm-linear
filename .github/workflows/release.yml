@@ -101,6 +101,8 @@ jobs:
               release_subject="$(git log -1 --format=%s -- package.json)"
               release_prefix="Release ${GITHUB_REPOSITORY##*/} "
               tag="${release_subject#"$release_prefix"}"
+              # A squash merge through the GitHub UI or auto-merge appends " (#N)".
+              tag="$(printf '%s' "$tag" | sed -E 's/ \(#[0-9]+\)$//')"
               if [[ "$release_subject" != "$release_prefix"* ]] || ! printf '%s\n' "$tag" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$'; then
                 echo "::error::package.json is ahead of ${latest_tag} without a recognized release commit. Resolve its version before releasing."
                 exit 1

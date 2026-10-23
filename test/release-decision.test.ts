@@ -86,6 +86,16 @@ test("a merged but untagged release keeps its committed version on retry", () =>
     assert.equal(retry.base_sha, run("git", ["rev-parse", "HEAD"]));
 
     const releaseHead = run("git", ["rev-parse", "HEAD"]);
+    // A squash merge of the release PR (GitHub UI or auto-merge) appends " (#N)" to the subject.
+    run("git", ["commit", "--amend", "-m", "Release pm-linear v2000.01.02 (#164)"]);
+    const squashedRetry = decide();
+    assert.equal(squashedRetry.should_release, "true");
+    assert.equal(squashedRetry.tag, "v2000.01.02");
+    assert.equal(squashedRetry.npm_version, "2000.1.2");
+    run("git", ["commit", "--amend", "-m", "Release pm-linear v2000.01.02 (#x)"]);
+    refuse(/without a recognized release commit/);
+    run("git", ["reset", "--hard", releaseHead]);
+
     writeFileSync(join(project, "package.json"), '{"name":"pm-linear","version":"2000.1.2","dependencies":{"fixture":"1.0.0"}}\n');
     run("git", ["add", "package.json"]);
     run("git", ["commit", "-m", "Update dependencies after failed publication"]);
