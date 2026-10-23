@@ -1,0 +1,25 @@
+id: pm-linear-1cpw
+title: Release recovery refuses a release commit merged with the GitHub squash suffix
+description: "The Daily Release of 2026-10-23 timed out waiting for its release PR (#164), whose CI was parked on workflow approval; an hourly helper then auto-merged #164 as 'Release pm-linear v2026.10.23 (#164)'. The recovery path reads the tag from that subject, so the ' (#164)' suffix made it refuse with 'package.json is ahead of v2026.10.21 without a recognized release commit', leaving 2026.10.23 metadata on main and nothing on npm. Fix: strip a trailing ' (#N)' before validating the tag, and revert the stranded release commit so the next run releases cleanly."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-10-23T10:25:31.019Z"
+updated_at: "2026-10-23T10:26:24.875Z"
+closed_at: "2026-10-23T10:26:16.454Z"
+completed_at: "2026-10-23T10:26:16.454Z"
+author: claude-orchestrator
+acceptance_criteria: Subjects with and without a trailing (#N) parse to the same tag; malformed suffixes still refuse; main returns to the 2026.10.21 release metadata; the next dispatched release publishes 2026.10.23
+resolution: "Strip a trailing (#N) squash suffix before validating the release tag, and revert the stranded release commit"
+expected_result: A release commit squash-merged with a (#N) suffix is recognized by the recovery path
+actual_result: The recovery refused 'Release pm-linear v2026.10.23 (#164)' as an unrecognized release commit
+comments[1]{created_at,author,text}:
+  "2026-10-23T10:26:12.128Z",claude-orchestrator,"Revert proof: with the previous release.yml the new squash-suffix assertions fail (release-decision 0/1); with the fix 1/1. The stranded release commit 56123c1 (#164) is reverted in the same PR, so main returns to the 2026.10.21 release metadata and the next dispatched release publishes 2026.10.23 cleanly. Root cause of the merge: approve-bot-pr-runs.sh armed auto-merge on the parked release PR after its job had exited; the helper now only approves release PR runs."
+files[2]{path,scope}:
+  .github/workflows/release.yml,project
+  test/release-decision.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/release-decision.test.ts,project,claude-orchestrator,"2026-10-23T10:26:09.346Z",local_mutation,fix/release-recovery-squash-suffix
+close_reason: "Release recovery strips a trailing (#N) before validating the tag, malformed suffixes still refuse (release-decision test 1/1, 0/1 with the old workflow); the stranded 2026.10.23 release commit is reverted."
+body: ""
