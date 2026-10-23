@@ -1,0 +1,17 @@
+{
+  "source": "public unbraind/pm-linear tracker",
+  "sourceCommit": "90a0487",
+  "sourceMode": "read-only non-git copy",
+  "providerFixture": "Linear-shaped threads derived from public item titles; synthetic source author",
+  "liveLinearAccessValidated": false,
+  "corpusItems": 104,
+  "sampledThreads": 20,
+  "appended": 20,
+  "reimportDuplicates": 20,
+  "sourceEditsVisible": 20,
+  "maxJsonBytes": 780,
+  "unchangedSourceFiles": 216,
+  "gitRequired": false,
+  "command": "node --test --test-name-pattern='public tracker validation' test/thread-capture.test.ts",
+  "input": "PM_LINEAR_PUBLIC_TRACKER selects a read-only public tracker copy"
+}

@@ -8,7 +8,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 | Capability | Surface |
 |------------|---------|
-| `commands` | `pm linear sync`, `pm linear validate`, `pm linear schema` |
+| `commands` | `pm linear sync`, `pm linear validate`, `pm linear schema`, `pm linear capture` |
 | `importers` | `pm linear import` (+ legacy `linear-sync` importer) |
 | `importers` (exporter) | `pm linear export` |
 | `schema` | `linear_id`, `linear_url` item fields + command/importer/exporter flags |
@@ -77,6 +77,19 @@ pm install npm:pm-linear --project
 ---
 
 ## Commands
+
+### Selected thread capture plans
+
+`pm linear capture --thread ROOT_COMMENT_ID --item EXISTING_ITEM_ID` proposes an
+attributed, revisioned core evidence note from one explicitly selected discussion
+and its direct replies. Preview and metadata-only disclosure are the defaults;
+`--disclosure text` explicitly includes bodies and names. Deliver a reviewed
+proposal with `--apply --revision TOKEN`. Reimport deduplicates through the SDK;
+source edits append new evidence without replacing previous revisions. No items
+are created and no discussions are discovered or harvested in the background.
+TOON is the default; `--json` returns the same compact receipt. The typed SDK
+exports `captureLinearThread`, options/report/note types and actionable
+`ThreadCaptureRefusal` codes. See the [complete example and disclosure contract](docs/thread-capture.md).
 
 ### `pm linear sync`
 
@@ -323,9 +336,10 @@ See the [SDK example and measured validation](docs/schema-negotiation.md).
 
 ## Without git
 
-Schema negotiation, validate, sync/import and export work in plain pm trackers.
-They need no git repository. Live provider operations still need Linear access;
-offline previews work without credentials.
+Thread capture, schema negotiation, validate, sync/import and export work in
+plain pm trackers without a git executable. Live provider operations still need
+Linear access; offline previews work without credentials. Release tooling that
+reads git tags needs a repository, separately from tracker operations.
 
 ## `pm linear validate`
 

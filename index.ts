@@ -9,11 +9,14 @@ import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
+import { realpath } from "node:fs/promises";
 
 import type {
   BulkItemMutation,
   CommitItemMutationsOptions,
   CommitItemMutationsResult,
+  PmClient,
+  NotesResult,
 } from "@unbrained/pm-cli/sdk";
 
 
@@ -1428,6 +1431,229 @@ export async function negotiateLinearSchema(
 // ---------------------------------------------------------------------------
 // Core sync logic — shared between command and importer
 // ---------------------------------------------------------------------------
+/** Recoverable capture failures; messages never include provider responses or tracker paths. */
+export type ThreadCaptureRefusalCode = "selection_required" | "access_denied" | "source_incomplete" | "source_changed" | "target_unavailable" | "review_required" | "budget_exceeded" | "write_unconfirmed";
+
+/** Machine-readable refusal with a safe, concrete next action. */
+export class ThreadCaptureRefusal extends CommandError {
+  /** Stable failure category for SDK consumers. */
+  readonly code: ThreadCaptureRefusalCode;
+  /** Recovery instruction safe to print in an agent transcript. */
+  readonly remedy: string;
+  constructor(code: ThreadCaptureRefusalCode, remedy: string) {
+    super(`Linear thread capture refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "ThreadCaptureRefusal";
+    this.code = code;
+    this.remedy = remedy;
+  }
+}
+
+/** Explicit root selection and existing target; text disclosure and writes require separate opt-ins. */
+export interface ThreadCaptureOptions {
+  threadId: string;
+  itemId: string;
+  disclosure?: "metadata" | "text";
+  apply?: boolean;
+  /** Token from a reviewed preview, binding source, tracker, target and disclosure. */
+  revision?: string;
+  /** Complete receipt budget, default 8192 bytes; never silently truncates evidence. */
+  maxOutputBytes?: number;
+}
+
+/** One attributed observation; names and body exist only in text disclosure mode. */
+export interface ThreadEvidenceComment {
+  id: string;
+  updatedAt: string;
+  author: { kind: "user" | "external" | "unknown"; id: string | null; nameDigest: string | null; name?: string };
+  bodyDigest: string;
+  body?: string;
+}
+
+/** Immutable core context event; provider attribution remains distinct from the importing author. */
+export interface ThreadEvidenceNote {
+  type: "linear.thread-evidence.v1";
+  threadId: string;
+  url: string;
+  sourceRevision: string;
+  disclosure: "metadata" | "text";
+  comments: ThreadEvidenceComment[];
+}
+
+/** Bounded proposal or delivery receipt, suitable for native TOON and JSON rendering. */
+export interface ThreadCaptureReport {
+  formatVersion: 1;
+  mode: "plan" | "apply";
+  itemId: string;
+  revision: string;
+  sourceChanged: boolean;
+  previousSourceRevision: string | null;
+  duplicate: boolean;
+  appended: number;
+  commentCount: number;
+  proposedNote: ThreadEvidenceNote;
+}
+
+/** Select one root and only its direct replies; never enumerate issues or workspace comments. */
+const THREAD_QUERY = `query LinearThreadCapture($id: String!, $after: String) {
+  comment(id: $id) {
+    id parentId url updatedAt body user { id name } externalUser { id name }
+    children(first: 100, after: $after, includeArchived: true) {
+      nodes { id parentId updatedAt body user { id name } externalUser { id name } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+/** Reject malformed wire objects without reflecting private response values. */
+function threadObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ThreadCaptureRefusal("source_incomplete", "Retry with complete Linear comment read access; no evidence was written.");
+  }
+  return value as Record<string, unknown>;
+}
+
+/** Require bounded provider strings, retaining exact content for revision hashing. */
+function threadString(value: unknown, max = 512): string {
+  if (typeof value !== "string" || !value.trim() || Buffer.byteLength(value) > max) {
+    throw new ThreadCaptureRefusal("source_incomplete", "Retry with complete, bounded comment IDs, timestamps and attribution.");
+  }
+  return value;
+}
+
+/** Validate and project a comment without requesting emails, attachments or generated summaries. */
+function threadComment(row: Record<string, unknown>, disclosure: "metadata" | "text"): ThreadEvidenceComment {
+  const id = threadString(row.id);
+  const updatedAt = threadString(row.updatedAt);
+  if (!Number.isFinite(Date.parse(updatedAt)) || typeof row.body !== "string" || Buffer.byteLength(row.body) > 65536 ||
+      row.user === undefined || row.externalUser === undefined) {
+    throw new ThreadCaptureRefusal("source_incomplete", "Retry after restoring complete comment bodies, timestamps and nullable author fields.");
+  }
+  const actor = row.externalUser ?? row.user;
+  const author: ThreadEvidenceComment["author"] = actor === null
+    ? { kind: "unknown", id: null, nameDigest: null }
+    : { kind: row.externalUser === null ? "user" : "external", id: threadString(threadObject(actor).id), nameDigest: schemaDigest(threadString(threadObject(actor).name)) };
+  if (disclosure === "text" && actor !== null) author.name = threadString(threadObject(actor).name);
+  return { id, updatedAt, author, bodyDigest: schemaDigest(row.body), ...(disclosure === "text" ? { body: row.body } : {}) };
+}
+
+/** Read and validate every selected reply page before constructing a proposal. */
+async function readThreadEvidence(threadId: string, disclosure: "metadata" | "text"): Promise<ThreadEvidenceNote> {
+  const key = process.env["LINEAR_API_KEY"];
+  if (!key) throw new ThreadCaptureRefusal("access_denied", "Set LINEAR_API_KEY with Read access to the explicitly selected thread and retry.");
+  const comments = new Map<string, ThreadEvidenceComment>();
+  const cursors = new Set<string>();
+  let after: string | null = null;
+  let rootRevision = "";
+  let url = "";
+  for (let page = 0; ; page++) {
+    let response: LinearResponse<unknown>;
+    try { response = await linearRequest<unknown>(key, THREAD_QUERY, { id: threadId, after }); }
+    catch { throw new ThreadCaptureRefusal("access_denied", "Check Linear connectivity, endpoint and Read permission for the selected thread, then retry."); }
+    if (response.errors?.length) throw new ThreadCaptureRefusal("access_denied", "Restore complete thread read access and verify Linear schema support, then retry.");
+    const root = threadObject(threadObject(response.data).comment);
+    if (root.id !== threadId || root.parentId !== null) {
+      throw new ThreadCaptureRefusal("selection_required", "Select the exact top-level Linear comment ID; replies cannot implicitly select their parent.");
+    }
+    const rootComment = threadComment(root, disclosure);
+    const nextUrl = threadString(root.url, 2048);
+    if (!/^https:\/\/linear\.app\/[^\s?#]+(?:#[^\s]*)?$/.test(nextUrl)) {
+      throw new ThreadCaptureRefusal("source_incomplete", "Retry with a canonical HTTPS Linear comment URL without query parameters.");
+    }
+    const fingerprint = schemaDigest({ rootComment, url: nextUrl });
+    if (page && rootRevision !== fingerprint) throw new ThreadCaptureRefusal("source_changed", "The root changed while paging. Preview the selected thread again before applying.");
+    rootRevision = fingerprint;
+    url = nextUrl;
+    comments.set(threadId, rootComment);
+    const connection = threadObject(root.children);
+    const info = threadObject(connection.pageInfo);
+    if (!Array.isArray(connection.nodes) || typeof info.hasNextPage !== "boolean" ||
+        !(info.endCursor === null || typeof info.endCursor === "string")) {
+      throw new ThreadCaptureRefusal("source_incomplete", "Retry with complete reply pagination; partial threads cannot become evidence notes.");
+    }
+    for (const value of connection.nodes) {
+      const row = threadObject(value);
+      const comment = threadComment(row, disclosure);
+      if (row.parentId !== threadId || comments.has(comment.id)) {
+        throw new ThreadCaptureRefusal("source_incomplete", "Retry after duplicate or unrelated replies disappear from the selected thread response.");
+      }
+      comments.set(comment.id, comment);
+    }
+    if (comments.size > 100) throw new ThreadCaptureRefusal("budget_exceeded", "Select a thread with at most 100 comments; nothing was truncated or written.");
+    if (!info.hasNextPage) break;
+    const cursor = threadString(info.endCursor);
+    if (!connection.nodes.length || cursors.has(cursor)) throw new ThreadCaptureRefusal("source_incomplete", "Retry when Linear reply pagination advances; no partial capture is accepted.");
+    cursors.add(cursor);
+    after = cursor;
+  }
+  const rows = [...comments.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
+  // Revision identity is independent of disclosure; digests expose edits while
+  // keeping comment bodies and display names out of metadata proposals.
+  const sourceRevision = schemaDigest({ threadId, url, comments: rows.map(({ body: _body, author: { name: _name, ...author }, ...row }) => ({ ...row, author })) });
+  return { type: "linear.thread-evidence.v1", threadId, url, sourceRevision, disclosure, comments: rows };
+}
+
+/**
+ * Preview an explicit Linear thread, or append its reviewed revision to an existing item.
+ * Uses native SDK structured notes, append-only history and lock-scoped ifAbsent.
+ * Re-fetches the complete selected thread to detect observable paging drift; no
+ * provider snapshot transaction is claimed. No item creation or git is involved.
+ */
+export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot: string): Promise<ThreadCaptureReport> {
+  const disclosure = options.disclosure ?? "metadata";
+  const budget = options.maxOutputBytes ?? 8192;
+  if (typeof options.threadId !== "string" || typeof options.itemId !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(options.threadId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(options.itemId) ||
+      !["metadata", "text"].includes(disclosure) || (options.apply !== undefined && typeof options.apply !== "boolean")) {
+    throw new ThreadCaptureRefusal("selection_required", "Pass an explicit --thread root ID and existing --item ID; choose --disclosure metadata or text.");
+  }
+  if (!Number.isInteger(budget) || budget < 1024 || budget > 65536) throw new ThreadCaptureRefusal("budget_exceeded", "Set --max-output-bytes to an integer from 1024 through 65536.");
+  if (options.apply && !options.revision) throw new ThreadCaptureRefusal("review_required", "Preview first, review the target and disclosure, then pass --apply --revision with that preview token.");
+  let pm: PmClient;
+  let existing: NotesResult;
+  let trackerIdentity: string;
+  try {
+    const sdk = await importRuntimeSdk();
+    const canonicalRoot = await realpath(sdk.resolvePmRoot(process.cwd(), pmRoot));
+    const settings = await sdk.readSettings(canonicalRoot);
+    trackerIdentity = schemaDigest({ root: canonicalRoot, idPrefix: settings.id_prefix });
+    pm = new sdk.PmClient({ pmRoot: canonicalRoot, noExtensions: true, author: "pm-linear" });
+    const result = await pm.notes(options.itemId, { eventType: "linear.thread-evidence.v1", includeMeta: true, outputBudget: "unbounded", outputLimit: "unbounded" });
+    if (!("notes" in result) || result.has_more || result.total_count !== result.notes.length) throw new Error("Incomplete note history");
+    existing = result;
+  } catch { throw new ThreadCaptureRefusal("target_unavailable", "Select an existing readable pm item; capture never creates items. Restore complete notes access and retry."); }
+  const note = await readThreadEvidence(options.threadId, disclosure);
+  const verified = await readThreadEvidence(options.threadId, disclosure);
+  if (schemaDigest(note) !== schemaDigest(verified)) throw new ThreadCaptureRefusal("source_changed", "The discussion changed during capture. Preview again and review the fresh revision.");
+  const revision = `linear-capture-v1:${schemaDigest({ trackerIdentity, itemId: existing.id, note })}`;
+  if (options.revision !== undefined && options.revision !== revision) throw new ThreadCaptureRefusal("source_changed", "Source, tracker, target or disclosure changed. Preview again and use the newly reviewed --revision token.");
+  const previous = existing.notes.filter((entry) => entry.author === "pm-linear" && entry.event_type === note.type)
+    .map((entry) => threadObject(entry.data)).filter((entry) => entry.threadId === note.threadId);
+  const last = previous.at(-1);
+  const previousSourceRevision = last ? last.sourceRevision : null;
+  if (previousSourceRevision !== null && (typeof previousSourceRevision !== "string" || !/^[a-f0-9]{64}$/.test(previousSourceRevision))) {
+    throw new ThreadCaptureRefusal("target_unavailable", "The target contains an invalid capture revision. Preserve its history and select another existing target or restore valid capture metadata through supported PM tooling.");
+  }
+  const report: ThreadCaptureReport = {
+    formatVersion: 1, mode: options.apply ? "apply" : "plan", itemId: existing.id, revision,
+    sourceChanged: previousSourceRevision !== null && previousSourceRevision !== note.sourceRevision,
+    previousSourceRevision, duplicate: previous.some((entry) => entry.sourceRevision === note.sourceRevision && entry.disclosure === note.disclosure),
+    appended: 0, commentCount: note.comments.length, proposedNote: note,
+  };
+  // Reserve bytes for the largest post-write receipt before making a mutation.
+  if (Buffer.byteLength(JSON.stringify({ ...report, appended: 1 })) + 256 > budget) {
+    throw new ThreadCaptureRefusal("budget_exceeded", "Use metadata disclosure or raise --max-output-bytes up to 65536; the complete proposal must fit before writing.");
+  }
+  if (options.apply) {
+    try {
+      const result = await pm.notes(existing.id, { addJson: JSON.stringify(note), ifAbsent: true, author: "pm-linear" });
+      if (typeof result.changed !== "boolean") throw new Error("Missing write acknowledgement");
+      report.appended = result.changed ? 1 : 0;
+      report.duplicate = !result.changed;
+    } catch { throw new ThreadCaptureRefusal("write_unconfirmed", "Delivery may have persisted. Restore tracker access or ownership, then retry the identical selection, disclosure and revision; SDK deduplication prevents a second note."); }
+  }
+  return report;
+}
+
 /** Shared sync controls, including a previously negotiated schema version. */
 export interface SyncOptions {
   schemaVersion?: string;
@@ -2929,6 +3155,31 @@ export default defineExtension({
   version: "2026.10.23",
 
   activate(api: ExtensionApi) {
+    api.registerCommand({
+      name: "linear capture",
+      description: "Propose revisioned evidence notes from one explicitly selected Linear thread",
+      intent: "Preview selected discussion evidence; append a reviewed revision only with explicit apply",
+      examples: ["pm linear capture --thread ROOT_ID --item ITEM_ID", "pm linear capture --thread ROOT_ID --item ITEM_ID --apply --revision TOKEN --json"],
+      flags: [
+        { long: "--thread", value_name: "id", description: "Explicit top-level Linear comment ID; includes only its direct replies." },
+        { long: "--item", value_name: "id", description: "Existing pm item receiving the proposed evidence note." },
+        { long: "--disclosure", value_name: "mode", description: "metadata (default) or text; text explicitly includes bodies and display names." },
+        { long: "--apply", description: "Append one structured core note for the reviewed revision; never creates an item." },
+        { long: "--revision", value_name: "token", description: "Reviewed preview token, required with --apply." },
+        { long: "--max-output-bytes", value_name: "bytes", description: "Complete JSON receipt budget, 1024..65536 (default 8192)." },
+      ],
+      async run(ctx) {
+        return captureLinearThread({
+          threadId: readStringOption(ctx.options, "thread") ?? "",
+          itemId: readStringOption(ctx.options, "item") ?? "",
+          disclosure: (readStringOption(ctx.options, "disclosure") ?? "metadata") as "metadata" | "text",
+          apply: readBooleanOption(ctx.options, "apply"),
+          revision: readStringOption(ctx.options, "revision"),
+          maxOutputBytes: ctx.options.maxOutputBytes === undefined && ctx.options["max-output-bytes"] === undefined
+            ? undefined : Number(readStringOption(ctx.options, "max-output-bytes")),
+        }, ctx.pm_root);
+      },
+    });
     // -----------------------------------------------------------------------
     // preflight — validate credentials + reachability before any Linear command
     // that REACHES Linear runs. Note "reaches", not "mutates": the gate protects
