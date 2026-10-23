@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
+import { realpath } from "node:fs/promises";
 
 import type {
   BulkItemMutation,
@@ -1453,7 +1454,7 @@ export interface ThreadCaptureOptions {
   itemId: string;
   disclosure?: "metadata" | "text";
   apply?: boolean;
-  /** Token from a reviewed preview, binding source, target and disclosure. */
+  /** Token from a reviewed preview, binding source, tracker, target and disclosure. */
   revision?: string;
   /** Complete receipt budget, default 8192 bytes; never silently truncates evidence. */
   maxOutputBytes?: number;
@@ -1609,9 +1610,13 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
   if (options.apply && !options.revision) throw new ThreadCaptureRefusal("review_required", "Preview first, review the target and disclosure, then pass --apply --revision with that preview token.");
   let pm: PmClient;
   let existing: NotesResult;
+  let trackerIdentity: string;
   try {
     const sdk = await importRuntimeSdk();
-    pm = new sdk.PmClient({ pmRoot, noExtensions: true, author: "pm-linear" });
+    const canonicalRoot = await realpath(sdk.resolvePmRoot(process.cwd(), pmRoot));
+    const settings = await sdk.readSettings(canonicalRoot);
+    trackerIdentity = schemaDigest({ root: canonicalRoot, idPrefix: settings.id_prefix });
+    pm = new sdk.PmClient({ pmRoot: canonicalRoot, noExtensions: true, author: "pm-linear" });
     const result = await pm.notes(options.itemId, { eventType: "linear.thread-evidence.v1", includeMeta: true, outputBudget: "unbounded", outputLimit: "unbounded" });
     if (!("notes" in result) || result.has_more || result.total_count !== result.notes.length) throw new Error("Incomplete note history");
     existing = result;
@@ -1619,8 +1624,8 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
   const note = await readThreadEvidence(options.threadId, disclosure);
   const verified = await readThreadEvidence(options.threadId, disclosure);
   if (schemaDigest(note) !== schemaDigest(verified)) throw new ThreadCaptureRefusal("source_changed", "The discussion changed during capture. Preview again and review the fresh revision.");
-  const revision = `linear-capture-v1:${schemaDigest({ itemId: existing.id, note })}`;
-  if (options.revision !== undefined && options.revision !== revision) throw new ThreadCaptureRefusal("source_changed", "Source, target or disclosure changed. Preview again and use the newly reviewed --revision token.");
+  const revision = `linear-capture-v1:${schemaDigest({ trackerIdentity, itemId: existing.id, note })}`;
+  if (options.revision !== undefined && options.revision !== revision) throw new ThreadCaptureRefusal("source_changed", "Source, tracker, target or disclosure changed. Preview again and use the newly reviewed --revision token.");
   const previous = existing.notes.filter((entry) => entry.author === "pm-linear" && entry.event_type === note.type)
     .map((entry) => threadObject(entry.data)).filter((entry) => entry.threadId === note.threadId);
   const last = previous.at(-1);

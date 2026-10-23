@@ -27,7 +27,12 @@ The selected root and all direct replies are paginated with archived replies
 included, read twice, validated, and sorted by stable ID. Each source revision
 includes body/name digests and timestamps, so edits remain visible even with
 unchanged provider timestamps. Reply additions/removals change the fingerprint.
-The preview token binds the complete proposal, canonical target ID and disclosure.
+The preview token binds the complete proposal, destination tracker identity,
+canonical target ID and disclosure. Tracker identity is an opaque digest of the
+SDK-resolved canonical tracker path and settings ID prefix. Workspace/storage
+path spellings and symlink aliases of the same tracker retain the token; another
+tracker with the same item ID and settings prefix does not. Relocating a tracker
+requires a fresh preview. Raw tracker paths are never included in output or notes.
 Apply re-reads the source and refuses a stale token before a note append. Two
 matching reads detect observable drift; Linear does not provide an atomic
 snapshot or a guarantee that the discussion remains unchanged after the read.

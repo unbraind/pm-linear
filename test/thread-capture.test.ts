@@ -1,12 +1,12 @@
 /** Explicit thread evidence against real non-git SDK trackers and a read-only HTTP fixture. */
 import assert from "node:assert/strict";
 import http from "node:http";
-import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import test, { type TestContext } from "node:test";
-import { PmClient } from "@unbrained/pm-cli/sdk/runtime";
+import { PmClient, readSettings, resolvePmRoot } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { captureLinearThread, ThreadCaptureRefusal, type ThreadCaptureOptions, type ThreadCaptureReport } from "../index.ts";
 
@@ -138,6 +138,38 @@ test("text is an explicit disclosure and changes invalidate the reviewed target 
   assert.equal(attributed.proposedNote.comments.find((row) => row.id === "reply")?.author.kind, "unknown");
   assert.equal((await captureLinearThread({ ...textOptions, apply: true, revision: attributed.revision }, root)).appended, 1);
   await assert.rejects(pm.notes("existing", { delete: 1 }), /append-only/);
+});
+
+test("reviewed capture tokens cannot cross trackers with the same item ID", async (t) => {
+  const { root, pm, options } = await fixture(t);
+  const secondRoot = join(root, "second-tracker");
+  await mkdir(secondRoot);
+  const second = new PmClient({ cwd: secondRoot, pmRoot: secondRoot, noExtensions: true, author: "fixture" });
+  await second.init("capture-fixture");
+  await second.create({ title: "Existing context", id: "existing", createMode: "progressive" });
+  const firstStorage = resolvePmRoot(root, root);
+  const secondStorage = resolvePmRoot(secondRoot, secondRoot);
+  assert.equal((await readSettings(firstStorage)).id_prefix, (await readSettings(secondStorage)).id_prefix);
+  const selection = { ...options, disclosure: "text" as const };
+  const firstPlan = await captureLinearThread(selection, root);
+  // Workspace/storage spelling and symlink aliases identify the same tracker.
+  assert.equal((await captureLinearThread(selection, firstStorage)).revision, firstPlan.revision);
+  const alias = join(root, "tracker-alias");
+  await symlink(firstStorage, alias, "dir");
+  assert.equal((await captureLinearThread(selection, alias)).revision, firstPlan.revision);
+  const secondBefore = await hashes(secondStorage);
+  await assert.rejects(captureLinearThread({ ...selection, apply: true, revision: firstPlan.revision }, secondRoot), refused("source_changed"));
+  assert.deepEqual(await hashes(secondStorage), secondBefore);
+  assert.equal((await second.notes("existing")).count, 0);
+  const secondPlan = await captureLinearThread(selection, secondRoot);
+  assert.notEqual(secondPlan.revision, firstPlan.revision);
+  assert.deepEqual(secondPlan.proposedNote, firstPlan.proposedNote);
+  assert.equal((await captureLinearThread({ ...selection, apply: true, revision: secondPlan.revision }, secondRoot)).appended, 1);
+  assert.equal((await captureLinearThread({ ...selection, apply: true, revision: secondPlan.revision }, secondRoot)).appended, 0);
+  assert.equal((await captureLinearThread({ ...selection, apply: true, revision: firstPlan.revision }, root)).appended, 1);
+  assert.equal((await pm.notes("existing")).count, 1);
+  assert.ok(!JSON.stringify(firstPlan).includes(root));
+  assert.ok(!JSON.stringify(secondPlan).includes(secondRoot));
 });
 
 test("large unrelated note history cannot hide replay identity or source edits", async (t) => {
