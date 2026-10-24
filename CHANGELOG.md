@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Capture selected Linear threads as revisioned evidence notes ([pm-linear-thread-capture](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-thread-capture.toon))
+- Refuse Linear sync when negotiated workflow schema drifts ([pm-linear-schema-drift](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-schema-drift.toon))
+
+### Changed
+
+- Map Linear canonical canceled and duplicate state types to closed ([pm-linear-canonical-terminal-states](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-canonical-terminal-states.toon))
+
 ## 2026.10.23 - 2026-10-23
 
 ### Changed
