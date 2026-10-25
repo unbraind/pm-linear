@@ -28,16 +28,11 @@
 - The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([pm-linear-9hw2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-9hw2.toon))
 - A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([pm-linear-kq42](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-kq42.toon))
 
-## 2026.10.21 - 2026-10-21
-
-### Fixed
-
-- Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
-
 ## 2026.10.8 - 2026-10-08
 
 ### Fixed
 
+- Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
 - Certify complete local item reads before Linear reconciliation and export ([pm-linear-ldqw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ldqw.toon))
 
 ## 2026.10.5 - 2026-10-05
