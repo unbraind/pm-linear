@@ -1,0 +1,29 @@
+id: pm-linear-292r
+title: Verify the 2026-10-25 SDK adoption audit disposition
+description: "Check every pm-linear SDK capability finding against the audited main revision, link prior SDK adoption, and record differential and gate evidence. The supplied audit establishes no remaining equivalent replacement; preserve existing SDK delegation and standalone loader compatibility."
+type: Chore
+status: open
+priority: 2
+tags[2]: audit,sdk
+created_at: "2026-10-25T17:28:16.540Z"
+updated_at: "2026-10-25T17:41:58.857Z"
+author: codex-agent
+estimated_minutes: 30
+acceptance_criteria: Account for every supplied audit observation without inventing replacements; preserve runtime bytes and behavior; reproduce equal read-only results on public tracker copies; retain unchanged npm and Bun gates and report health separately; open a review-ready PR without merging or releasing.
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-linear-du0a,related,"2026-10-25T17:28:16.540Z",codex-agent,"cli:create:dep",detected
+comments[6]{created_at,author,text}:
+  "2026-10-25T17:28:39.389Z",codex-agent,"The supplied 2026-10-25 audit establishes zero additional equivalent replacements. Current main already delegates complete corpus reads to listAllComplete plus certifyCompleteListResult, local status discovery to schemaList, and atomic imports to commitItemMutations. Retain lazy SDK loading for standalone compatibility. Related adoption: pm-linear-du0a; atomic adoption: pm-linear-nvt5. The existing close-reason issue pm-linear-uhu6 remains separate. Plan: document disposition, compare the main build and candidate build on read-only non-git public tracker copies, then run unchanged npm and Bun release gates. No runtime change is proposed."
+  "2026-10-25T17:30:51.875Z",codex-agent,"Differential proof: independently built origin/main fcfdf190d1178eb5842b00affade13caeddf82b9 and candidate runtime modules are byte-identical. Read-only non-git public snapshots of pm-linear and pm-graph each contain 106 items. Real SDK exporter payloads, schema negotiation using synthetic HTTP metadata, and atomic dry-run planning match in all 6 comparisons with empty PATH. All snapshot files and names retain their hashes; no files are added. Four HTTP reads and no provider mutations. Revert proofs per replacement: not applicable for complete reads, schema discovery, atomic imports or loader because each is retained unchanged; no runtime functions are replaced or lines deleted. Existing close-reason and 100-percent-coverage tasks remain separate. No missing SDK API established."
+  "2026-10-25T17:33:23.436Z",codex-agent,"Targeted linked command node --test test/atomic.test.ts test/schema-drift.test.ts test/complete-local-reads.test.ts passed 118/118 tests, zero failures or skips, through pm test --run --progress. Test-result tracking is disabled by existing project policy, so this comment preserves the counts. Typecheck, build:test and documented-source gate pass; the package has no lint script. Added the repeatable differential checker test/sdk-adoption-differential.ts and reran it successfully on the same immutable public snapshots: 6/6 identical, 212 items, zero byte changes. npm full release gate is running with clean HOME and isolated git configuration; Bun follows."
+  "2026-10-25T17:34:36.335Z",codex-agent,"Separate local health check: pinned pm health --strict-exit reports managed-extension host-version skew (pinned host 2026.10.20, managed pm-github metadata 2026.10.25), already tracked by pm-linear-bzam, plus the advisory historical-provenance warning already tracked by pm-linear-jloc. Item integrity and history_drift checks are OK. No dependency pin, existing history or extension configuration is changed for this audit. CI health and release-gate results will be reported separately."
+  "2026-10-25T17:37:12.141Z",codex-agent,"npm run release:check passed under a clean home and isolated git config: 363/363 tests, 0 failures, 0 skipped; 99.71 percent lines, 97.22 branches, 100 functions over the configured runtime source, unchanged thresholds. Typecheck, build, docstring, audit:prod, pack dry-run, changelog check, version-derived changelog date and publish-attestation checks all pass. Core pm health --strict-exit --no-extensions passes with the existing advisory; extension-enabled health remains separate. Bun release:check is now running in the same isolated environment."
+  "2026-10-25T17:41:56.710Z",codex-agent,"Bun run release:check also passed under a clean home and isolated git config: 363/363 tests, zero failures or skipped, 99.71 percent lines / 97.22 branches / 100 functions, unchanged thresholds. Both runtime release gates and 118 targeted tests pass. Final repeatable differential checker passes all 6 comparisons on 212 public tracker items, byte-identical runtime modules and unchanged read-only snapshots. Audit disposition: zero outstanding equivalent replacements, zero replaced functions, zero deleted runtime lines; no missing SDK capability found, and no new replacement revert proofs apply. Documentation lists every observation, existing work and verification limits. Work is ready for PR review; the item stays open for orchestrator verification."
+files[2]{path,scope}:
+  docs/sdk-adoption-audit-2026-10-25.md,project
+  test/sdk-adoption-differential.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/atomic.test.ts test/schema-drift.test.ts test/complete-local-reads.test.ts,project,1200,codex-agent,"2026-10-25T17:30:52.646Z",local_mutation,refactor/sdk-adoption-1025
+docs[1]{path,scope}:
+  docs/sdk-adoption-audit-2026-10-25.md,project
+body: ""
