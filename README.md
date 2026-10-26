@@ -336,7 +336,7 @@ See the [SDK example and measured validation](docs/schema-negotiation.md).
 
 ## Without git
 
-Thread capture, schema negotiation, validate, sync/import and export work in
+Focused dependency closure, thread capture, schema negotiation, validate, sync/import and export work in
 plain pm trackers without a git executable. Live provider operations still need
 Linear access; offline previews work without credentials. Release tooling that
 reads git tags needs a repository, separately from tracker operations.
@@ -525,3 +525,68 @@ itself lists each affected stream in its output; `pm history --verify <id>` spot
 content, so `reconcile` only re-greens the hash chain (no data loss) — see the authoritative
 [pm-cli merge-safety guide](https://github.com/unbraind/pm-cli/blob/main/docs/MERGE_SAFETY.md). The
 older blunt `pm history-repair --all` remains available as a lower-level primitive.
+
+## Focused Linear prerequisites
+
+`pm linear closure` acquires missing prerequisite context for explicitly selected,
+linked pm items. It reads incoming Linear `blocks` relations, including archived
+relations, and follows them within declared budgets. Core `pm deps`, pm-context
+and pm-graph continue to handle relationships already available locally.
+
+```sh
+pm linear closure --items pm-example --max-depth 3 --max-nodes 32 --max-requests 64 --json
+pm linear closure --items pm-one,pm-two --max-relations 128
+```
+
+The second form uses the host's default TOON rendering. For larger receipts, set
+host `--output-budget unbounded --output-limit unbounded` to retain every row.
+Only Read access is needed in `LINEAR_API_KEY`. A selection must already carry
+the provenance written by `pm linear import` or `sync`; unlinked selections are
+refused before any HTTP request. There is no full-team query or apply mode.
+
+For `selected -> B -> C -> D`, with only selected imported, `frontier` is
+`[B,C,D]`, `measured` is `{nodes:4,requests:4,relations:3}`, and every issue has
+its depth and local item ID (or null). All known missing blockers remain listed,
+including identities beyond the node/depth cap. `issues[].read` distinguishes
+acquired context from identities awaiting a successful read.
+
+`complete: false` preserves `boundaries` with a reason and remedy for denied
+access, unavailable transport, or an exhausted cap. A hidden relation whose
+identity is unavailable produces a boundary on its source. **Neither complete
+acquisition nor an empty frontier establishes readiness to act.** Read imported
+context and unresolved boundaries before acting. No local or Linear status name
+is interpreted or used to hide a prerequisite.
+
+| Flag | Default | Accepted integer range |
+| --- | ---: | ---: |
+| `--max-depth` | 3 | 0..8 |
+| `--max-nodes` | 32 | 1..128 |
+| `--max-requests` | 64 | 1..256 |
+| `--max-relations` | 128 | 1..1024 |
+| `--max-output-bytes` | 16384 | 1024..131072 |
+
+Select 1..16 distinct items. Node counts include selected roots; relation counts
+include non-blocking rows examined. Each actual HTTP attempt consumes one
+request; failures never trigger hidden retries. Pages contain at most 50 rows
+and transport responses are capped at 256 KiB. JSON receipts reserve 256 bytes
+for transport wrapping; oversized output is refused rather than truncated.
+
+```ts
+import { fetchLinearDependencyClosure, LinearClosureRefusal } from "pm-linear";
+
+const report = await fetchLinearDependencyClosure(
+  { items: ["pm-example"], maxDepth: 3, maxRequests: 16 }, trackerRoot,
+);
+// On refusal, LinearClosureRefusal exposes code, remedy and exitCode (2).
+```
+
+The SDK and command work without Git and leave the source tracker byte-identical.
+Because the pinned SDK writes derived read caches and feedback, certified reads
+run only after a bounded physical isolation copy (at most 20,000 entries / 64 MiB),
+without an item-folder filter. SDK complete enumeration and `locateItem` then
+select the exact item files for a final read view with its configuration. Even
+missing settings/schema files are bootstrapped only in owned copies. Copies are
+removed after each read; the source's permissions never change. Membership is re-read before
+returning; observed local edits, paging drift, malformed data or ambiguous
+provenance produce typed refusals. Provider observations are not an atomic
+cross-issue snapshot. See [validation and limits](docs/dependency-closure.md).

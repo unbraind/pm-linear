@@ -9,7 +9,9 @@ import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 
 import type {
   BulkItemMutation,
@@ -988,7 +990,8 @@ function parseRetryAfter(header: string | string[] | undefined): number | undefi
 function linearRequestOnce<TData>(
   apiKey: string,
   query: string,
-  variables: Record<string, unknown>
+  variables: Record<string, unknown>,
+  maxResponseBytes?: number,
 ): Promise<LinearResponse<TData>> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query, variables });
@@ -1010,7 +1013,13 @@ function linearRequestOnce<TData>(
     const req = request(requestOptions, (res) => {
         const status = res.statusCode ?? 0;
         const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        let receivedBytes = 0;
+        res.on("data", (chunk: Buffer) => {
+          receivedBytes += chunk.length;
+          if (maxResponseBytes !== undefined && receivedBytes > maxResponseBytes) {
+            req.destroy(new Error("Linear response exceeds the declared transport bound"));
+          } else chunks.push(chunk);
+        });
         res.on("end", () => {
           if (status === 429 || (status >= 500 && status <= 599)) {
             reject(
@@ -1650,6 +1659,359 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
       report.appended = result.changed ? 1 : 0;
       report.duplicate = !result.changed;
     } catch { throw new ThreadCaptureRefusal("write_unconfirmed", "Delivery may have persisted. Restore tracker access or ownership, then retry the identical selection, disclosure and revision; SDK deduplication prevents a second note."); }
+  }
+  return report;
+}
+
+/** Explicit local selections and hard acquisition/output budgets; all operations are read-only. */
+export interface LinearClosureOptions {
+  items: string[];
+  maxDepth?: number;
+  maxNodes?: number;
+  maxRequests?: number;
+  maxRelations?: number;
+  maxOutputBytes?: number;
+}
+
+/** Machine-readable failures that never include provider errors, credentials or local paths. */
+export type LinearClosureRefusalCode = "invalid_input" | "selection_required" | "local_read_failed" | "source_invalid" | "source_changed" | "output_budget";
+
+/** Recoverable refusal for invalid selection, incomplete local evidence or malformed provider data. */
+export class LinearClosureRefusal extends CommandError {
+  /** Stable category for agent branching. */
+  readonly code: LinearClosureRefusalCode;
+  /** Action needed before retrying the observational acquisition. */
+  readonly remedy: string;
+  constructor(code: LinearClosureRefusalCode, remedy: string) {
+    super(`Linear dependency closure refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearClosureRefusal";
+    this.code = code;
+    this.remedy = remedy;
+  }
+}
+
+/** One observed prerequisite, with null metadata until its issue read succeeds. */
+export interface LinearClosureIssue {
+  id: string;
+  identifier: string | null;
+  title: string | null;
+  depth: number;
+  localId: string | null;
+  read: boolean;
+}
+
+/** Why the provider frontier remains unresolved; this is never evidence of readiness. */
+export interface LinearClosureBoundary {
+  id: string;
+  reason: "access_denied" | "unavailable" | "depth_cap" | "node_cap" | "request_cap" | "relation_cap";
+  remedy: string;
+}
+
+/** Compact observation receipt; complete means acquisition finished, not that work is unblocked. */
+export interface LinearClosureReport {
+  ok: true;
+  mode: "preview";
+  complete: boolean;
+  selected: string[];
+  issues: LinearClosureIssue[];
+  frontier: string[];
+  prerequisites: { issue: string; blocker: string }[];
+  boundaries: LinearClosureBoundary[];
+  measured: { nodes: number; requests: number; relations: number };
+  caps: { depth: number; nodes: number; requests: number; relations: number; outputBytes: number };
+}
+
+/** Declarative boundary vocabulary shared by options, provider responses and emitted receipts. */
+type ClosureShape = { kind: "string"; max: number; pattern?: RegExp } |
+  { kind: "number"; min: number; max: number } | { kind: "boolean" } |
+  { kind: "literal"; value: string | boolean } | { kind: "array"; max: number; row: ClosureShape } |
+  { kind: "object"; fields: Record<string, ClosureShape>; optional?: string[] } |
+  { kind: "nullable"; inner: ClosureShape };
+
+const closureId: ClosureShape = { kind: "string", max: 128, pattern: /^[a-zA-Z0-9_-]+$/ };
+const closureText: ClosureShape = { kind: "string", max: 1024 };
+const closureNullableId: ClosureShape = { kind: "nullable", inner: closureId };
+const closureNullableText: ClosureShape = { kind: "nullable", inner: closureText };
+const closureBoolean: ClosureShape = { kind: "boolean" };
+const closureCount: ClosureShape = { kind: "number", min: 0, max: 1024 };
+const closureOptionsShape: ClosureShape = { kind: "object", fields: {
+  items: { kind: "array", max: 16, row: closureId },
+  maxDepth: { kind: "number", min: 0, max: 8 },
+  maxNodes: { kind: "number", min: 1, max: 128 },
+  maxRequests: { kind: "number", min: 1, max: 256 },
+  maxRelations: { kind: "number", min: 1, max: 1024 },
+  maxOutputBytes: { kind: "number", min: 1024, max: 131072 },
+}, optional: ["maxDepth", "maxNodes", "maxRequests", "maxRelations", "maxOutputBytes"] };
+const closureIssueShape: ClosureShape = { kind: "object", fields: {
+  id: closureId, identifier: closureNullableText, title: closureNullableText,
+  depth: { kind: "number", min: 0, max: 8 }, localId: closureNullableId, read: closureBoolean,
+} };
+const closureProviderShape: ClosureShape = { kind: "nullable", inner: { kind: "object", fields: {
+  id: closureId, identifier: closureText, title: closureText, updatedAt: closureText,
+  inverseRelations: { kind: "object", fields: {
+    nodes: { kind: "array", max: 50, row: { kind: "object", fields: {
+      id: closureId, type: closureText,
+      issue: { kind: "nullable", inner: { kind: "object", fields: { id: closureId } } },
+      relatedIssue: { kind: "object", fields: { id: closureId } },
+    } } },
+    pageInfo: { kind: "object", fields: { hasNextPage: closureBoolean, endCursor: closureNullableText } },
+  } },
+} } };
+const closureReportShape: ClosureShape = { kind: "object", fields: {
+  ok: { kind: "literal", value: true }, mode: { kind: "literal", value: "preview" }, complete: closureBoolean,
+  selected: { kind: "array", max: 16, row: closureId },
+  issues: { kind: "array", max: 128, row: closureIssueShape },
+  frontier: { kind: "array", max: 1024, row: closureId },
+  prerequisites: { kind: "array", max: 1024, row: { kind: "object", fields: { issue: closureId, blocker: closureId } } },
+  boundaries: { kind: "array", max: 1024, row: { kind: "object", fields: { id: closureId, reason: closureText, remedy: closureText } } },
+  measured: { kind: "object", fields: { nodes: closureCount, requests: closureCount, relations: closureCount } },
+  caps: { kind: "object", fields: { depth: closureCount, nodes: closureCount, requests: closureCount, relations: closureCount,
+    outputBytes: { kind: "number", min: 1024, max: 131072 } } },
+} };
+
+/** Validate once per boundary using the same strict schema interpreter, including dense arrays. */
+function closureMatches(value: unknown, shape: ClosureShape): boolean {
+  switch (shape.kind) {
+    case "string": return typeof value === "string" && value.length > 0 && value.length <= shape.max && (!shape.pattern || shape.pattern.test(value));
+    case "number": return typeof value === "number" && Number.isSafeInteger(value) && value >= shape.min && value <= shape.max;
+    case "boolean": return typeof value === "boolean";
+    case "literal": return value === shape.value;
+    case "nullable": return value === null || closureMatches(value, shape.inner);
+    case "array": return Array.isArray(value) && value.length <= shape.max &&
+      Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index) && closureMatches(value[index], shape.row)).every(Boolean);
+    case "object": {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+      const row = value as Record<string, unknown>;
+      return Object.keys(row).every((key) => Object.hasOwn(shape.fields, key)) &&
+        Object.entries(shape.fields).every(([key, field]) =>
+          shape.optional?.includes(key) && row[key] === undefined || Object.hasOwn(row, key) && closureMatches(row[key], field));
+    }
+  }
+}
+
+const CLOSURE_QUERY = `query LinearPrerequisites($id: String!, $after: String) {
+  issue(id: $id) { id identifier title updatedAt
+    inverseRelations(first: 50, after: $after, includeArchived: true) {
+      nodes { id type issue { id } relatedIssue { id } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+/** Certified isolated membership plus SDK-resolved selections and configuration identity. */
+interface ClosureReadView {
+  items: PmItem[];
+  selectedIds: Array<string | null>;
+  configuration: string;
+}
+
+/**
+ * Isolate bytes before any settings/schema read can repair or backfill files.
+ * The bounded bootstrap copy applies no item-folder filter. SDK complete reads
+ * discover membership there; SDK locateItem supplies the exact item files for
+ * the final read view. Only owned copies ever reach repairing SDK entry points.
+ * The source is an absolute, canonical tracker path resolved by the boundary.
+ */
+async function readClosureItems(source: string, selections: string[]): Promise<ClosureReadView> {
+  const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
+  const bootstrap = join(scratch, "bootstrap");
+  const reader = join(scratch, "reader");
+  let files = 0;
+  let bytes = 0;
+  /** Restore write access only inside owned copies, including after an interrupted copy. */
+  async function writableMirror(): Promise<boolean> {
+    let links = false;
+    await chmod(scratch, 0o700);
+    for (const entry of await readdir(scratch, { recursive: true, withFileTypes: true })) {
+      links ||= entry.isSymbolicLink();
+      if (entry.isDirectory()) await chmod(join(entry.parentPath, entry.name), 0o700);
+    }
+    return links;
+  }
+  try {
+    await cp(source, bootstrap, { recursive: true, filter: async (path) => {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw new Error("Unsupported tracker entry");
+      files++;
+      bytes += info.isFile() ? info.size : 0;
+      if (files > 20000 || bytes > 67108864) throw new Error("Tracker isolation budget exceeded");
+      return true;
+    } });
+    if (await writableMirror()) throw new Error("Copied tracker contains a symbolic link");
+    const sdk = await importRuntimeSdk();
+    const settings = await sdk.readSettings(bootstrap);
+    const settingsPath = sdk.getSettingsPath(bootstrap);
+    // Missing configuration is recoverable only in the owned bootstrap copy.
+    if (!await sdk.pathExists(settingsPath)) await sdk.writeFileAtomic(settingsPath, JSON.stringify(settings));
+    const registry = sdk.resolveItemTypeRegistry(settings);
+    const enumerated = await readPmItems(bootstrap);
+    await mkdir(reader);
+    await cp(settingsPath, sdk.getSettingsPath(reader));
+    await cp(join(bootstrap, "schema"), join(reader, "schema"), { recursive: true });
+    for (const item of enumerated) {
+      const located = await sdk.locateItem(bootstrap, item.id!, settings.id_prefix, settings.item_format, registry.type_to_folder);
+      if (!located) throw new Error("SDK membership changed during isolation");
+      const file = relative(bootstrap, located.itemPath);
+      if (file.startsWith("..") || isAbsolute(file)) throw new Error("SDK item lies outside the isolated tracker");
+      const target = join(reader, file);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(located.itemPath, target);
+    }
+    if (await writableMirror()) throw new Error("SDK read view contains a symbolic link");
+    const items = await readPmItems(reader);
+    if (schemaDigest(items) !== schemaDigest(enumerated)) throw new Error("SDK read-view membership diverged");
+    const selectedIds: Array<string | null> = [];
+    for (const id of selections) {
+      const located = await sdk.locateItem(reader, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
+      selectedIds.push(located?.id ?? null);
+    }
+    return { items, selectedIds, configuration: schemaDigest(settings) };
+  } finally {
+    await writableMirror();
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Acquire only the inverse blocks frontier of explicitly selected linked items.
+ * Certified SDK reads supply identity and imported membership. Each HTTP attempt
+ * is charged once, with no retry, persistence, import or provider mutation. Local
+ * status names are never interpreted: all prerequisites are context to read.
+ */
+export async function fetchLinearDependencyClosure(options: LinearClosureOptions, pmRoot: string): Promise<LinearClosureReport> {
+  const callerCwd = process.cwd();
+  if (!closureMatches(options, closureOptionsShape)) {
+    throw new LinearClosureRefusal("invalid_input", "Pass 1..16 item IDs and integer budgets in the documented ranges; remove unknown options.");
+  }
+  const caps = { depth: options.maxDepth ?? 3, nodes: options.maxNodes ?? 32, requests: options.maxRequests ?? 64,
+    relations: options.maxRelations ?? 128, outputBytes: options.maxOutputBytes ?? 16384 };
+  if (!options.items.length || options.items.length > caps.nodes || new Set(options.items).size !== options.items.length) {
+    throw new LinearClosureRefusal("selection_required", "Select 1..16 distinct linked local items and allow at least one node for each selection.");
+  }
+  const apiKey = process.env.LINEAR_API_KEY;
+  if (!apiKey) throw new LinearClosureRefusal("selection_required", "Set LINEAR_API_KEY with read access to the explicitly selected linked issues, then retry.");
+  let sdk: Awaited<ReturnType<typeof importRuntimeSdk>>;
+  try { sdk = await importRuntimeSdk(); }
+  catch { throw new LinearClosureRefusal("local_read_failed", "Install a compatible pm SDK and retry with a readable initialized tracker."); }
+  const local = new Map<string, string>();
+  let source: string;
+  let view: ClosureReadView;
+  let corpus: PmItem[];
+  try {
+    if (typeof pmRoot !== "string" || !pmRoot.trim()) throw new Error("Explicit tracker path required");
+    source = await realpath(sdk.resolvePmRoot(callerCwd, pmRoot));
+    view = await readClosureItems(source, options.items);
+    corpus = view.items;
+    for (const item of corpus) {
+      const id = parseProvenance(item.description)?.linear_id;
+      if (!id) continue;
+      if (!closureMatches(id, closureId) || local.has(id)) throw new Error("Ambiguous or invalid Linear provenance");
+      local.set(id, item.id!);
+    }
+  } catch { throw new LinearClosureRefusal("local_read_failed", "Repair unreadable items or duplicate Linear provenance, then retry with a certified complete SDK read."); }
+  const selected: string[] = [];
+  try {
+    for (const [index] of options.items.entries()) {
+      const item = corpus.find((row) => row.id === view.selectedIds[index]);
+      if (!item) throw new Error("Missing selection");
+      const linked = parseProvenance(item.description)?.linear_id;
+      if (!linked || local.get(linked) !== item.id) throw new Error("Selection is unlinked or changed");
+      selected.push(linked);
+    }
+    if (new Set(selected).size !== selected.length) throw new Error("Aliased selection");
+  } catch { throw new LinearClosureRefusal("selection_required", "Select existing pm item IDs with unique Linear provenance; import or repair their links first."); }
+  const issues = new Map<string, LinearClosureIssue>();
+  const prerequisites = new Map<string, { issue: string; blocker: string }>();
+  const boundaries = new Map<string, LinearClosureBoundary>();
+  const queue: string[] = [];
+  let requests = 0;
+  let relations = 0;
+  /** Retain one explicit unresolved boundary per source and reason, with bounded recovery guidance. */
+  function boundary(id: string, reason: LinearClosureBoundary["reason"]): void {
+    const remedy = reason === "access_denied" ? "Restore read access to this issue and its prerequisite relations, then retry." :
+      reason === "unavailable" ? "Restore Linear availability and retry the read-only preview." :
+      "Increase the corresponding declared cap within its documented limit, or narrow the selection, then retry.";
+    boundaries.set(`${id}:${reason}`, { id, reason, remedy });
+  }
+  /** Charge unique identities before queuing; never pretend an omitted blocker was acquired. */
+  function enqueue(id: string, depth: number): void {
+    if (issues.has(id)) return;
+    if (depth > caps.depth) { boundary(id, "depth_cap"); return; }
+    if (issues.size >= caps.nodes) { boundary(id, "node_cap"); return; }
+    issues.set(id, { id, identifier: null, title: null, depth, localId: local.get(id) ?? null, read: false });
+    queue.push(id);
+  }
+  for (const id of selected) enqueue(id, 0);
+  for (const id of queue) {
+    const current = issues.get(id)!;
+    const cursors = new Set<string>();
+    const relationIds = new Set<string>();
+    let after: string | null = null;
+    let revision: string | undefined;
+    do {
+      if (requests >= caps.requests) { boundary(id, "request_cap"); break; }
+      requests++;
+      let response: LinearResponse<{ issue: unknown }>;
+      try { response = await linearRequestOnce<{ issue: unknown }>(apiKey, CLOSURE_QUERY, { id, after }, 262144); }
+      catch (error) { boundary(id, error instanceof AuthHttpError ? "access_denied" : "unavailable"); break; }
+      if (typeof response !== "object" || response === null || Array.isArray(response)) {
+        throw new LinearClosureRefusal("source_invalid", "Retry with a valid Linear GraphQL response envelope containing the selected issue.");
+      }
+      if (response.errors !== undefined || response.data?.issue === null) { boundary(id, "access_denied"); break; }
+      const raw = response.data?.issue;
+      if (!closureMatches(raw, closureProviderShape) || raw === null) {
+        throw new LinearClosureRefusal("source_invalid", "Retry with complete, bounded Linear issue and relation pages matching the documented GraphQL schema.");
+      }
+      const issue = raw as { id: string; identifier: string; title: string; updatedAt: string;
+        inverseRelations: { nodes: { id: string; type: string; issue: { id: string } | null; relatedIssue: { id: string } }[];
+          pageInfo: { hasNextPage: boolean; endCursor: string | null } } };
+      if (issue.id !== id) throw new LinearClosureRefusal("source_invalid", "Retry with the requested issue identity; provider aliases cannot substitute another issue.");
+      const fingerprint = schemaDigest([issue.id, issue.identifier, issue.title, issue.updatedAt]);
+      if (revision !== undefined && revision !== fingerprint) throw new LinearClosureRefusal("source_changed", "The selected issue changed while paging. Retry a fresh read-only preview.");
+      revision = fingerprint;
+      current.identifier = issue.identifier;
+      current.title = issue.title;
+      const page = issue.inverseRelations;
+      let stopped = false;
+      for (const relation of page.nodes) {
+        if (relations >= caps.relations) { boundary(id, "relation_cap"); stopped = true; break; }
+        relations++;
+        if (relationIds.has(relation.id) || relation.relatedIssue.id !== id) {
+          throw new LinearClosureRefusal("source_invalid", "Retry after duplicate or incorrectly directed relation rows are repaired; no partial frontier is certified.");
+        }
+        relationIds.add(relation.id);
+        if (relation.type !== "blocks") continue;
+        if (!relation.issue) { boundary(id, "access_denied"); continue; }
+        const blocker = relation.issue.id;
+        prerequisites.set(`${id}:${blocker}`, { issue: id, blocker });
+        enqueue(blocker, current.depth + 1);
+      }
+      if (stopped) break;
+      current.read = true;
+      if (!page.pageInfo.hasNextPage) break;
+      after = page.pageInfo.endCursor;
+      if (!after || cursors.has(after) || !page.nodes.length) {
+        throw new LinearClosureRefusal("source_invalid", "Retry with advancing, nonempty prerequisite pages and complete pagination metadata.");
+      }
+      cursors.add(after);
+      current.read = false;
+    } while (true);
+  }
+  // The operation has no apply/recovery state. Re-read membership so concurrent
+  // local edits cannot silently turn a missing prerequisite into imported context.
+  try {
+    const latest = await readClosureItems(source, options.items);
+    if (schemaDigest(latest) !== schemaDigest(view)) throw new Error("Changed corpus");
+  } catch { throw new LinearClosureRefusal("source_changed", "The local tracker changed or became unreadable during acquisition. Retry a fresh preview."); }
+  const report: LinearClosureReport = { ok: true, mode: "preview", complete: boundaries.size === 0,
+    selected, issues: [...issues.values()], frontier: [...new Set([...prerequisites.values()].map((edge) => edge.blocker))].filter((id) => !local.has(id)),
+    prerequisites: [...prerequisites.values()], boundaries: [...boundaries.values()],
+    measured: { nodes: issues.size, requests, relations }, caps };
+  if (!closureMatches(report, closureReportShape) || requests > caps.requests || issues.size > caps.nodes || relations > caps.relations) {
+    throw new LinearClosureRefusal("source_invalid", "The complete receipt failed its bounded output contract. Narrow the selection and retry.");
+  }
+  if (Buffer.byteLength(JSON.stringify(report)) + 256 > caps.outputBytes) {
+    throw new LinearClosureRefusal("output_budget", "Raise --max-output-bytes up to 131072 or narrow the selection; the complete frontier is never silently truncated.");
   }
   return report;
 }
@@ -3155,6 +3517,29 @@ export default defineExtension({
   version: "2026.10.25",
 
   activate(api: ExtensionApi) {
+    api.registerCommand({
+      name: "linear closure",
+      description: "Read the bounded missing Linear prerequisite frontier for selected linked items",
+      intent: "Acquire prerequisite context without importing or mutating tracker or provider state",
+      examples: ["pm linear closure --items pm-example --json", "pm linear closure --items pm-one,pm-two --max-depth 3 --max-nodes 32"],
+      flags: [
+        { long: "--items", value_name: "ids", description: "Explicit comma-separated existing linked pm item IDs (1..16)." },
+        { long: "--max-depth", value_name: "n", description: "Prerequisite hops, 0..8 (default 3)." },
+        { long: "--max-nodes", value_name: "n", description: "Unique acquired identities including selected roots, 1..128 (default 32)." },
+        { long: "--max-requests", value_name: "n", description: "Actual HTTP attempts, 1..256 (default 64); no automatic retries." },
+        { long: "--max-relations", value_name: "n", description: "Relation rows examined, 1..1024 (default 128)." },
+        { long: "--max-output-bytes", value_name: "n", description: "Complete JSON receipt byte budget, 1024..131072 (default 16384)." },
+      ],
+      async run(ctx) {
+        const options: LinearClosureOptions = { items: (readStringOption(ctx.options, "items") ?? "").split(",") };
+        for (const [flag, key] of [["max-depth", "maxDepth"], ["max-nodes", "maxNodes"], ["max-requests", "maxRequests"],
+          ["max-relations", "maxRelations"], ["max-output-bytes", "maxOutputBytes"]] as const) {
+          const value = readStringOption(ctx.options, flag);
+          if (value !== undefined) options[key] = Number(value);
+        }
+        return fetchLinearDependencyClosure(options, ctx.pm_root);
+      },
+    });
     api.registerCommand({
       name: "linear capture",
       description: "Propose revisioned evidence notes from one explicitly selected Linear thread",

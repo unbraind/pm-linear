@@ -1,0 +1,28 @@
+{
+  "provider": "synthetic read-only HTTP fixture",
+  "liveLinearValidated": false,
+  "results": [
+    {
+      "source": "public-original",
+      "items": 107,
+      "linked": 0,
+      "refusal": "selection_required",
+      "requests": 0,
+      "sourceSha256": "442e45b4e0adb38493c73f166c109bac1eee568a5d6cd3ac2a05c6fbce503518",
+      "unchanged": true
+    },
+    {
+      "source": "public-derived-synthetic-link",
+      "items": 107,
+      "linked": 1,
+      "nodes": 4,
+      "requests": 4,
+      "relations": 3,
+      "frontier": 3,
+      "complete": true,
+      "jsonBytes": 789,
+      "sourceSha256": "f2caf3ca71b8a38556d5f1ec6ea2247db5808b0ded0e29e00e755e1a3e30a354",
+      "unchanged": true
+    }
+  ]
+}
