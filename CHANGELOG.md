@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Verify the 2026-10-25 SDK adoption audit disposition ([pm-linear-292r](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-292r.toon))
+
 ## 2026.10.25 - 2026-10-25
 
 ### Added
