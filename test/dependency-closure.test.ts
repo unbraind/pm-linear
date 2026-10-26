@@ -6,7 +6,7 @@ import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { PmClient } from "@unbrained/pm-cli/sdk/runtime";
+import { PmClient, locateItem, readLocatedItem, readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { buildProvenance, fetchLinearDependencyClosure, LinearClosureRefusal,
   type LinearClosureOptions, type LinearClosureReport } from "../index.ts";
@@ -246,6 +246,12 @@ test("500 seeded random operation sequences replay older provider graphs and rea
   let seed = 0x193740ab;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const graphs: Map<string, string[]>[] = [];
+  /** Read authoritative state through SDK parsers without adding usage-ledger test overhead. */
+  async function readState() {
+    const located = await locateItem(root, "closure-fixture-selected");
+    assert.ok(located);
+    return (await readLocatedItem(located, { schema: (await readSettings(root)).schema })).document;
+  }
   // Each sequence has graph edit, historical replay, CRLF/whitespace and foreign-field changes.
   for (let sequence = 0; sequence < 500; sequence++) {
     if (sequence % 50 === 0) {
@@ -263,12 +269,12 @@ test("500 seeded random operation sequences replay older provider graphs and rea
         row.title = sequence % 2 ? ` Context ${id}\r\n evidence ` : `Context ${id}`;
         return { data: { issue: row } };
       };
-      const before = await pm.get("selected", { full: true });
+      const before = await readState();
       const report: LinearClosureReport = await fetchLinearDependencyClosure(options, root);
       assert.equal(report.complete, true);
       assert.deepEqual(new Set(report.issues.map((row) => row.id)), new Set(expected(source)));
       assert.deepEqual(new Set(report.frontier), new Set(expected(source).filter((id) => id !== "a")));
-      assert.deepEqual((await pm.get("selected", { full: true })).item, before.item);
+      assert.deepEqual(await readState(), before);
       assert.ok(report.issues.every((row) => Number.isFinite(row.depth) && row.depth >= 0 && row.depth <= report.caps.depth));
     }
   }
