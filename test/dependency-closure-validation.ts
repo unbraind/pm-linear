@@ -1,7 +1,7 @@
 /** Validate immutable public corpus copies; one operand may contain a declared synthetic link overlay. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { chmod, cp, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -50,8 +50,18 @@ try {
   for (const operand of process.argv.slice(2)) {
     const root = resolve(operand);
     const before = await snapshot(root);
-    const pm = new PmClient({ pmRoot: root, noExtensions: true });
-    const corpus = await pm.listAllComplete({ includeBody: true });
+    // Even census reads may backfill SDK files; isolate before calling the SDK.
+    const census = await mkdtemp(join(tmpdir(), "linear-census-"));
+    let corpus: Awaited<ReturnType<PmClient["listAllComplete"]>>;
+    try {
+      await cp(root, census, { recursive: true });
+      await chmod(census, 0o700);
+      for (const entry of await readdir(census, { recursive: true, withFileTypes: true })) {
+        await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o700 : 0o600);
+      }
+      const pm = new PmClient({ pmRoot: census, noExtensions: true });
+      corpus = await pm.listAllComplete({ includeBody: true });
+    } finally { await rm(census, { recursive: true, force: true }); }
     const linked = corpus.items.filter((row) => parseProvenance(row.description));
     const offset = requests;
     if (!linked.length) {

@@ -9,9 +9,9 @@ import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
-import { chmod, cp, lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 
 import type {
   BulkItemMutation,
@@ -1798,45 +1798,74 @@ const CLOSURE_QUERY = `query LinearPrerequisites($id: String!, $after: String) {
   }
 }`;
 
+/** Certified isolated membership plus SDK-resolved selections and configuration identity. */
+interface ClosureReadView {
+  items: PmItem[];
+  selectedIds: Array<string | null>;
+  configuration: string;
+}
+
 /**
- * Run certified SDK reads in an owned disposable mirror. The pinned SDK writes
- * usage feedback and caches even on reads; isolating those derived writes keeps
- * the source tracker byte-identical without mutating its permissions or using Git.
- * Copy only registered item folders, schema and settings, with bounded file/byte
- * counts. SDK parsers and corpus certification remain the only item readers.
+ * Isolate bytes before any settings/schema read can repair or backfill files.
+ * The bounded bootstrap copy applies no item-folder filter. SDK complete reads
+ * discover membership there; SDK locateItem supplies the exact item files for
+ * the final read view. Only owned copies ever reach repairing SDK entry points.
+ * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(pmRoot: string): Promise<PmItem[]> {
-  const sdk = await importRuntimeSdk();
-  const source = sdk.resolvePmRoot(pmRoot, pmRoot);
-  const settings = await sdk.readSettings(source);
-  const registry = sdk.resolveItemTypeRegistry(settings);
-  const folders = new Set([...Object.values(registry.type_to_folder), "schema", "settings.json"]);
+async function readClosureItems(source: string, selections: string[]): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
+  const bootstrap = join(scratch, "bootstrap");
+  const reader = join(scratch, "reader");
   let files = 0;
   let bytes = 0;
-  /** Copies retain source modes; make only owned mirror directories writable for SDK caches and cleanup. */
-  async function writableMirror(): Promise<void> {
+  /** Restore write access only inside owned copies, including after an interrupted copy. */
+  async function writableMirror(): Promise<boolean> {
+    let links = false;
     await chmod(scratch, 0o700);
     for (const entry of await readdir(scratch, { recursive: true, withFileTypes: true })) {
-      if (entry.isSymbolicLink()) throw new Error("Unsupported copied tracker entry");
+      links ||= entry.isSymbolicLink();
       if (entry.isDirectory()) await chmod(join(entry.parentPath, entry.name), 0o700);
     }
+    return links;
   }
   try {
-    await cp(source, scratch, { recursive: true, filter: async (path) => {
-      const name = relative(source, path);
-      if (name && !folders.has(name.split(/[\\/]/)[0])) return false;
-      const stat = await lstat(path);
-      if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) throw new Error("Unsupported tracker entry");
-      if (stat.isFile()) {
-        files++;
-        bytes += stat.size;
-        if (files > 20000 || bytes > 67108864) throw new Error("Tracker read budget exceeded");
-      }
+    await cp(source, bootstrap, { recursive: true, filter: async (path) => {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw new Error("Unsupported tracker entry");
+      files++;
+      bytes += info.isFile() ? info.size : 0;
+      if (files > 20000 || bytes > 67108864) throw new Error("Tracker isolation budget exceeded");
       return true;
     } });
-    await writableMirror();
-    return await readPmItems(scratch);
+    if (await writableMirror()) throw new Error("Copied tracker contains a symbolic link");
+    const sdk = await importRuntimeSdk();
+    const settings = await sdk.readSettings(bootstrap);
+    const settingsPath = sdk.getSettingsPath(bootstrap);
+    // Missing configuration is recoverable only in the owned bootstrap copy.
+    if (!await sdk.pathExists(settingsPath)) await sdk.writeFileAtomic(settingsPath, JSON.stringify(settings));
+    const registry = sdk.resolveItemTypeRegistry(settings);
+    const enumerated = await readPmItems(bootstrap);
+    await mkdir(reader);
+    await cp(settingsPath, sdk.getSettingsPath(reader));
+    await cp(join(bootstrap, "schema"), join(reader, "schema"), { recursive: true });
+    for (const item of enumerated) {
+      const located = await sdk.locateItem(bootstrap, item.id!, settings.id_prefix, settings.item_format, registry.type_to_folder);
+      if (!located) throw new Error("SDK membership changed during isolation");
+      const file = relative(bootstrap, located.itemPath);
+      if (file.startsWith("..") || isAbsolute(file)) throw new Error("SDK item lies outside the isolated tracker");
+      const target = join(reader, file);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(located.itemPath, target);
+    }
+    if (await writableMirror()) throw new Error("SDK read view contains a symbolic link");
+    const items = await readPmItems(reader);
+    if (schemaDigest(items) !== schemaDigest(enumerated)) throw new Error("SDK read-view membership diverged");
+    const selectedIds: Array<string | null> = [];
+    for (const id of selections) {
+      const located = await sdk.locateItem(reader, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
+      selectedIds.push(located?.id ?? null);
+    }
+    return { items, selectedIds, configuration: schemaDigest(settings) };
   } finally {
     await writableMirror();
     await rm(scratch, { recursive: true, force: true });
@@ -1850,6 +1879,7 @@ async function readClosureItems(pmRoot: string): Promise<PmItem[]> {
  * status names are never interpreted: all prerequisites are context to read.
  */
 export async function fetchLinearDependencyClosure(options: LinearClosureOptions, pmRoot: string): Promise<LinearClosureReport> {
+  const callerCwd = process.cwd();
   if (!closureMatches(options, closureOptionsShape)) {
     throw new LinearClosureRefusal("invalid_input", "Pass 1..16 item IDs and integer budgets in the documented ranges; remove unknown options.");
   }
@@ -1864,9 +1894,14 @@ export async function fetchLinearDependencyClosure(options: LinearClosureOptions
   try { sdk = await importRuntimeSdk(); }
   catch { throw new LinearClosureRefusal("local_read_failed", "Install a compatible pm SDK and retry with a readable initialized tracker."); }
   const local = new Map<string, string>();
+  let source: string;
+  let view: ClosureReadView;
   let corpus: PmItem[];
   try {
-    corpus = await readClosureItems(pmRoot);
+    if (typeof pmRoot !== "string" || !pmRoot.trim()) throw new Error("Explicit tracker path required");
+    source = await realpath(sdk.resolvePmRoot(callerCwd, pmRoot));
+    view = await readClosureItems(source, options.items);
+    corpus = view.items;
     for (const item of corpus) {
       const id = parseProvenance(item.description)?.linear_id;
       if (!id) continue;
@@ -1876,10 +1911,8 @@ export async function fetchLinearDependencyClosure(options: LinearClosureOptions
   } catch { throw new LinearClosureRefusal("local_read_failed", "Repair unreadable items or duplicate Linear provenance, then retry with a certified complete SDK read."); }
   const selected: string[] = [];
   try {
-    const settings = await sdk.readSettings(sdk.resolvePmRoot(pmRoot, pmRoot));
-    for (const id of options.items) {
-      const normalized = sdk.normalizeItemId(id, settings.id_prefix);
-      const item = corpus.find((row) => row.id === normalized);
+    for (const [index] of options.items.entries()) {
+      const item = corpus.find((row) => row.id === view.selectedIds[index]);
       if (!item) throw new Error("Missing selection");
       const linked = parseProvenance(item.description)?.linear_id;
       if (!linked || local.get(linked) !== item.id) throw new Error("Selection is unlinked or changed");
@@ -1967,8 +2000,8 @@ export async function fetchLinearDependencyClosure(options: LinearClosureOptions
   // The operation has no apply/recovery state. Re-read membership so concurrent
   // local edits cannot silently turn a missing prerequisite into imported context.
   try {
-    const latest = await readClosureItems(pmRoot);
-    if (schemaDigest(latest) !== schemaDigest(corpus)) throw new Error("Changed corpus");
+    const latest = await readClosureItems(source, options.items);
+    if (schemaDigest(latest) !== schemaDigest(view)) throw new Error("Changed corpus");
   } catch { throw new LinearClosureRefusal("source_changed", "The local tracker changed or became unreadable during acquisition. Retry a fresh preview."); }
   const report: LinearClosureReport = { ok: true, mode: "preview", complete: boundaries.size === 0,
     selected, issues: [...issues.values()], frontier: [...new Set([...prerequisites.values()].map((edge) => edge.blocker))].filter((id) => !local.has(id)),

@@ -2,14 +2,14 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
 import { PmClient, locateItem, readLocatedItem, readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { buildProvenance, fetchLinearDependencyClosure, LinearClosureRefusal,
-  type LinearClosureOptions, type LinearClosureReport } from "../index.ts";
+  parseProvenance, type LinearClosureOptions, type LinearClosureReport } from "../index.ts";
 
 /** Incoming blocks rows point from the prerequisite toward the requested issue. */
 function issue(id: string, blockers: string[] = []) {
@@ -22,10 +22,11 @@ function issue(id: string, blockers: string[] = []) {
 /** Names and byte hashes detect new files as well as edits anywhere in the temp tracker. */
 async function snapshot(root: string) {
   const hash = createHash("sha256");
-  for (const entry of (await readdir(root, { recursive: true, withFileTypes: true }))
-    .filter((entry) => entry.isFile()).sort((a, b) => a.name.localeCompare(b.name))) {
-    hash.update(join(entry.parentPath, entry.name).slice(root.length));
-    hash.update(await readFile(join(entry.parentPath, entry.name)));
+  const entries = [root, ...(await readdir(root, { recursive: true })).map((name) => join(root, name))].sort();
+  for (const file of entries) {
+    const info = await lstat(file);
+    hash.update(JSON.stringify([relative(root, file), info.isDirectory(), info.mode]));
+    if (info.isFile()) hash.update(await readFile(file));
   }
   return hash.digest("hex");
 }
@@ -297,4 +298,95 @@ test("read-only source modes and foreign symlink entries cannot cause source wri
   await rm(linked);
   await writeFile(join(root, "tasks", "broken.toon"), "[invalid");
   await assert.rejects(fetchLinearDependencyClosure(options, root), refused("local_read_failed"));
+});
+
+/** Change permissions only on test-owned trees and restore them even after a regression fails. */
+async function sourceModes(root: string, writable: boolean): Promise<void> {
+  await chmod(root, writable ? 0o700 : 0o555);
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? (writable ? 0o700 : 0o555) : (writable ? 0o600 : 0o444));
+  }
+}
+
+test("source isolation precedes SDK backfill for missing schema, settings and history", async (t) => {
+  const { root, options } = await fixture(t);
+  options.items = ["closure-fixture-selected"];
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const absent of ["schema/statuses.json", "history", "settings.json", "schema"]) {
+    await rm(join(root, absent), { recursive: true, force: true });
+    if (absent === "history") await mkdir(join(root, "history"));
+    for (const readOnly of [false, true]) {
+      if (readOnly) await sourceModes(root, false);
+      try {
+        for (const transport of ["sdk", "json", "toon"]) {
+          const before = await snapshot(root);
+          const report = transport === "sdk" ? await fetchLinearDependencyClosure(options, root) :
+            (await harness.runCommand({ command: "linear closure", pmRoot: root, options: { items: options.items[0] },
+              global: transport === "json" ? { json: true } : {} })).result as LinearClosureReport;
+          assert.equal(report.complete, true);
+          assert.deepEqual(report.frontier, ["b", "c", "d"]);
+          assert.equal(await snapshot(root), before, `${absent}/${transport}/${readOnly}: original tree changed`);
+        }
+      } finally { if (readOnly) await sourceModes(root, true); }
+    }
+  }
+});
+
+test("SDK membership includes custom nested layouts and items moved between registered folders", async (t) => {
+  const { root, pm, options } = await fixture(t);
+  await pm.create({ id: "imported", title: "Imported blocker", description: buildProvenance({ id: "b", identifier: "ENG-b" }), createMode: "progressive" });
+  await pm.schemaAddType("Custom", { folder: "custom-work" });
+  await pm.schemaAddType("Nested", { folder: "work/nested" });
+  for (const type of ["Task", "Custom", "Nested", "Task"]) {
+    await pm.update("imported", { type });
+    const expectedId = (await pm.listAllComplete()).items.find((row) => parseProvenance(row.description)?.linear_id === "b")?.id;
+    assert.ok(expectedId);
+    const before = await snapshot(root);
+    const report = await fetchLinearDependencyClosure(options, root);
+    assert.equal(report.complete, true);
+    assert.deepEqual(report.frontier, ["c", "d"], type);
+    assert.equal(report.issues.find((row) => row.id === "b")?.localId, expectedId);
+    const selected = await fetchLinearDependencyClosure({ items: [expectedId] }, root);
+    assert.deepEqual(selected.selected, ["b"]);
+    assert.equal(selected.complete, true);
+    assert.equal(await snapshot(root), before);
+  }
+});
+
+test("path boundary resolves all relative absolute dot trailing slash and symlink variants once", async (t) => {
+  const { root } = await fixture(t);
+  const parent = join(root, "tracker");
+  const target = join(parent, "tracker");
+  await mkdir(target, { recursive: true });
+  const pm = new PmClient({ pmRoot: target, noExtensions: true, author: "fixture" });
+  await pm.init("path-fixture");
+  await pm.create({ id: "selected", title: "Selected", description: buildProvenance({ id: "a", identifier: "ENG-a" }), createMode: "progressive" });
+  const alias = join(root, "alias");
+  await symlink(target, alias, "dir");
+  const options = { items: ["selected"] };
+  const expected = await fetchLinearDependencyClosure(options, target);
+  const variants = [
+    { cwd: root, path: target }, { cwd: root, path: "tracker/tracker" },
+    { cwd: parent, path: "tracker" }, { cwd: parent, path: "./tracker" },
+    { cwd: parent, path: "tracker/" }, { cwd: target, path: "." },
+    { cwd: root, path: alias }, { cwd: root, path: "./alias/" },
+  ];
+  const saved = process.cwd();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  let seed = 0x31415926;
+  try {
+    for (let sequence = 0; sequence < 32; sequence++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const variant = variants[sequence < variants.length ? sequence : seed % variants.length];
+      process.chdir(variant.cwd);
+      const before = await snapshot(target);
+      assert.deepEqual(await fetchLinearDependencyClosure(options, variant.path), expected);
+      if (sequence < variants.length) {
+        const cli = await harness.runCommand({ command: "linear closure", pmRoot: variant.path,
+          options: { items: "selected" }, global: { json: true } });
+        assert.deepEqual(cli.result, expected);
+      }
+      assert.equal(await snapshot(target), before);
+    }
+  } finally { process.chdir(saved); }
 });

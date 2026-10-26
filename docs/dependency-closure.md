@@ -42,8 +42,12 @@ and cleanup removes only the mirror that invocation created.
 
 The SDK's high-level reads can write usage feedback and caches even when the
 application only requests reads. The mirror isolates those writes while retaining
-`listAllComplete` and `certifyCompleteListResult`, SDK ID normalization and SDK
-schema/type discovery. It also avoids trusting copied derived indexes. The
+`listAllComplete` and `certifyCompleteListResult`, SDK identity lookup and SDK
+schema/type discovery. A bounded physical bootstrap copy precedes every settings
+read. It has no item-folder filter. SDK enumeration supplies membership and
+`locateItem` supplies each exact file copied into the final read view, alongside
+settings and schema. The second certified read must equal the first. Thus stale
+or unrelated physical files cannot become package-invented membership. The
 source is re-read after provider acquisition and changed local state refuses.
 Transient changes reverted between observations, or provider changes across
 independent issue reads, cannot be ruled out without a provider snapshot API.
@@ -84,3 +88,38 @@ Disabling only the recursive `enqueue(blocker, current.depth + 1)` operation in
 that operation restores the six focused examples. The model test is also part of
 the unchanged CI release gates; full gates are deliberately delegated to CI to
 avoid saturating the shared host.
+
+## Review classes closed
+
+The source receives only filesystem reads and the SDK's observational root
+resolver. Every settings, schema, initialization, complete-list and identity
+lookup call runs on owned isolated paths. Missing settings are materialized from
+SDK defaults only in the bootstrap copy. Missing optional schemas may be
+backfilled there without reaching the original. Tree hashes include directory
+names, file names, modes and bytes, so creation of an absent file or an empty
+runtime/history directory cannot escape the regression.
+
+Source isolation is tested in 24 SDK/JSON/default-TOON previews across missing
+statuses, empty history, missing settings and missing all schema; each state is
+also tested with all source modes read-only. Every result succeeds and every
+source tree hash remains equal. Tests restore test-owned modes in finally.
+
+Membership tests use real SDK-created custom top-level and nested folders,
+then SDK moves between Task, Custom, Nested and Task. The imported blocker
+remains imported and selectable in each layout. No root-component comparison
+or package-defined item-folder enumeration decides membership.
+
+| Root call site | Resolution contract |
+| --- | --- |
+| `fetchLinearDependencyClosure` | Capture caller cwd before awaiting; call `resolvePmRoot(callerCwd, pmRoot)` once, then canonicalize with `realpath`. |
+| `readClosureItems` | Receives that absolute canonical source; SDK calls receive only absolute bootstrap/reader paths. |
+| SDK-located item copy | Use the SDK's absolute item path; bound its relative suffix to the isolated bootstrap, then join it under the absolute reader. |
+| Scratch paths | `tmpdir` plus fixed child names; no user-relative root is re-resolved. |
+| Public-copy validator | Resolve each operand once against caller cwd; census reads run in an owned copy. |
+| Existing thread capture | Its existing `resolvePmRoot(process.cwd(), pmRoot)` call resolves once; unchanged by this patch. |
+
+A seeded 32-case path property checks absolute, relative, dot, dot-prefix,
+trailing-slash and symlinked roots. It includes a different caller cwd and two
+consecutive directories both named tracker, exercising the doubled-relative-root
+failure. All cases must equal one canonical SDK result and retain source hashes;
+the eight base variants also run through the registered CLI handler.

@@ -582,9 +582,11 @@ const report = await fetchLinearDependencyClosure(
 
 The SDK and command work without Git and leave the source tracker byte-identical.
 Because the pinned SDK writes derived read caches and feedback, certified reads
-run in an owned disposable mirror (at most 20,000 files / 64 MiB) containing only
-registered item folders, schema and settings. Mirrors are removed after each
-read; the source's permissions never change. Membership is re-read before
+run only after a bounded physical isolation copy (at most 20,000 entries / 64 MiB),
+without an item-folder filter. SDK complete enumeration and `locateItem` then
+select the exact item files for a final read view with its configuration. Even
+missing settings/schema files are bootstrapped only in owned copies. Copies are
+removed after each read; the source's permissions never change. Membership is re-read before
 returning; observed local edits, paging drift, malformed data or ambiguous
 provenance produce typed refusals. Provider observations are not an atomic
 cross-issue snapshot. See [validation and limits](docs/dependency-closure.md).
