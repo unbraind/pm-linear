@@ -9,7 +9,7 @@
   "bugs": {
     "url": "https://github.com/unbraind/pm-linear/issues"
   },
-  "homepage": "https://github.com/unbraind/pm-linear#readme",
+  "homepage": "https://pm-cli.unbrained.dev/packages/pm-linear",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -77,7 +77,10 @@
     "sync"
   ],
   "license": "MIT",
-  "author": "@unbraind",
+  "author": {
+    "name": "unbrained",
+    "url": "https://unbrained.dev/about"
+  },
   "pm": {
     "aliases": [
       "linear"
