@@ -132,8 +132,9 @@ atomic mutation options and the non-atomic typed SDK writer now use the same
 launches a CLI subprocess or places provider strings in argv.
 
 Ownership now executes the shared atomic update/close rows through a
-`PmClient` with extensions disabled in an owned disposable copy, then reads
-that copy back through the SDK. It does not estimate SDK parsing from raw
+SDK mutation coordinator in an owned disposable copy, scoped through
+`runWithActiveExtensions({ path: ownedCopy, noExtensions: true }, ...)`,
+then reads that copy back through the SDK. It does not estimate SDK parsing from raw
 options. This also observes lifecycle effects such as cancellation clearing
 assignments. Copied ownership/closure permissions are bypassed only in the
 throwaway projection; the result never authorizes a real write. The source

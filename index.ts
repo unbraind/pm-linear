@@ -2268,16 +2268,15 @@ async function readClosureItems(source: string, selections: string[], projection
     const sourceView = { items: structuredClone(items), selectedIds, configuration: schemaDigest(settings), settings: structuredClone(settings) };
     let projected: PmItem | undefined;
     if (projection) {
-      const client = new sdk.PmClient({ pmRoot: reader, noExtensions: true, author: "pm-linear" });
+      const transactionSdk = await loadAtomicSdk();
+      const commit = assertSdkFunction(transactionSdk.commitItemMutations, "commitItemMutations");
+      const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
       const planned = buildAtomicImportMutations("ownership", projection, settings.id_prefix, sdk.normalizeItemId);
-      for (const mutation of planned.mutations) {
-        // The selected linked target already exists in this owned copy. Apply
-        // the same update/close rows as the atomic writer through the SDK.
-        // Force only bypasses copied ownership/closure permissions; a preview
-        // never claims that the real writer is authorized. Hooks stay disabled.
-        if (mutation.op === "update") await client.update(mutation.id, { ...mutation.options, force: true });
-        else if (mutation.op === "close") await client.close(mutation.id, mutation.reason, { ...mutation.options, force: true });
-      }
+      // Use the actual coordinator, including its inspection/skip semantics.
+      // Permissions are bypassed only on owned copies, never on source state.
+      const mutations: BulkItemMutation[] = planned.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
+      const revision = schemaDigest({ target: projection.match, mutations });
+      await withoutHooks({ path: reader, noExtensions: true }, () => commit({ pmRoot: reader, transactionId: `projection-${revision}`, author: "pm-linear", mutations }));
       projected = (await readPmItems(reader)).find((item) => item.id === projection.match?.id);
       if (!projected) throw new Error("SDK projection target disappeared");
     }
