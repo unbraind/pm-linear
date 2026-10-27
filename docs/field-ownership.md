@@ -8,7 +8,7 @@ import type { LinearOwnershipSnapshot } from "pm-linear";
 async function review(pmRoot: string, item: string, acknowledged?: LinearOwnershipSnapshot) {
   try {
     const report = await previewLinearOwnership({ item, base: acknowledged }, pmRoot);
-    return { fields: report.fields, counts: report.counts, observation: report.observation };
+    return { atomicCrossSystem: report.atomicCrossSystem, guarantee: report.guarantee, fields: report.fields, counts: report.counts, observation: report.observation };
   } catch (error: unknown) {
     if (error instanceof LinearOwnershipRefusal || error instanceof LinearImportRefusal) {
       return { code: error.code, field: error.field, remedy: error.remedy };

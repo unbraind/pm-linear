@@ -1928,7 +1928,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
   if (schemaDigest(issue) !== schemaDigest(verified) || schemaDigest(view) !== schemaDigest(fresh)) throw new LinearOwnershipRefusal("source_changed", "Local or provider state changed during observation. Read both again and review a new preview; saved plans never authorize writes.");
   const report: LinearOwnershipReport = {
     ok: true, mode: "preview", atomicCrossSystem: false,
-    guarantee: "Observations only; no atomic cross-system guarantees. Values can change after reading.",
+    guarantee: "Observations only; no atomic cross-system guarantees. Values can change after reading. Native SDK effects only; authorization and extension effects remain unvalidated.",
     base: supplied ? compatible ? "acknowledged" : "foreign" : "missing",
     disjoint: counts.local > 0 && counts.provider > 0 && counts.conflicts === 0 && counts.unknown === 0,
     fields, counts, observation,
