@@ -11,7 +11,11 @@ import { buildItemPlan, type LinearIssue, type LinearOwnershipReport } from "../
 const scratch = await mkdtemp(join(tmpdir(), "linear-packed-"));
 const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 const bunBin = process.env.LINEAR_ACCEPTANCE_BUN ?? "bun";
-const baseEnv = { ...process.env, HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_CACHE: join(tmpdir(), "linear-ownership-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
+const baseEnv = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_CACHE: join(tmpdir(), "linear-ownership-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
+const packageManifest = JSON.parse(await readFile(resolve(import.meta.dirname, "../package.json"), "utf8")) as { devDependencies: Record<string, string> };
+const hostVersion = packageManifest.devDependencies["@unbrained/pm-cli"];
+assert.match(hostVersion, /^\d{4}\.\d{1,2}\.\d{1,2}$/);
+const hostPackage = `@unbrained/pm-cli@${hostVersion}`;
 await mkdir(baseEnv.HOME, { recursive: true });
 /** Capture subprocess output privately and report only failure categories or bounded CLI receipts. */
 async function run(bin: string, args: string[], cwd = scratch, additions: Record<string, string> = {}, expectedExit = 0) {
@@ -44,19 +48,19 @@ try {
   const source = join(scratch, "package");
   const local = join(scratch, "local");
   process.stdout.write("installing project-local host\n");
-  await run(npmBin, ["install", "--prefix", local, "--ignore-scripts", tarball, "@unbrained/pm-cli@2026.10.20"]);
+  await run(npmBin, ["install", "--prefix", local, "--ignore-scripts", tarball, hostPackage]);
   const global = join(scratch, "npm-global");
   process.stdout.write("installing npm-global host\n");
-  await run(npmBin, ["install", "--global", "--prefix", global, "--ignore-scripts", tarball, "@unbrained/pm-cli@2026.10.20"]);
+  await run(npmBin, ["install", "--global", "--prefix", global, "--ignore-scripts", tarball, hostPackage]);
   const bunEnv = { BUN_INSTALL_GLOBAL_DIR: join(scratch, "bun-global"), BUN_INSTALL_BIN: join(scratch, "bun-bin") };
   process.stdout.write("installing bun-global host\n");
-  await run(bunBin, ["add", "--global", "--ignore-scripts", tarball, "@unbrained/pm-cli@2026.10.20"], scratch, bunEnv);
+  await run(bunBin, ["add", "--global", "--ignore-scripts", tarball, hostPackage], scratch, bunEnv);
   const modes = [
     { name: "project-local", bin: join(local, "node_modules/.bin/pm"), args: [], vars: {} },
     { name: "npm-global", bin: join(global, "bin/pm"), args: [], vars: {} },
     { name: "bun-global", bin: join(bunEnv.BUN_INSTALL_BIN, "pm"), args: [], vars: bunEnv },
-    { name: "npx", bin: npmBin, args: ["exec", "--yes", "--package=@unbrained/pm-cli@2026.10.20", "--", "pm"], vars: {} },
-    { name: "bunx", bin: bunBin, args: ["x", "--package", "@unbrained/pm-cli@2026.10.20", "pm"], vars: bunEnv },
+    { name: "npx", bin: npmBin, args: ["exec", "--yes", `--package=${hostPackage}`, "--", "pm"], vars: {} },
+    { name: "bunx", bin: bunBin, args: ["x", "--package", hostPackage, "pm"], vars: bunEnv },
   ];
   const results = [];
   for (const mode of modes) {
@@ -108,7 +112,7 @@ try {
       nullableCycle: true, statusConflict: true, malformedDuplicate: true, typedEnvelope: true, sourceDispatches, toon: true });
     process.stdout.write(`${mode.name}: passed\n`);
   }
-  const report = { packageVersion: JSON.parse(await readFile(join(source, "package.json"), "utf8")).version as string, hostVersion: "2026.10.20", modes: results };
+  const report = { packageVersion: JSON.parse(await readFile(join(source, "package.json"), "utf8")).version as string, hostVersion, modes: results };
   if (process.argv[2]) {
     await writeFile(resolve(process.argv[2]), `${JSON.stringify(report, null, 2)}\n`);
   }

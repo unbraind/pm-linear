@@ -109,10 +109,13 @@ parent and scopes explicitly, with focus under each actual writer author used
 as an adversarial fixture. Existing updates preserve their relationships.
 
 
-The final permanent 500-operation ownership model passed: one test, zero
-failures, with 500 SDK dry-run comparisons and SDK state read-backs (1718.6
-seconds for the test). The final atomic/tag sweep passed four tests, including
-500 producer inputs and real updates/creates through both writers. All eleven
-isolated behavioral reverts were rejected. The final packed rerun passed all
-five modes. Full npm/Bun release-gate status remains separately reported in the
-PR; interrupted local full attempts and earlier-head CI successes are excluded.
+The full ownership suite passed all 24 tests on SDK 2026.10.23. Its permanent
+500-operation model completed with zero failures, using 500 real SDK dry-run
+comparisons and SDK state read-backs (737.6 seconds for the model). The suite
+also checks 500 generated tag inputs and real updates/creates through both
+writers. All twelve isolated behavioral reverts were rejected, including the
+offline linked-item filter. Offline aliases count linked terminal items and
+exclude unlinked items, with no provider requests and unchanged SDK native
+state. Packed acceptance passed all five modes. Full npm/Bun release-gate
+status remains separately reported in the PR; interrupted local full attempts
+and earlier-head CI successes are excluded.
