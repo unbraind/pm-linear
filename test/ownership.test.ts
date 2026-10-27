@@ -135,7 +135,7 @@ test("strict dense schemas reject extreme inputs before side effects; old conten
   for (const maxOutputBytes of [NaN, Infinity, -Infinity, -1, 0, 2047, 65537, Number.MAX_VALUE, 2048.5]) {
     await assert.rejects(previewLinearOwnership({ ...options, maxOutputBytes }, root), refused("invalid_input"));
   }
-  for (const extra of [{ unknown: true }, { base: null }, { statusMap: [] }, { base: { fields: new Array(8) } }]) {
+  for (const extra of [{ unknown: true }, { base: null }, { statusMap: [] }, { statusMap: { Queue: 42 } }, { statusMap: { Queue: "" } }, { statusMap: Object.fromEntries(Array.from({ length: 129 }, (_, index) => [`state-${index}`, "open"])) }, { base: { fields: new Array(8) } }]) {
     await assert.rejects(previewLinearOwnership({ ...options, ...extra } as LinearOwnershipOptions, root), refused("invalid_input"));
   }
   assert.equal(state.requests.length, 0);

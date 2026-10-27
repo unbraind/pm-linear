@@ -147,7 +147,14 @@ test("access failures and unknown blocker identities remain unresolved; HTTP fai
   state.respond = async () => { const row = issue("a", ["b"]); row.inverseRelations.nodes[0].issue = null; return { data: { issue: row } }; };
   assert.equal((await fetchLinearDependencyClosure(options, root)).complete, false);
   state.raw = "invalid JSON";
-  assert.equal((await fetchLinearDependencyClosure(options, root)).boundaries[0].reason, "unavailable");
+  const malformedOffset = requests.length;
+  await assert.rejects(fetchLinearDependencyClosure(options, root), (error: unknown) => {
+    refused("source_invalid")(error);
+    assert.ok(error instanceof LinearClosureRefusal);
+    assert.equal(error.field, "response");
+    return true;
+  });
+  assert.equal(requests.length, malformedOffset + 1, "malformed responses are never retried");
   state.raw = "x".repeat(300000);
   assert.equal((await fetchLinearDependencyClosure(options, root)).boundaries[0].reason, "unavailable");
 });
