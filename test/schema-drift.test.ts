@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues, resolveStatus, type LinearSchemaReport } from "../index.ts";
+import extension, { LinearSourceRefusal, LinearSchemaRefusal, negotiateLinearSchema, syncLinearIssues, resolveStatus, type LinearSchemaReport } from "../index.ts";
 
 /** Complete provider metadata with deliberately custom state names. */
 function metadata() {
@@ -203,7 +203,13 @@ for (const [name, mutate] of [
   test(`${name} metadata fails closed`, async (t) => {
     const { root, state } = await fixture(t);
     state.data = mutate();
-    await assert.rejects(negotiateLinearSchema({ team: "ENG" }, root), refusal("metadata_incomplete"));
+    await assert.rejects(negotiateLinearSchema({ team: "ENG" }, root), name === "nonobject data" ? (error: unknown) => {
+      assert.ok(error instanceof LinearSourceRefusal);
+      assert.equal(error.code, "source_invalid");
+      assert.equal(error.field, "response.data");
+      assert.equal(error.exitCode, 2);
+      return true;
+    } : refusal("metadata_incomplete"));
   });
 }
 
@@ -366,8 +372,11 @@ test("schema transport refusals redact arbitrary response errors and configured 
   process.env.LINEAR_API_BASE_URL += "?secret=synthetic-query-secret";
   state.rawBody = "synthetic-response-secret is not JSON";
   await assert.rejects(negotiateLinearSchema({ team: "ENG" }, root), (error: unknown) => {
-    refusal("schema_unavailable")(error);
-    assert.match((error as Error).message, /LINEAR_API_BASE_URL/);
+    assert.ok(error instanceof LinearSourceRefusal);
+    assert.equal(error.code, "source_invalid");
+    assert.equal(error.field, "response");
+    assert.equal(error.exitCode, 2);
+    assert.match(error.message, /LINEAR_API_BASE_URL/);
     assert.doesNotMatch((error as Error).message, /Cause:|synthetic-query-secret|synthetic-response-secret/);
     return true;
   });

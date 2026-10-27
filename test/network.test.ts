@@ -1337,7 +1337,7 @@ test("linear validate --check-network fails on a GraphQL error from the viewer",
   }
 });
 
-test("linear validate --check-network fails when no viewer id is returned", async () => {
+test("linear validate --check-network reports a typed field diagnostic for a malformed viewer id", async () => {
   const server = await startLinearServer(({ query }) => {
     if (query?.includes("viewer")) return { body: JSON.stringify({ data: { viewer: { id: null } } }) };
     return { body: "{}" };
@@ -1356,7 +1356,8 @@ test("linear validate --check-network fails when no viewer id is returned", asyn
         });
         const diag = result as { networkOk: boolean; networkError?: string };
         assert.equal(diag.networkOk, false);
-        assert.match(diag.networkError ?? "", /returned no viewer/);
+        assert.match(diag.networkError ?? "", /source_invalid: viewer\.viewer\.id/);
+        assert.match(diag.networkError ?? "", /matching the documented schema/);
       },
     );
   } finally {

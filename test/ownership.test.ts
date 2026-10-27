@@ -8,7 +8,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { canonicalDocument, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -30,7 +30,7 @@ async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "linear-ownership-"));
   const pm = new PmClient({ cwd: root, pmRoot: root, noExtensions: true, author: "fixture" });
   await pm.init("ownership");
-  const state = { issue: issue() as unknown, errors: undefined as unknown, status: 200, requests: [] as string[], onRead: undefined as (() => Promise<void>) | undefined };
+  const state = { rawIssuesBody: undefined as string | undefined, rawBody: undefined as string | undefined, issue: issue() as unknown, errors: undefined as unknown, status: 200, requests: [] as string[], onRead: undefined as (() => Promise<void>) | undefined };
   const plan = buildItemPlan(state.issue as LinearIssue, {});
   const created = await pm.create({ ...plan, id: "selected", type: "Task", tags: plan.tags.join(","), parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
   const id = created.item.id;
@@ -42,7 +42,15 @@ async function fixture(t: TestContext) {
       state.requests.push(request.query);
       await state.onRead?.();
       res.writeHead(state.status, { "Content-Type": "application/json", Connection: "close" });
-      res.end(JSON.stringify({ data: { issue: state.issue }, errors: state.errors }));
+      const provider = state.issue as ReturnType<typeof issue>;
+      const pageInfo = { hasNextPage: false, endCursor: null };
+      const data = request.query.includes("LinearSchema") ? {
+        teams: { nodes: [{ id: "team", key: "ENG", cyclesEnabled: false, triageEnabled: false,
+          issueEstimationType: "notUsed", defaultIssueState: null,
+          states: { nodes: [{ id: "state", ...provider.state }], pageInfo } }] },
+        issueLabels: { nodes: provider.labels.nodes.map((label, index) => ({ id: `label-${index}`, name: label.name })), pageInfo },
+      } : request.query.includes("issues(") ? { issues: { nodes: [state.issue], pageInfo } } : { issue: state.issue };
+      res.end((request.query.includes("issues(") ? state.rawIssuesBody : undefined) ?? state.rawBody ?? JSON.stringify({ data, errors: state.errors }));
     })(); });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -132,7 +140,7 @@ test("strict dense schemas reject extreme inputs before side effects; old conten
   }
   assert.equal(state.requests.length, 0);
   const native = issue();
-  for (const patch of [{ priority: Infinity }, { priority: 0.5 }, { estimate: -1 }, { estimate: 1000001 }, { labels: { nodes: new Array(1), pageInfo: { hasNextPage: false } } }, { labels: { nodes: [], pageInfo: { hasNextPage: true } } }, { state: { name: "Unknown", type: "mystery" } }, { title: "x".repeat(32769) }, { id: "other" }, { extra: true }]) {
+  for (const patch of [{ priority: Infinity }, { priority: 0.5 }, { estimate: -1 }, { estimate: 1000001 }, { labels: { nodes: new Array(1), pageInfo: { hasNextPage: false } } }, { labels: { nodes: [], pageInfo: { hasNextPage: true } } }, { state: { name: "Unknown", type: 42 } }, { title: "x".repeat(32769) }, { id: "other" }, { extra: true }]) {
     state.issue = { ...native, ...patch };
     await assert.rejects(previewLinearOwnership(options, root), refused("source_invalid"));
   }
@@ -211,16 +219,27 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     };
     await pm.update(options.item, writes[choice]);
     if (random() < 0.4) state.issue = structuredClone(providers[Math.floor(random() * providers.length)]);
-    else { const next = issue(); next.title = `Provider ${sequence}`; next.description = sequence % 2 ? "\r\n Body " : "Body "; next.estimate = sequence / 2; next.dueDate = sequence % 2 ? null : "2026-12-01"; next.assignee = sequence % 2 ? null : { name: "Peer", email: null }; state.issue = next; }
+    else { const next = issue();
+      const names = ["Blocked", "In Review", "Done", "Canceled", "Queue", "__proto__", "constructor"];
+      const types = ["unstarted", "started", "completed", "canceled", "backlog", "triage"];
+      next.state = { name: names[Math.floor(random() * names.length)], type: types[Math.floor(random() * types.length)] };
+      next.priority = Math.floor(random() * 5);
+      next.cycle = sequence % 3 === 0 ? { name: null } : sequence % 3 === 1 ? undefined : { name: ` Week ${sequence} ` };
+      next.estimate = sequence % 4 === 0 ? null : sequence / 2;
+      next.title = `Provider ${sequence}`; next.description = sequence % 2 ? "\r\n Body " : "Body "; next.dueDate = sequence % 2 ? null : "2026-12-01"; next.assignee = sequence % 2 ? null : { name: "Peer", email: null }; state.issue = next; }
     const base = random() < 0.4 ? history[Math.floor(random() * history.length)] : baseline;
     const before = await stateFromSdk(root, options.item);
     const local = hashes(before);
     const settings = await readSettings(root);
-    const plan = buildItemPlan(state.issue as LinearIssue, {});
-    // A reference import replaces every mapped field; omitted assignments clear
-    // mapped optional values instead of inheriting the previous local value.
-    const retained = Object.fromEntries(Object.entries(before.metadata).filter(([key]) => !LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)));
-    const remote = hashes(canonicalDocument({ metadata: { ...retained, ...plan, id: before.metadata.id, type: before.metadata.type, created_at: before.metadata.created_at, updated_at: before.metadata.updated_at } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
+    // The oracle reads the exact plan produced by real atomic dry-run import,
+    // including real provider schema negotiation and complete SDK local reads.
+    const imported = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    assert.equal(imported.prepared?.length, 1);
+    const plan = imported.prepared![0];
+    assert.ok(Object.keys(plan).every((key) => ["identifier", "linearId", "match"].includes(key) || LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)), "every native field emitted by import must be represented in the preview schema");
+    const mapped = Object.fromEntries(LINEAR_OWNERSHIP_FIELDS.filter((key) => key !== "body" && Object.hasOwn(plan, key))
+      .map((key) => [key, (plan as unknown as Record<string, unknown>)[key]]));
+    const remote = hashes(canonicalDocument({ metadata: { ...before.metadata, ...mapped } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
     const report = await previewLinearOwnership({ ...options, base }, root);
     baseline = report.observation;
     for (const field of report.fields) {
@@ -240,7 +259,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
   }
 });
 
-test("custom status roles and aliases normalize mappings; misleading provider names do not decide lifecycle", async (t) => {
+test("custom status aliases and provider names use the same importer mapping and SDK normalization", async (t) => {
   const { root, pm, state, options } = await fixture(t);
   await pm.schemaAddStatus("reviewing", { role: ["active"], alias: ["ongoing"] });
   await pm.update(options.item, { status: "reviewing" });
@@ -257,7 +276,7 @@ test("custom status roles and aliases normalize mappings; misleading provider na
   const proto = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { ...options, statusMap: "__proto__=ongoing" }, global: { json: true } });
   assert.deepEqual(proto.result, await previewLinearOwnership({ ...options, statusMap: Object.fromEntries([["__proto__", "reviewing"]]) }, root));
   (state.issue as LinearIssue).state = { name: "Done", type: "unstarted" };
-  await pm.update(options.item, { status: "open" });
+  await pm.update(options.item, { status: buildItemPlan(state.issue as LinearIssue, {}).status, closeReason: "Shared import mapping" });
   const plain = await previewLinearOwnership(options, root);
   assert.equal(plain.observation.fields.find((field) => field.field === "status")?.local, plain.observation.fields.find((field) => field.field === "status")?.provider);
 });
@@ -296,4 +315,280 @@ test("prototype-shaped status-map keys are own data", () => {
   const map = parseStatusMap("__proto__=open,constructor=blocked,toString=in_progress");
   for (const key of ["__proto__", "constructor", "toString"]) assert.equal(Object.hasOwn(map, key), true);
   assert.equal(Object.getPrototypeOf(map), Object.prototype);
+});
+
+
+test("review class: preview verdicts match the real import status mapping", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const base = (await previewLinearOwnership(options, root)).observation;
+  await pm.update(options.item, { status: "in_progress" });
+  (state.issue as LinearIssue).state = { name: "Blocked", type: "unstarted" };
+  const report = await previewLinearOwnership({ ...options, base }, root);
+  assert.equal(report.fields.find((field) => field.field === "status")?.decision, "conflict");
+  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+  assert.equal(dry.prepared?.[0].status, "blocked");
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const file = join(root, "acknowledged.json"); await writeFile(file, JSON.stringify(base));
+  for (const global of [{ json: true }, {}]) {
+    const cli = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { ...options, base: file }, global });
+    assert.deepEqual(cli.result, report);
+  }
+});
+
+test("review class: nullable and omitted provider objects round-trip through import and ownership", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const native = issue();
+  for (const type of ["duplicate", "cancelled", "mystery"]) {
+    state.issue = { ...native, state: { name: "Canceled", type } };
+    const report = await previewLinearOwnership(options, root);
+    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    assert.equal(dry.prepared?.[0].status, "closed");
+    assert.equal(report.ok, true);
+  }
+  for (const cycle of [undefined, null, { name: null }, { name: "" }, { name: " Sprint Ω " }]) {
+    state.issue = { ...native, cycle, assignee: undefined, project: undefined, customer: undefined };
+    const report = await previewLinearOwnership(options, root);
+    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    assert.equal(dry.prepared?.length, 1);
+    assert.equal(report.ok, true);
+    assert.deepEqual(dry.prepared?.[0].tags, buildItemPlan(state.issue as LinearIssue, {}).tags);
+  }
+  for (const [field, patch] of [
+    ["issue.cycle.name", { cycle: { name: 42 } }],
+    ["issue.assignee.name", { assignee: { name: 42, email: null } }],
+    ["issue.project.name", { project: { name: false } }],
+    ["issue.labels.nodes[0].name", { labels: { nodes: [{ name: null }], pageInfo: { hasNextPage: false } } }],
+  ] as const) {
+    state.issue = { ...native, ...patch };
+    await assert.rejects(previewLinearOwnership(options, root), (error: unknown) => {
+      assert.ok(error instanceof LinearOwnershipRefusal); assert.equal(error.code, "source_invalid");
+      assert.equal(error.field, field); assert.ok(error.remedy.includes(field)); return true;
+    });
+  }
+});
+
+test("review class: every malformed duplicate poisons its field in either row order", async (t) => {
+  const { root, options } = await fixture(t);
+  const observation = (await previewLinearOwnership(options, root)).observation;
+  for (const field of LINEAR_OWNERSHIP_FIELDS) {
+    const original = observation.fields.find((row) => row.field === field)!;
+    for (const bad of [{ ...original, local: "invalid" }, { ...original, provider: null }, { field, extra: true }]) {
+      for (const reverse of [false, true]) {
+        const rows = reverse ? [bad, original] : [original, bad];
+        const base = { ...observation, fields: rows } as LinearOwnershipSnapshot;
+        const report = await previewLinearOwnership({ ...options, base }, root);
+        assert.equal(report.fields.find((row) => row.field === field)?.decision, "unknown_base", `${field}/${reverse}`);
+      }
+    }
+  }
+  for (const row of [null, 1, { field: "Title" }, { field: "constructor" }]) {
+    const base = { ...observation, fields: [observation.fields[0], row] } as LinearOwnershipSnapshot;
+    assert.equal((await previewLinearOwnership({ ...options, base }, root)).counts.unknown, 8);
+  }
+});
+
+test("review class: malformed envelopes always become typed field refusals in SDK and CLI", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  state.rawBody = "synthetic malformed response";
+  await assert.rejects(previewLinearOwnership(options, root), refused("source_invalid"));
+  for (const value of [null, [], 1, true, "body", {}, { extensions: {} }, { data: 1 }, { data: [] }, { errors: {} }, { errors: [null] }, { errors: [{ message: 1 }] }]) {
+    state.rawBody = JSON.stringify(value);
+    await assert.rejects(previewLinearOwnership(options, root), (error: unknown) => {
+      assert.ok(error instanceof LinearOwnershipRefusal); assert.equal(error.code, "source_invalid");
+      assert.match(error.field ?? "", /^response/); return true;
+    });
+    for (const global of [{ json: true }, {}]) {
+      const cli = await harness.runCommand({ command: "linear ownership", pmRoot: root, options, global });
+      assert.equal(cli.exitCode, 2); assert.equal(cli.errorCode, "source_invalid");
+      assert.match((cli.result as { field: string }).field, /^response/);
+    }
+  }
+});
+
+
+test("review class: every source consumer rejects non-object envelopes before dereference", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const value of [null, [], 1]) {
+    state.rawBody = JSON.stringify(value);
+    for (const action of [
+      () => negotiateLinearSchema({ team: "ENG" }, root),
+      () => captureLinearThread({ itemId: options.item, threadId: "root" }, root),
+      () => fetchLinearDependencyClosure({ items: [options.item] }, root),
+      () => syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root),
+    ]) {
+      await assert.rejects(action(), (error: unknown) => {
+        assert.ok(error instanceof Error && !(error instanceof TypeError));
+        assert.equal((error as { code?: string }).code, "source_invalid");
+        assert.match(error.message, /response/); return true;
+      });
+    }
+    for (const global of [{ json: true }, {}]) {
+      for (const [command, commandOptions] of [
+        ["linear schema", { team: "ENG" }], ["linear capture", { item: options.item, thread: "root" }],
+        ["linear closure", { items: options.item }], ["linear sync", { team: "ENG", atomic: true, dryRun: true }],
+      ] as const) {
+        const result = await harness.runCommand({ command, pmRoot: root, options: commandOptions, global });
+        assert.equal(result.exitCode, 2, command); assert.equal(result.errorCode, "source_invalid", command);
+        assert.match((result.result as { field: string }).field, /^response/, command);
+      }
+      for (const importer of ["linear", "linear-sync"]) {
+        const result = await harness.runImporter({ importer, pmRoot: root, options: { team: "ENG", atomic: true, dryRun: true }, global });
+        assert.equal(result.exitCode, 2, importer); assert.equal(result.errorCode, "source_invalid", importer);
+        assert.equal((result.result as { field: string }).field, "response");
+      }
+      const exported = await harness.runExporter({ exporter: "linear", pmRoot: root, options: { push: true, team: "ENG" }, global });
+      assert.equal(exported.exitCode, 2); assert.equal(exported.errorCode, "source_invalid");
+      assert.match((exported.result as { field: string }).field, /^response/);
+    }
+    const diagnostics = await harness.runCommand({ command: "linear validate", pmRoot: root, options: { checkNetwork: true }, global: { json: true } });
+    assert.match((diagnostics.result as { networkError: string }).networkError, /source_invalid.*response/);
+  }
+});
+
+test("review class: all mapping directions treat prototype-shaped names as data", () => {
+  for (const name of ["__proto__", "constructor", "toString"]) {
+    const lower = name.toLowerCase();
+    const map = Object.fromEntries([[name, "target"]]);
+    const inverted = invertStatusMap(map);
+    assert.equal(resolveLinearStateName("target", inverted), name);
+    const reverse = invertStatusMap(Object.fromEntries([["Native", name]]));
+    assert.equal(Object.hasOwn(reverse, lower), true);
+    assert.equal(resolveLinearStateName(name, reverse), "Native");
+    assert.equal(resolveLinearStateName(name, {}), undefined);
+    assert.equal(resolveCycleId(name, {}), undefined);
+    assert.deepEqual(resolveLabelIds([name], {}), []);
+    const native = Object.fromEntries([[lower, "id"]]);
+    assert.equal(resolveCycleId(name, native), "id");
+    assert.deepEqual(resolveLabelIds([name], native), ["id"]);
+    assert.equal(resolveProjectTag(name, parseProjectMap(`${name}=tag`)), "tag");
+    assert.equal(resolvePmField(parseFieldMap(`${name}=title`), name), "title");
+    const indexed = indexItemsByLinearId([{ id: "local", description: `[linear] linear_id=${name}` }]);
+    assert.equal(Object.hasOwn(indexed, name), true);
+    assert.equal(indexed[name].id, "local");
+  }
+});
+
+
+test("review class: ambiguous current identities never become import targets in either writer", async (t) => {
+  const { root, pm, options } = await fixture(t);
+  const description = buildItemPlan(issue(), {}).description;
+  const items = [{ id: "one", description }, { id: "two", description }];
+  assert.equal(Object.hasOwn(indexItemsByLinearId(items), "remote"), false);
+  await pm.create({ id: "duplicate", title: "Foreign duplicate", description, parent: "none", unset: ["goal", "objective", "sprint", "release", "assignee"], createMode: "progressive" });
+  const before = await stateFromSdk(root, options.item);
+  const messages: string[] = [];
+  const previous = console.error;
+  try {
+    console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
+    for (const atomic of [true, false]) {
+      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, dryRun: atomic }, root);
+      assert.equal(result.created, 0); assert.equal(result.updated, 0); assert.equal(result.skipped, 1);
+      if (atomic) assert.deepEqual(result.prepared, []);
+    }
+  } finally { console.error = previous; }
+  assert.equal(messages.filter((message) => /Skipped ambiguous/.test(message)).length, 2);
+  assert.ok(messages.every((message) => !/Failed to (create|update)/.test(message)));
+  assert.deepEqual(await stateFromSdk(root, options.item), before);
+});
+
+
+test("review class: export and credential consumers validate every dereferenced container", async (t) => {
+  const { root, state } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const teams of [{ nodes: "bad" }, { nodes: [1] }, { nodes: [{ id: "team", states: { nodes: {} } }] }, { nodes: [{ id: "team", labels: { nodes: [{ name: 1 }] } }] }, { nodes: [{ id: "team", cycles: { nodes: [{ name: null, number: "bad" }] } }] }]) {
+    state.rawBody = JSON.stringify({ data: { teams } });
+    const result = await harness.runExporter({ exporter: "linear", pmRoot: root, options: { push: true, team: "ENG" }, global: { json: true } });
+    assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "source_invalid");
+    assert.match((result.result as { field: string }).field, /^team/);
+  }
+  for (const viewer of [1, [], { id: {} }]) {
+    state.rawBody = JSON.stringify({ data: { viewer } });
+    const result = await harness.runCommand({ command: "linear validate", pmRoot: root, options: { checkNetwork: true }, global: { json: true } });
+    const diagnostics = result.result as { networkOk: boolean; networkError: string };
+    assert.equal(diagnostics.networkOk, false);
+    assert.match(diagnostics.networkError, /source_invalid.*viewer/);
+  }
+});
+
+
+test("review class: preflight source refusals survive host dispatch without losing typed fields", async (t) => {
+  const { root, state } = await fixture(t);
+  state.rawBody = "null";
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const pre = await harness.runPreflightOverride({
+    command: "linear sync", args: [], options: { team: "ENG" }, global: { json: true }, pm_root: root,
+    decision: { enforce_item_format_gate: false, run_preflight_item_format_sync: false, run_extension_migrations: false, enforce_mandatory_migration_gate: false },
+  });
+  const opts = (pre as { context?: { options?: Record<string, unknown> } }).context?.options ?? {};
+  assert.equal(opts.__linear_preflight_source_field, "response");
+  const result = await harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "ENG", ...opts }, global: { json: true } });
+  assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "source_invalid");
+  assert.equal((result.result as { field: string }).field, "response");
+});
+
+
+test("review class: import validates every selected page container before planning", async (t) => {
+  const { root, pm, state } = await fixture(t);
+  const before = await pm.listAllComplete({ includeBody: true });
+  for (const issues of [1, [], { nodes: {} }, { nodes: [null] }, { nodes: [], pageInfo: 1 }, { nodes: [], pageInfo: { hasNextPage: "yes" } }, { nodes: [], pageInfo: { endCursor: 42 } }]) {
+    state.rawIssuesBody = JSON.stringify({ data: { issues } });
+    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root), (error: unknown) => {
+      assert.ok(error instanceof Error && !(error instanceof TypeError));
+      assert.equal((error as { code?: string }).code, "source_invalid");
+      assert.match((error as { field?: string }).field ?? "", /^issues/); return true;
+    });
+  }
+  assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items, before.items);
+});
+
+
+test("review class: legacy updates apply empty mapped values just like the shared dry-run plan", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await symlink(process.execPath, join(bin, "node"));
+  await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
+  process.env.PATH = bin;
+  await pm.create({ id: "peer", title: "Peer", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.focus("peer");
+  const before = await stateFromSdk(root, options.item);
+  const provider = state.issue as LinearIssue;
+  provider.description = ""; provider.labels = { nodes: [] }; provider.cycle = null; provider.estimate = null; provider.customer = null;
+  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+  assert.equal(dry.prepared?.[0].body, ""); assert.deepEqual(dry.prepared?.[0].tags, []);
+  const result = await syncLinearIssues({ team: "ENG", limit: 1 }, root);
+  assert.equal(result.updated, 1); assert.equal(result.skipped, 0);
+  const after = await stateFromSdk(root, options.item);
+  assert.equal(after.body, ""); assert.deepEqual(after.metadata.tags ?? [], []);
+  assert.equal(after.metadata.parent, before.metadata.parent);
+  assert.ok(state.requests.every((query) => !query.includes("mutation")));
+});
+
+test("review class: malformed export acknowledgements are typed and never report a confirmed write", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  state.onRead = async () => {
+    state.rawBody = state.requests.at(-1)?.includes("mutation") ? "null" : JSON.stringify({ data: { teams: { nodes: [{ id: "team" }] } } });
+  };
+  for (const action of ["issueUpdate", "issueCreate"]) {
+    if (action === "issueCreate") await pm.update(options.item, { description: "" });
+    for (const global of [{ json: true }, {}]) {
+      const start = state.requests.length;
+      const result = await harness.runExporter({ exporter: "linear", pmRoot: root, options: { team: "ENG", push: true }, global });
+      assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "source_invalid");
+      const receipt = result.result as { field: string; write_unconfirmed: boolean; remedy: string };
+      assert.equal(receipt.field, "response"); assert.equal(receipt.write_unconfirmed, true);
+      assert.match(receipt.remedy, /write may already have succeeded/);
+      assert.equal(state.requests.slice(start).filter((query) => query.includes(action)).length, 1);
+    }
+  }
+});
+
+test("review class: every import alias advertises the same complete apply-path flags", async () => {
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const current = harness.assertFlags({ targetCommand: "linear import" });
+  const alias = harness.assertFlags({ targetCommand: "linear-sync import", flags: current.flags.map((flag) => { assert.ok(typeof flag.long === "string"); return flag.long; }) });
+  assert.deepEqual(alias.flags, current.flags);
 });

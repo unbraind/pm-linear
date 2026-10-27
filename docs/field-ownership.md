@@ -18,7 +18,7 @@ async function review(pmRoot: string, item: string, acknowledged?: LinearOwnersh
 
 Review fields before promoting `report.observation` into an acknowledged
 baseline. A previously divergent baseline field stays unknown; the preview
-cannot invent a shared value. A missing or invalid field record fails alone.
+cannot invent a shared value. An identifiable invalid or duplicated field record stays unknown. An unidentifiable corrupt row makes the baseline unknown.
 A baseline from another item, provider identity or mapping is foreign. Replayed
 older observations are compared against **current SDK reads**, never assumed
 unchanged from saved input.
@@ -56,8 +56,8 @@ No dedicated lint script is configured.
 The release suite includes 500 seeded model operation sequences covering native
 fields, older observations/provider replays, CRLF/whitespace, relationships,
 ambient focus and custom status registries. State is read back through the SDK.
-A long local attempt was stopped under host contention; full npm/Bun release
-gates in CI provide the full-suite evidence at unchanged thresholds.
+Full serial npm/Bun release gates use the unchanged coverage thresholds. Their
+current results and CI status are recorded in the PM item and PR.
 
 An inherited sync issue was independently reproduced and recorded as
 [pm-linear-atomic-replay-revision](../.agents/pm/issues/pm-linear-atomic-replay-revision.toon):
@@ -65,3 +65,34 @@ replaying an atomic import can report a recovered content-keyed transaction
 while the current SDK target differs after a peer edit. Reproduce with
 `node test/ownership-inherited-replay.ts`. This observational feature does not
 repair or certify inherited sync recovery.
+
+
+## Re-review round 1: one mapping and complete trust validation
+
+| General rule | Package-wide disposition |
+| --- | --- |
+| Compare through the write-path mapper | Ownership calls `buildItemPlan`, as atomic and legacy import do. SDK atomic dry-run results expose `prepared` plans from the actual writer preparation; CLI receipts keep their compact counts. SDK canonicalization handles status aliases, tags and whitespace; export's date projection remains shared. Omitted optional values retain the current target, as upserts do. Legacy updates now send empty mapped bodies and tags just as atomic updates do. |
+| Match documented nullable API fields | One issue-field schema supplies import and ownership variants. Cycle names may be null or absent, and optional objects may be omitted. Legacy string-valued workflow types remain accepted by the shared mapper. Unsupported values produce a typed `source_invalid` naming the field. The [Linear cycle schema](https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/Cycle) defines `name` as nullable. |
+| Validate before trusting any baseline row | All rows are inspected before the authority map is returned. Every occurrence of an invalid or duplicated known field is quarantined, in either order. Unidentifiable corrupt rows make the supplied baseline unknown; the item still produces a review plan. Mapping revision `linear-import-v2` prevents old-policy observations becoming authority under the corrected mapper. |
+| Validate envelopes before dereference | Every HTTP consumer passes through the same transport schema. Null/scalar/array bodies, invalid data/error envelopes and invalid JSON produce sanitized typed refusals. Schema, capture, closure, import, export and validation probes are covered. Field diagnostics use schema-owned paths and never provider values. |
+
+Input-keyed lookup auditing also covered forward/inverse status maps, project
+and field maps, Linear identity indexes and export state/label/cycle lookups.
+Own-property checks retain prototype-shaped names as ordinary data. Duplicate
+current Linear identities are skipped by both import writers, rather than
+choosing a target or creating another item. Export team metadata and viewer
+probes validate containers before dereference. Shared CLI adapters and the
+preflight sentinel preserve source fields and exit code 2 in JSON and TOON.
+Both import aliases advertise one shared complete flag definition, so strict
+packed CLI parsing reaches the same handlers as direct SDK dispatch.
+
+The unchanged 500-sequence test now compares random provider/local/baseline
+triples against **real atomic dry-run import plans**, using an HTTP fixture for
+schema and issue reads and SDK read-back for local state. Provider workflow
+names/types, priorities, estimates, nullable/omitted cycles and replayed inputs
+vary. No hand-written status mapping or normalization supplies its oracle.
+
+The packed-host test exercises all four review findings in JSON and native TOON
+through project-local, npm global, Bun global, npx and bunx consumers in plain
+trackers. Focused tests, per-class behavioral revert proofs and full serial
+npm/Bun release-gate results are recorded in the PM item and PR.

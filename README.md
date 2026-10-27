@@ -359,9 +359,12 @@ preview does not write acknowledgements, notes, settings, histories or Linear.
 The comparison covers the import projection: title (including the issue
 identifier), body, status, priority, tags (including cycle/estimate/customer),
 deadline and assignee, plus provenance description. Both sides use SDK
-canonicalization; due dates use the existing export date mapping. Lifecycle
-mapping uses the configured SDK registry roles and optional `--status-map`,
-never guesses from status names. Custom import field/project mappings are not
+canonicalization; due dates use the existing export date mapping. The preview
+calls the same `buildItemPlan`/`resolveStatus` mapping as import, including
+configured `--status-map` overrides and the importer's provider-name fallback.
+Resulting local statuses use the SDK registry's alias normalization. There is no
+separate preview lifecycle policy. Omitted optional assignments retain the
+current local value, matching an SDK upsert. Custom import field/project mappings are not
 inferred; use this command for the documented default import projection.
 
 This is an observation for review with **no atomic cross-system guarantees**.
@@ -379,13 +382,22 @@ at most 128 labels and a 128 KiB response cap. Partial label connections refuse.
 Provider text fields are bounded to 32768 characters, priority to integers 0..4,
 and estimate to finite numbers 0..1000000. Baseline JSON files are limited to
 16 KiB and eight dense field records. Existing local content is read through
-the SDK without applying new content filters.
+the SDK without applying new content filters. Local isolation is bounded to
+20000 filesystem entries and 64 MiB; a larger tracker refuses before provider
+access.
 
 The typed SDK export is `previewLinearOwnership(options, pmRoot)` with
 `LinearOwnershipOptions`, `LinearOwnershipSnapshot`, `LinearOwnershipReport`
 and `LinearOwnershipRefusal`. Stable refusal codes are `invalid_input`,
 `local_read_failed`, `selection_required`, `access_denied`, `source_invalid`,
 `source_changed` and `output_budget`; each carries a remedy and exit code 2.
+`source_invalid` also names the schema-owned `field` (for example,
+`issue.cycle.name` or `response.data`) without echoing its value. Nullable cycle
+names and missing optional relation objects are accepted. The shared HTTP
+transport validates envelopes for import, export, schema, capture, closure and
+validation as well, using `LinearSourceRefusal` for invalid source contracts.
+The explicit mapping revision makes earlier preview-policy baselines foreign
+and review-required rather than reinterpreting them.
 See the [SDK example and measured validation](docs/field-ownership.md).
 
 ## Without git
