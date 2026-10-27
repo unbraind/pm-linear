@@ -334,3 +334,19 @@ test("public tracker validation uses a read-only non-git copy and reports aggreg
   console.log(JSON.stringify({ publicTracker: Boolean(source), corpusItems: corpus.count, sampledThreads: sample.length,
     appended, duplicates, sourceEditsVisible: changed, maxJsonBytes: bytes, unchangedSourceFiles: before.length, gitRequired: false }));
 });
+
+
+test("literal class: structured capture preserves every annotation control word byte-for-byte", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const values = ["-", "none", "null", "@file", "--", "--force", "", "line" + String.fromCharCode(13, 10) + "value"];
+  for (const value of values) {
+    const node = thread(); node.body = value; node.children.nodes = []; state.node = node;
+    const plan = await captureLinearThread({ ...options, disclosure: "text" }, root);
+    const applied = await captureLinearThread({ ...options, disclosure: "text", revision: plan.revision, apply: true }, root);
+    assert.equal(applied.appended, 1);
+    const notes = await pm.notes("existing", { eventType: "linear.thread-evidence.v1", includeMeta: true, outputBudget: "unbounded", outputLimit: "unbounded" });
+    assert.ok("notes" in notes);
+    const data = notes.notes.at(-1)?.data as { comments: Array<{ body: string }> };
+    assert.equal(data.comments[0].body, value);
+  }
+});

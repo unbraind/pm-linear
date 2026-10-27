@@ -399,6 +399,21 @@ validation as well, using `LinearSourceRefusal` for invalid source contracts.
 Import uses the SDK's JSON-array tag input so literal control words, commas
 and quotes survive as labels. New imports explicitly clear relationship/scope
 defaults instead of inheriting an agent's focus.
+Provider values are data. Both import writers use typed SDK options, including
+leading-dash titles and literal `@file` strings; imports never read process
+stdin. Until [pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614) exposes
+a supported literal mutation option, `LinearImportRefusal` reports
+`unrepresentable_value`, the native `field`, a remedy and exit code 2 for a body
+or metadata description whose trimmed value is `-`, or an assignment whose
+trimmed value is `none`/`null` (case-insensitive). The same shared guard runs
+before import writes and before ownership hashing. Ownership applies the shared
+SDK mutation rows only to an owned disposable copy with hooks disabled, then
+reads the projected fields back through the SDK. This includes input parsing
+and lifecycle effects; it does not certify permission to apply. Dates must be
+documented literal calendar dates. The entire selected import batch is checked before its
+first item write; unsupported values are preserved rather than silently changed.
+Existing local records remain readable and exportable. Structured captured
+comments use SDK JSON notes, so control words remain literal inside their text.
 The explicit mapping revision makes earlier preview-policy baselines foreign
 and review-required rather than reinterpreting them.
 See the [SDK example and measured validation](docs/field-ownership.md).

@@ -1,7 +1,7 @@
 # Field ownership review
 
 ```ts
-import { previewLinearOwnership, LinearOwnershipRefusal } from "pm-linear";
+import { previewLinearOwnership, LinearOwnershipRefusal, LinearImportRefusal } from "pm-linear";
 import type { LinearOwnershipSnapshot } from "pm-linear";
 
 // The caller obtains the explicit tracker root and its reviewed observation.
@@ -10,7 +10,9 @@ async function review(pmRoot: string, item: string, acknowledged?: LinearOwnersh
     const report = await previewLinearOwnership({ item, base: acknowledged }, pmRoot);
     return { fields: report.fields, counts: report.counts, observation: report.observation };
   } catch (error: unknown) {
-    if (error instanceof LinearOwnershipRefusal) return { code: error.code, remedy: error.remedy };
+    if (error instanceof LinearOwnershipRefusal || error instanceof LinearImportRefusal) {
+      return { code: error.code, field: error.field, remedy: error.remedy };
+    }
     throw error;
   }
 }
@@ -71,9 +73,9 @@ repair or certify inherited sync recovery.
 
 | General rule | Package-wide disposition |
 | --- | --- |
-| Compare through the write-path mapper | Ownership calls `buildItemPlan`, as atomic and legacy import do. SDK atomic dry-run results expose `prepared` plans from the actual writer preparation; CLI receipts keep their compact counts. SDK canonicalization handles status aliases, tags and whitespace; export's date projection remains shared. Omitted optional values retain the current target, as upserts do. Legacy updates now send empty mapped bodies and tags just as atomic updates do. |
+| Compare through the write-path mapper | Ownership calls `buildItemPlan`, as atomic and legacy import do. SDK atomic dry-run results expose `prepared` plans from the actual writer preparation; CLI receipts keep their compact counts. SDK operation read-back handles input parsing, status aliases, lifecycle effects and native field storage; export's calendar-date conversion stays confined to export. Omitted optional values retain the current target, as upserts do. Legacy updates now send empty mapped bodies and tags just as atomic updates do. |
 | Match documented nullable API fields | One issue-field schema supplies import and ownership variants. Cycle names may be null or absent, and optional objects may be omitted. Legacy string-valued workflow types remain accepted by the shared mapper. Unsupported values produce a typed `source_invalid` naming the field. The [Linear cycle schema](https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/Cycle) defines `name` as nullable. |
-| Validate before trusting any baseline row | All rows are inspected before the authority map is returned. Every occurrence of an invalid or duplicated known field is quarantined, in either order. Unidentifiable corrupt rows make the supplied baseline unknown; the item still produces a review plan. Mapping revision `linear-import-v2` prevents old-policy observations becoming authority under the corrected mapper. |
+| Validate before trusting any baseline row | All rows are inspected before the authority map is returned. Every occurrence of an invalid or duplicated known field is quarantined, in either order. Unidentifiable corrupt rows make the supplied baseline unknown; the item still produces a review plan. Mapping revision `linear-import-v3-sdk-projection` prevents old-policy observations becoming authority under the corrected mapper. |
 | Validate envelopes before dereference | Every HTTP consumer passes through the same transport schema. Null/scalar/array bodies, invalid data/error envelopes and invalid JSON produce sanitized typed refusals. Schema, capture, closure, import, export and validation probes are covered. Field diagnostics use schema-owned paths and never provider values. |
 
 Input-keyed lookup auditing also covered forward/inverse status maps, project
@@ -119,3 +121,54 @@ exclude unlinked items, with no provider requests and unchanged SDK native
 state. Packed acceptance passed all five modes. Full npm/Bun release-gate
 status remains separately reported in the PR; interrupted local full attempts
 and earlier-head CI successes are excluded.
+
+
+## Literal provider values and the SDK input boundary
+
+A persistence canonicalizer cannot undo earlier command-input parsing. The
+atomic mutation options and the non-atomic typed SDK writer now use the same
+`linearImportOptions` producer; ownership and both writers share
+`buildItemPlan` and its representability guard. The non-atomic path no longer
+launches a CLI subprocess or places provider strings in argv.
+
+Ownership now executes the shared atomic update/close rows through a
+`PmClient` with extensions disabled in an owned disposable copy, then reads
+that copy back through the SDK. It does not estimate SDK parsing from raw
+options. This also observes lifecycle effects such as cancellation clearing
+assignments. Copied ownership/closure permissions are bypassed only in the
+throwaway projection; the result never authorizes a real write. The source
+view is compared again before it contributes any hashes, and no staged
+metadata, history or hooks reach the source tracker or provider.
+
+The pinned SDK still interprets body/description `-` as stdin and assignment
+`none`/`null` as clear controls. Its bulk row options have no public literal
+switch. Internal stdin-marker helpers are not imported. Until
+[pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614) supplies a supported
+literal path, these values produce typed `LinearImportRefusal` with
+`code: "unrepresentable_value"`, a native `field`, a remedy and exit code 2.
+Whitespace/case variants of controls refuse too. Empty native titles and
+non-calendar/relative deadline values also refuse before writes. A nullable or
+empty provider assignment is still an omitted upsert field, preserving its
+current local value. Local historical data is read and exported normally.
+
+No caller stdin is consumed. The complete selected batch is checked before
+its first item write, including direct SDK atomic calls. JSON and native TOON
+retain the code and field through both import aliases and ownership commands.
+Body strings such as `none`, `null`, `@file`, `--` and `--force`, and leading-dash
+titles, remain literal. Labels use the SDK JSON-array input. Captured comments
+use structured SDK JSON notes; export sends typed JSON GraphQL variables.
+
+The additional seeded test performs 500 real imports across both writers,
+reads every result back through the SDK, checks accepted literal bytes and
+relationships, and compares acknowledged ownership observations with stored
+state. It also mixes typed refusals with the writes, and a subprocess test
+verifies that piped caller input remains untouched after safe and refused
+imports. The literal SDK adoption follow-up is `pm-linear-literal-sdk-values`.
+
+The earlier 500-operation reference model also applies real dry-run rows in a
+separate owned reference tracker and reads the resulting native document
+through the SDK. It no longer merges raw option values into a canonical
+document as its oracle. Permissions are bypassed only in that reference copy;
+field effects still come from the SDK coordinator. Deadline hashes now use
+native SDK timestamps on both sides, so a local time change cannot be hidden
+by export-only calendar-date conversion.

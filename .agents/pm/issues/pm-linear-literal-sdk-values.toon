@@ -1,0 +1,12 @@
+id: pm-linear-literal-sdk-values
+title: Adopt literal SDK mutation values after upstream sentinel parsing is fixed
+description: "SDK create/update and bulk mutation options parse transport controls as data under upstream unbraind/pm-cli#1614. The package currently refuses unrepresentable provider fields before writes. Adopt a supported literal option when the pinned SDK exposes it, preserving atomic transaction and ownership contracts."
+type: Issue
+status: open
+priority: 2
+tags[3]: "gh:unbraind/pm-cli#1614",sdk-gap,"upstream:pm-cli#1614"
+created_at: "2026-10-27T19:03:13.474Z"
+updated_at: "2026-10-27T19:03:13.474Z"
+author: codex-agent
+acceptance_criteria: A supported SDK literal mutation option stores body dash and assignee none/null literally without reading stdin; remove only refusals proven unnecessary on the pinned SDK; preserve old persisted data; 500 seeded real SDK round-trips and packed npm/Bun consumers cover every control token and both writers.
+body: ""

@@ -35,11 +35,22 @@ let requests = 0;
 let malformedEnvelope = false;
 const server = http.createServer((req, res) => {
   let body = ""; req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-  req.on("end", () => { assert.ok(!body.includes("mutation")); requests++; res.writeHead(200, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify(malformedEnvelope ? null : { data: { issue: provider } })); });
+  req.on("end", () => {
+    const { query } = JSON.parse(body) as { query: string };
+    assert.ok(!query.trimStart().startsWith("mutation")); requests++;
+    const pageInfo = { hasNextPage: false, endCursor: null };
+    const data = query.includes("LinearSchema") ? {
+      teams: { nodes: [{ id: "team", key: "ENG", cyclesEnabled: false, triageEnabled: false, issueEstimationType: "notUsed", defaultIssueState: null,
+        states: { nodes: [{ id: "state", ...provider.state }], pageInfo } }] },
+      issueLabels: { nodes: provider.labels.nodes.map((label, index) => ({ id: `label-${index}`, name: label.name })), pageInfo },
+    } : query.includes("viewer") ? { viewer: { id: "reader" } } : query.includes("issues(") ? { issues: { nodes: [provider], pageInfo } } : { issue: provider };
+    res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
+    res.end(JSON.stringify(malformedEnvelope ? null : { data }));
+  });
 });
 await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
 const addr = server.address(); assert.ok(addr && typeof addr !== "string");
-const network = { LINEAR_API_KEY: "synthetic-key", LINEAR_API_BASE_URL: `http://127.0.0.1:${addr.port}/graphql` };
+const network = { LINEAR_PUSH_ON_WRITE: "1", LINEAR_API_KEY: "synthetic-key", LINEAR_API_BASE_URL: `http://127.0.0.1:${addr.port}/graphql` };
 try {
   process.stdout.write("packing candidate\n");
   const pack = JSON.parse(await run(npmBin, ["pack", "--json", "--pack-destination", scratch], resolve(import.meta.dirname, ".."))) as Array<{ filename: string }>;
@@ -65,6 +76,7 @@ try {
   const results = [];
   for (const mode of modes) {
     provider.state = { name: "Queue", type: "unstarted" };
+    provider.description = "Synthetic"; provider.assignee = undefined;
     malformedEnvelope = false;
     const tracker = join(scratch, "trackers", mode.name);
     await mkdir(tracker, { recursive: true });
@@ -90,6 +102,25 @@ try {
     await writeFile(file, JSON.stringify({ ...output.observation, fields: [title, { ...title, local: "invalid" }] }));
     const duplicate = JSON.parse(await run(mode.bin, [...args, "--json"], scratch, { ...mode.vars, ...network })) as LinearOwnershipReport;
     assert.equal(duplicate.fields.find((field) => field.field === "title")?.decision, "unknown_base");
+    let literalDispatches = 0;
+    for (const field of ["body", "assignee"]) {
+      provider.description = field === "body" ? "-" : "Synthetic";
+      provider.assignee = field === "assignee" ? { name: "none", email: null } : undefined;
+      for (const command of [
+        ["linear", "ownership", "--item", created.item.id],
+        ...[true, false].flatMap((atomic) => [
+          ["linear", "sync", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
+          ["linear", "import", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
+          ["linear-sync", "import", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
+        ]),
+      ]) for (const format of [["--json"], []]) {
+        const result = await run(mode.bin, [...mode.args, "--pm-path", tracker, ...command, ...format], scratch, { ...mode.vars, ...network }, 2);
+        assert.match(result, /unrepresentable_value/); assert.match(result, new RegExp(field));
+        if (format.length) { const receipt = JSON.parse(result) as { code: string; field: string }; assert.equal(receipt.code, "unrepresentable_value"); assert.equal(receipt.field, field); }
+        literalDispatches++;
+      }
+    }
+    provider.description = "Synthetic"; provider.assignee = undefined;
     malformedEnvelope = true;
     const error = JSON.parse(await run(mode.bin, [...mode.args, "--pm-path", tracker, "linear", "ownership", "--item", created.item.id, "--json"], scratch, { ...mode.vars, ...network }, 2)) as { code: string; field: string };
     assert.equal(error.code, "source_invalid"); assert.equal(error.field, "response");
@@ -109,7 +140,7 @@ try {
       }
     }
     results.push({ mode: mode.name, passed: true, requests: requests - offset, jsonBytes: Buffer.byteLength(raw),
-      nullableCycle: true, statusConflict: true, malformedDuplicate: true, typedEnvelope: true, sourceDispatches, toon: true });
+      nullableCycle: true, statusConflict: true, malformedDuplicate: true, typedEnvelope: true, sourceDispatches, literalDispatches, toon: true });
     process.stdout.write(`${mode.name}: passed\n`);
   }
   const report = { packageVersion: JSON.parse(await readFile(join(source, "package.json"), "utf8")).version as string, hostVersion, modes: results };

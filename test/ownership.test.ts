@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import http from "node:http";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { canonicalDocument, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata } from "@unbrained/pm-cli/sdk";
+import { canonicalDocument, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
 
@@ -187,7 +187,7 @@ async function stateFromSdk(root: string, id: string) {
 /** Digest the canonical SDK document without handwritten whitespace or metadata normalization. */
 function hashes(document: Awaited<ReturnType<typeof stateFromSdk>>) {
   const metadata = document.metadata as unknown as Record<string, unknown>;
-  return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, createHash("sha256").update(JSON.stringify(field === "body" ? document.body : field === "deadline" ? itemToLinearPayload({ deadline: document.metadata.deadline }).dueDate ?? null : metadata[field] ?? null)).digest("hex")]));
+  return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, createHash("sha256").update(JSON.stringify(field === "body" ? document.body : metadata[field] ?? null)).digest("hex")]));
 }
 
 test("500 seeded operation sequences cover historical replays, CRLF, all fields, relationships and random status roles", async (t) => {
@@ -239,9 +239,19 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     assert.equal(imported.prepared?.length, 1);
     const plan = imported.prepared![0];
     assert.ok(Object.keys(plan).every((key) => ["identifier", "linearId", "match"].includes(key) || LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)), "every native field emitted by import must be represented in the preview schema");
-    const mapped = Object.fromEntries(LINEAR_OWNERSHIP_FIELDS.filter((key) => key !== "body" && Object.hasOwn(plan, key))
-      .map((key) => [key, (plan as unknown as Record<string, unknown>)[key]]));
-    const remote = hashes(canonicalDocument({ metadata: { ...before.metadata, ...mapped } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
+    // Apply the actual dry-run rows to an independent owned reference tracker.
+    // Ignore copied authorization only: this model compares stored field effects,
+    // not whether a real import is permitted against the selected source.
+    const reference = await mkdtemp(join(tmpdir(), "linear-reference-"));
+    let remote: ReturnType<typeof hashes>;
+    try {
+      await cp(root, reference, { recursive: true });
+      const mutations: BulkItemMutation[] = buildAtomicImportMutations("ENG", plan, settings.id_prefix, normalizeItemId).mutations
+        .map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
+      const revision = createHash("sha256").update(JSON.stringify(before)).update(String(sequence)).digest("hex");
+      await commitItemMutations({ pmRoot: reference, transactionId: `reference-${revision}`, author: "fixture", mutations });
+      remote = hashes(await stateFromSdk(reference, options.item));
+    } finally { await rm(reference, { recursive: true, force: true }); }
     const report = await previewLinearOwnership({ ...options, base }, root);
     baseline = report.observation;
     for (const field of report.fields) {

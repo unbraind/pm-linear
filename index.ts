@@ -5,7 +5,6 @@ import type {
   ImportExportContext,
   PreflightOverrideContext,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
@@ -79,10 +78,46 @@ export class LinearSourceRefusal extends CommandError {
   }
 }
 
-/** Standard host error receipt for malformed provider contracts in every rendered command. */
+/** Provider data refused before SDK control-token parsing or any item write. */
+export class LinearImportRefusal extends CommandError {
+  /** Stable category for values the installed SDK cannot store literally. */
+  readonly code = "unrepresentable_value";
+  /** Mapped native field whose literal value cannot be safely passed to the SDK. */
+  readonly field: string;
+  /** Required recovery preserves the provider value instead of silently changing it. */
+  readonly remedy: string;
+  /** Refuse without echoing provider content or attempting a write. */
+  constructor(field: string) {
+    const recovery = field === "deadline" ? "Supply Linear's documented literal YYYY-MM-DD calendar date; relative dates and clear tokens cannot be imported as data." : field === "title" ? "Supply a non-empty native title; empty titles cannot be stored literally." : "Preserve the provider value and retry after SDK literal mutation support is available.";
+    const remedy = `${recovery} SDK control-token parsing is tracked by pm-cli#1614. Imports never consume stdin. No item writes were attempted.`;
+    super(`Linear import refused (unrepresentable_value: ${field}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearImportRefusal";
+    this.field = field;
+    this.remedy = remedy;
+  }
+}
+
+/** Reject SDK control values before either import writer or ownership projection uses a plan. */
+function assertLiteralImportValues(plan: Pick<ItemPlan, "title" | "body" | "description" | "assignee" | "deadline">): void {
+  if (typeof plan !== "object" || plan === null || Array.isArray(plan)) throw new LinearImportRefusal("record");
+  if (typeof plan.title !== "string" || !plan.title.trim()) throw new LinearImportRefusal("title");
+  for (const field of ["body", "description"] as const) {
+    if (typeof plan[field] !== "string" || plan[field].trim() === "-") throw new LinearImportRefusal(field);
+  }
+  for (const field of ["assignee", "deadline"] as const) {
+    const value = plan[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim() || /^(?:none|null)$/i.test(value.trim()))) throw new LinearImportRefusal(field);
+  }
+  if (plan.deadline !== undefined) {
+    const instant = Date.parse(plan.deadline);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(plan.deadline) || !Number.isFinite(instant) || new Date(instant).toISOString().slice(0, 10) !== plan.deadline) throw new LinearImportRefusal("deadline");
+  }
+}
+
+/** Standard host error receipt for source-contract and literal-representability failures. */
 export interface LinearSourceErrorReceipt {
   ok: false;
-  code: "source_invalid";
+  code: "source_invalid" | "unrepresentable_value";
   field: string;
   remedy: string;
   remediation: string;
@@ -90,14 +125,14 @@ export interface LinearSourceErrorReceipt {
   write_unconfirmed?: true;
 }
 
-/** Preserve typed source failures across the host's JSON/TOON and nonzero-exit contract. */
+/** Preserve source and literal-value refusals across the host's JSON/TOON and nonzero-exit contract. */
 async function withLinearSource<T>(action: () => T | Promise<T>): Promise<T | LinearSourceErrorReceipt> {
   try { return await action(); }
   catch (error: unknown) {
-    if (!(error instanceof CommandError) || !("code" in error) || error.code !== "source_invalid") throw error;
+    if (!(error instanceof CommandError) || !("code" in error) || (error.code !== "source_invalid" && error.code !== "unrepresentable_value")) throw error;
     const field = "field" in error && typeof error.field === "string" ? error.field : "issue";
     const remedy = "remedy" in error && typeof error.remedy === "string" ? error.remedy : `Retry a complete provider response at ${field}.`;
-    return { ok: false, code: "source_invalid", field, remedy, remediation: remedy, exit_code: EXIT_CODE.USAGE,
+    return { ok: false, code: error.code, field, remedy, remediation: remedy, exit_code: EXIT_CODE.USAGE,
       ...("writeUnconfirmed" in error && error.writeUnconfirmed === true ? { write_unconfirmed: true as const } : {}) };
   }
 }
@@ -1840,16 +1875,26 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
     if (!key || !target || normalizedMap.has(key)) throw new LinearOwnershipRefusal("invalid_input", "Use unambiguous state mappings to statuses in the configured SDK registry.");
     normalizedMap.set(key, target);
   }
-  const mapping = schemaDigest({ projection: "linear-import-v2", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
+  const mapping = schemaDigest({ projection: "linear-import-v3-sdk-projection", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
   const plan = buildItemPlan(issue, Object.fromEntries(normalizedMap));
   /** The same SDK canonicalizer used by persistence handles status aliases and metadata. */
   function project(item: PmItem): Map<LinearOwnershipField, string> {
     const document = sdk.canonicalDocument({ metadata: { id: local!.id!, type: "Task", title: "", status: "open", created_at: "", updated_at: "", description: "", ...item } as ItemMetadata, body: item.body ?? "" }, { schema: view.settings.schema });
     const metadata = document.metadata as unknown as Record<string, unknown>;
-    return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, schemaDigest(field === "body" ? document.body : field === "deadline" ? itemToLinearPayload({ deadline: document.metadata.deadline }).dueDate ?? null : metadata[field] ?? null)]));
+    return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, schemaDigest(field === "body" ? document.body : metadata[field] ?? null)]));
   }
-  // Like SDK updates, omitted optional fields retain the current target value.
-  const incoming = project({ ...local, ...plan, id: local.id });
+  // Execute the exact writer rows through the SDK in an owned disposable copy.
+  // Persistence canonicalization alone does not cover SDK option parsing or
+  // lifecycle effects (for example, canceled-role assignment clearing).
+  let projection: ClosureReadView;
+  try { projection = await readClosureItems(source, [options.item], { ...plan, identifier: issue.identifier, linearId, match: local }); }
+  catch (error: unknown) {
+    if (error instanceof LinearImportRefusal) throw error;
+    throw new LinearOwnershipRefusal("invalid_input", "The SDK could not project this import against an isolated copy. Review native values and tracker schema/policy before retrying; no source writes or hooks ran.", "plan");
+  }
+  const { projected, ...projectionSource } = projection;
+  if (schemaDigest(projectionSource) !== schemaDigest(view)) throw new LinearOwnershipRefusal("source_changed", "Local state changed while the SDK projection was staged. Read both systems again; no source writes were attempted.");
+  const incoming = project(projected!);
   const current = project(local);
   const observation: LinearOwnershipSnapshot = {
     format: "pm-linear/ownership/1", localId: local.id!, linearId, mapping,
@@ -2153,6 +2198,8 @@ interface ClosureReadView {
   selectedIds: Array<string | null>;
   configuration: string;
   settings: Awaited<ReturnType<Awaited<ReturnType<typeof importRuntimeSdk>>["readSettings"]>>;
+  /** SDK-applied import projection read from an owned disposable copy only. */
+  projected?: PmItem;
 }
 
 /**
@@ -2162,7 +2209,7 @@ interface ClosureReadView {
  * the final read view. Only owned copies ever reach repairing SDK entry points.
  * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(source: string, selections: string[]): Promise<ClosureReadView> {
+async function readClosureItems(source: string, selections: string[], projection?: PreparedLinearImport): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
   const bootstrap = join(scratch, "bootstrap");
   const reader = join(scratch, "reader");
@@ -2218,7 +2265,23 @@ async function readClosureItems(source: string, selections: string[]): Promise<C
       const located = await sdk.locateItem(reader, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
       selectedIds.push(located?.id ?? null);
     }
-    return { items, selectedIds, configuration: schemaDigest(settings), settings };
+    const sourceView = { items: structuredClone(items), selectedIds, configuration: schemaDigest(settings), settings: structuredClone(settings) };
+    let projected: PmItem | undefined;
+    if (projection) {
+      const client = new sdk.PmClient({ pmRoot: reader, noExtensions: true, author: "pm-linear" });
+      const planned = buildAtomicImportMutations("ownership", projection, settings.id_prefix, sdk.normalizeItemId);
+      for (const mutation of planned.mutations) {
+        // The selected linked target already exists in this owned copy. Apply
+        // the same update/close rows as the atomic writer through the SDK.
+        // Force only bypasses copied ownership/closure permissions; a preview
+        // never claims that the real writer is authorized. Hooks stay disabled.
+        if (mutation.op === "update") await client.update(mutation.id, { ...mutation.options, force: true });
+        else if (mutation.op === "close") await client.close(mutation.id, mutation.reason, { ...mutation.options, force: true });
+      }
+      projected = (await readPmItems(reader)).find((item) => item.id === projection.match?.id);
+      if (!projected) throw new Error("SDK projection target disappeared");
+    }
+    return { ...sourceView, ...(projected ? { projected } : {}) };
   } finally {
     await writableMirror();
     await rm(scratch, { recursive: true, force: true });
@@ -2537,6 +2600,7 @@ export function buildItemPlan(
     const assignee = issue.assignee?.email?.trim() || issue.assignee?.name?.trim();
     if (assignee) plan.assignee = assignee;
   }
+  assertLiteralImportValues(plan);
   return plan;
 }
 
@@ -2756,6 +2820,18 @@ function linearTagInput(tags: readonly string[]): string {
   return JSON.stringify([...tags].sort());
 }
 
+/** Encode literal mapped fields for the SDK option contract shared by both import writers. */
+function linearImportOptions(entry: ItemPlan) {
+  assertLiteralImportValues(entry);
+  return {
+    title: entry.title, priority: entry.priority, description: entry.description, body: entry.body,
+    // JSON arrays escape label control words, commas, quotes and stdin tokens.
+    tags: linearTagInput(entry.tags),
+    ...(entry.deadline ? { deadline: entry.deadline } : {}),
+    ...(entry.assignee ? { assignee: entry.assignee } : {}),
+  };
+}
+
 /** Map one rendered import entry to its reversible SDK mutation sequence. */
 export function buildAtomicImportMutations(
   team: string,
@@ -2770,19 +2846,7 @@ export function buildAtomicImportMutations(
   // and webhooks on every run. Each mutation sets status explicitly instead
   // (create seeds a valid open item; update only carries status for non-closed
   // entries; the close step owns the closed transition).
-  const sharedOptions: Record<string, unknown> = {
-    title: entry.title,
-    priority: entry.priority,
-    description: entry.description,
-    body: entry.body,
-    // Sort before encoding so the mutations slice of the transaction-id hash is
-    // independent of Linear label-node order; a reordered retry resumes the same
-    // journal instead of starting a fresh one (the canonical-entries side in
-    // deriveAtomicTransactionId already sorts tags).
-    tags: linearTagInput(entry.tags),
-    ...(entry.deadline ? { deadline: entry.deadline } : {}),
-    ...(entry.assignee ? { assignee: entry.assignee } : {}),
-  };
+  const sharedOptions = linearImportOptions(entry);
 
   const managedItemId = deriveAtomicItemId(
     team,
@@ -2865,6 +2929,7 @@ export async function importLinearAtomic(
   recoveredItems?: number;
   itemIds: Map<string, string>;
 }> {
+  for (const entry of entries) assertLiteralImportValues(entry);
   const {
     commitItemMutations: commit,
     normalizeItemId,
@@ -3018,53 +3083,48 @@ export async function syncLinearIssues(
   // and reports its own counts, so hoisting them here would be a dead store).
   let skipped = 0;
 
-  // -------------------------------------------------------------------------
-  // --atomic: commit the whole batch as ONE crash-resumable transaction via
-  // the SDK commitItemMutations helper. --atomic --dry-run shares this exact
-  // preparation/matching path and reports counts WITHOUT touching the commit.
-  // The non-atomic per-issue loop below applies the same mapped field values.
-  // -------------------------------------------------------------------------
-  if (options.atomic) {
-    const prepared: PreparedLinearImport[] = [];
-    for (const issue of issues) {
-      if (ambiguous.has(issue.id)) { skipped++; console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
-      // Reuse the same server-side state/cycle backstop filters as the legacy
-      // path so `--atomic` skips the same issues and reports the same counts.
-      if (options.stateFilter) {
-        const stateName = issue.state.name.toLowerCase();
-        if (!stateName.includes(options.stateFilter.toLowerCase())) {
-          skipped++;
-          continue;
-        }
+  // Resolve and validate the entire selected batch before the first write.
+  const prepared: PreparedLinearImport[] = [];
+  for (const issue of issues) {
+    if (ambiguous.has(issue.id)) { skipped++; console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
+    // Reuse the same server-side state/cycle backstop filters as the legacy
+    // path so `--atomic` skips the same issues and reports the same counts.
+    if (options.stateFilter) {
+      const stateName = issue.state.name.toLowerCase();
+      if (!stateName.includes(options.stateFilter.toLowerCase())) {
+        skipped++;
+        continue;
       }
-      if (options.cycleFilter) {
-        const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
-        if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
-          skipped++;
-          continue;
-        }
-      }
-      const plan = buildItemPlan(
-        issue,
-        statusMap,
-        options.fieldMap ?? {},
-        options.projectMap ?? { enabled: false, passthrough: false, map: {} }
-      );
-      prepared.push({
-        identifier: issue.identifier,
-        linearId: issue.id,
-        title: plan.title,
-        status: plan.status,
-        priority: plan.priority,
-        description: plan.description,
-        body: plan.body,
-        tags: plan.tags,
-        ...(plan.deadline ? { deadline: plan.deadline } : {}),
-        ...(plan.assignee ? { assignee: plan.assignee } : {}),
-        match: ownMappingValue(existingByLinearId, issue.id),
-      });
     }
+    if (options.cycleFilter) {
+      const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
+      if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
+        skipped++;
+        continue;
+      }
+    }
+    const plan = buildItemPlan(
+      issue,
+      statusMap,
+      options.fieldMap ?? {},
+      options.projectMap ?? { enabled: false, passthrough: false, map: {} }
+    );
+    prepared.push({
+      identifier: issue.identifier,
+      linearId: issue.id,
+      title: plan.title,
+      status: plan.status,
+      priority: plan.priority,
+      description: plan.description,
+      body: plan.body,
+      tags: plan.tags,
+      ...(plan.deadline ? { deadline: plan.deadline } : {}),
+      ...(plan.assignee ? { assignee: plan.assignee } : {}),
+      match: ownMappingValue(existingByLinearId, issue.id),
+    });
+  }
 
+  if (options.atomic) {
     if (options.dryRun) {
       const wouldCreate = prepared.filter((e) => !e.match?.id).length;
       const wouldUpdate = prepared.length - wouldCreate;
@@ -3132,92 +3192,21 @@ export async function syncLinearIssues(
 
   let created = 0;
   let updated = 0;
-  for (const issue of issues) {
-    if (ambiguous.has(issue.id)) { skipped++; console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
-    // State name filter. The authoritative constraint is now server-side
-    // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
-    // so `--limit` bounds the MATCHING issues rather than the pre-filter page.
-    // This identical case-insensitive substring check is a harmless backstop —
-    // the server applies the same predicate, so it never drops a server hit.
-    if (options.stateFilter) {
-      const stateName = issue.state.name.toLowerCase();
-      if (!stateName.includes(options.stateFilter.toLowerCase())) {
-        skipped++;
-        continue;
+  const sdk = await importRuntimeSdk();
+  const pm = new sdk.PmClient({ pmRoot: pm_root, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
+  for (const entry of prepared) {
+    const values = linearImportOptions(entry);
+    try {
+      if (entry.match?.id) {
+        await pm.update(entry.match.id, { ...values, status: entry.status });
+        updated++;
+      } else {
+        await pm.create({ ...values, status: entry.status, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+        created++;
       }
-    }
-
-    // Cycle name filter. The authoritative constraint is server-side
-    // (`cycle: { name: { containsIgnoreCase: $cycle } }` in buildIssuesQuery),
-    // so `--limit` bounds the MATCHING issues. This identical case-insensitive
-    // substring check is a harmless backstop; the server applies the same
-    // predicate, so it never drops a server hit. An issue with no cycle never
-    // matches a cycle filter (server-side null cycle is excluded too).
-    if (options.cycleFilter) {
-      const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
-      if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
-        skipped++;
-        continue;
-      }
-    }
-
-    // `pm create` has no generic setter for the registerItemFields custom
-    // fields from a standalone extension, so buildItemPlan persists Linear
-    // provenance in the description behind a stable marker. This survives
-    // round-trips and is what re-import + `pm linear export` read back to stay
-    // idempotent. The same builder feeds the offline --dry-run preview.
-    const plan = buildItemPlan(
-      issue,
-      statusMap,
-      options.fieldMap ?? {},
-      options.projectMap ?? { enabled: false, passthrough: false, map: {} }
-    );
-    const { title, body, status, priority, description } = plan;
-    const tags = plan.tags;
-    const existing = ownMappingValue(existingByLinearId, issue.id);
-
-    if (existing && existing.id) {
-      // Update the matched item in place (no duplicate).
-      const updateArgs = [
-        "--path", pm_root,
-        "update", existing.id,
-        "--title", title,
-        "--status", status,
-        "--priority", String(priority),
-        "--description", description,
-      ];
-      updateArgs.push("--body", body, "--tags", linearTagInput(tags));
-      if (plan.deadline) updateArgs.push("--deadline", plan.deadline);
-      if (plan.assignee) updateArgs.push("--assignee", plan.assignee);
-
-      const result = spawnSync("pm", updateArgs, { encoding: "utf-8" });
-      if (result.status !== 0) {
-        console.error(`Failed to update item for ${issue.identifier}: ${result.stderr}`);
-        skipped++;
-        continue;
-      }
-      updated++;
-    } else {
-      const createArgs = [
-        "--path", pm_root,
-        "create",
-        "--title", title,
-        "--status", status,
-        "--priority", String(priority),
-        "--description", description,
-      ];
-      createArgs.push("--body", body, "--tags", linearTagInput(tags), "--parent", "none");
-      for (const field of ["goal", "objective", "sprint", "release"]) createArgs.push("--unset", field);
-      if (plan.deadline) createArgs.push("--deadline", plan.deadline);
-      if (plan.assignee) createArgs.push("--assignee", plan.assignee);
-
-      const result = spawnSync("pm", createArgs, { encoding: "utf-8" });
-      if (result.status !== 0) {
-        console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
-        skipped++;
-        continue;
-      }
-      created++;
+    } catch (error: unknown) {
+      console.error(`Failed to ${entry.match?.id ? "update" : "create"} item for ${entry.identifier}: ${error instanceof Error ? error.message : String(error)}`);
+      skipped++;
     }
   }
 
