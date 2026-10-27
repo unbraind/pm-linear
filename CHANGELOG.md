@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2026.10.27 - 2026-10-27
 
 ### Other
 
@@ -27,18 +27,21 @@
 ### Fixed
 
 - Release recovery refuses a release commit merged with the GitHub squash suffix ([pm-linear-1cpw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-1cpw.toon))
-- Harden the release merge wait against mergeStateStatus deadlock ([pm-linear-niyz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-niyz.toon))
 - A release that merges but fails to publish is abandoned by the next day's run ([pm-linear-yyr9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-yyr9.toon))
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([pm-linear-vc2f](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-vc2f.toon))
-- The publish-attestation gate misses a publish routed through an unquoted shell variable ([pm-linear-pa9x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-pa9x.toon))
 - The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([pm-linear-9hw2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-9hw2.toon))
 - A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([pm-linear-kq42](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-kq42.toon))
 
+### Closed
+
+- Closed: Harden the release merge wait against mergeStateStatus deadlock ([pm-linear-niyz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-niyz.toon))
+- Closed: The publish-attestation gate misses a publish routed through an unquoted shell variable ([pm-linear-pa9x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-pa9x.toon))
+
 ## 2026.10.21 - 2026-10-21
 
-### Fixed
+### Closed
 
-- Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
+- Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
 
 ## 2026.10.8 - 2026-10-08
 
@@ -114,10 +117,10 @@
 
 ## 2026.8.31 - 2026-08-31
 
-### Fixed
+### Closed
 
-- Pin pm-changelog 2026.8.30 before the next release ([pm-linear-ljx3](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ljx3.toon))
-- The release changelog remained Unreleased after the release tag was created ([pm-linear-fkps](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-fkps.toon))
+- Closed: Pin pm-changelog 2026.8.30 before the next release ([pm-linear-ljx3](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ljx3.toon))
+- Closed: The release changelog remained Unreleased after the release tag was created ([pm-linear-fkps](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-fkps.toon))
 
 ## 2026.8.29 - 2026-08-29
 
@@ -132,13 +135,13 @@
 
 - changelog scripts read the pm workspace with default budgets instead of canonical complete reads ([pm-linear-4so4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-4so4.toon))
 
-### Security
-
-- The identity gate deadlocks the one remediation its own failure message prescribes ([pm-linear-ofoe](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ofoe.toon))
-
 ### Other
 
 - Drop inert pm manifest key and guard the closed manifest vocabulary ([pm-linear-ck8r](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-ck8r.toon))
+
+### Closed
+
+- Closed: The identity gate deadlocks the one remediation its own failure message prescribes ([pm-linear-ofoe](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ofoe.toon))
 
 ## 2026.8.16 - 2026-08-16
 
@@ -155,19 +158,25 @@
 ### Fixed
 
 - The shared script launcher skipped every gate it guarded when a path could not be resolved ([pm-linear-lonp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-lonp.toon))
-- Converge changelog generation and verification on replace mode ([pm-linear-semp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-semp.toon))
 - The release merge-wait queried branch protection, which the workflow token can never read ([pm-linear-0u8d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-0u8d.toon))
+
+### Closed
+
+- Closed: Converge changelog generation and verification on replace mode ([pm-linear-semp](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-semp.toon))
 
 ## 2026.8.9 - 2026-08-09
 
 ### Fixed
 
 - Release workflow publishes to npm before advancing protected main, desyncing npm from git ([pm-linear-j7oc](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-j7oc.toon))
-- Adopt the canonical pm-ops docstring gate and document all source declarations ([pm-linear-085x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-085x.toon))
 
 ### Other
 
 - Reconcile git main to the 2026.8.9 release npm already serves ([pm-linear-33nf](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-33nf.toon))
+
+### Closed
+
+- Closed: Adopt the canonical pm-ops docstring gate and document all source declarations ([pm-linear-085x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-085x.toon))
 
 ## 2026.8.7 - 2026-08-07
 
@@ -207,13 +216,13 @@
 
 ## 2026.7.26 - 2026-07-26
 
-### Fixed
-
-- Documented install command fails: pm install github.com/unbraind/pm-linear cannot resolve an entry file ([pm-linear-ga1c](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ga1c.toon))
-
 ### Other
 
 - Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([pm-linear-0iye](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-0iye.toon))
+
+### Closed
+
+- Closed: Documented install command fails: pm install github.com/unbraind/pm-linear cannot resolve an entry file ([pm-linear-ga1c](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ga1c.toon))
 
 ## 2026.7.25 - 2026-07-25
 
@@ -223,13 +232,13 @@
 
 ## 2026.7.23 - 2026-07-23
 
-### Fixed
-
-- Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([pm-linear-3ifi](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-3ifi.toon))
-
 ### Other
 
 - Adopt pm field-aware merge driver for multi-agent branch-merge safety ([pm-linear-1llj](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1llj.toon))
+
+### Closed
+
+- Closed: Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([pm-linear-3ifi](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-3ifi.toon))
 
 ## 2026.7.21 - 2026-07-21
 
@@ -243,14 +252,13 @@
 
 - Full pm ecosystem production pass for pm-linear ([pm-linear-p6lk](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-p6lk.toon))
 
-### Fixed
-
-- state filter is applied client-side after --limit, under-returning on large teams ([pm-linear-zczw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-zczw.toon))
-
 ### Other
 
 - Harden release bun-verify so registry-mirror lag cannot block the GitHub release ([pm-linear-oe0z](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-oe0z.toon))
-- Full-cycle hardening wave: pm-linear ([pm-linear-co77](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-co77.toon))
+
+### Closed
+
+- Closed: state filter is applied client-side after --limit, under-returning on large teams ([pm-linear-zczw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-zczw.toon))
 
 ## 2026.7.6 - 2026-07-06
 
@@ -345,12 +353,12 @@
 
 - Hands-on functional test pass 2026-05-29 (real data) ([pm-linear-kj99](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-kj99.toon))
 
-### Fixed
+### Closed
 
-- issues with dueDate use --due-date which pm create rejects (exit 2) ([pm-linear-hyc6](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hyc6.toon))
-- no GraphQL pagination: --limit \> 250 silently truncates ([pm-linear-92kd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-92kd.toon))
-- sync failures return {success:false} instead of throwing -\> exit 0 ([pm-linear-da0d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-da0d.toon))
-- dry-run/limit flags read kebab keys; --dry-run silently writes ([pm-linear-g30q](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-g30q.toon))
+- Closed: issues with dueDate use --due-date which pm create rejects (exit 2) ([pm-linear-hyc6](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hyc6.toon))
+- Closed: no GraphQL pagination: --limit \> 250 silently truncates ([pm-linear-92kd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-92kd.toon))
+- Closed: sync failures return {success:false} instead of throwing -\> exit 0 ([pm-linear-da0d](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-da0d.toon))
+- Closed: dry-run/limit flags read kebab keys; --dry-run silently writes ([pm-linear-g30q](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-g30q.toon))
 
 ## 2026.5.28 - 2026-05-28
 
