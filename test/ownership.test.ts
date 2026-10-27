@@ -211,13 +211,16 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     };
     await pm.update(options.item, writes[choice]);
     if (random() < 0.4) state.issue = structuredClone(providers[Math.floor(random() * providers.length)]);
-    else { const next = issue(); next.title = `Provider ${sequence}`; next.description = sequence % 2 ? "\r\n Body " : "Body "; next.estimate = sequence / 2; next.assignee = sequence % 2 ? null : { name: "Peer", email: null }; state.issue = next; }
+    else { const next = issue(); next.title = `Provider ${sequence}`; next.description = sequence % 2 ? "\r\n Body " : "Body "; next.estimate = sequence / 2; next.dueDate = sequence % 2 ? null : "2026-12-01"; next.assignee = sequence % 2 ? null : { name: "Peer", email: null }; state.issue = next; }
     const base = random() < 0.4 ? history[Math.floor(random() * history.length)] : baseline;
     const before = await stateFromSdk(root, options.item);
     const local = hashes(before);
     const settings = await readSettings(root);
     const plan = buildItemPlan(state.issue as LinearIssue, {});
-    const remote = hashes(canonicalDocument({ metadata: { ...before.metadata, ...plan, id: before.metadata.id } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
+    // A reference import replaces every mapped field; omitted assignments clear
+    // mapped optional values instead of inheriting the previous local value.
+    const retained = Object.fromEntries(Object.entries(before.metadata).filter(([key]) => !LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)));
+    const remote = hashes(canonicalDocument({ metadata: { ...retained, ...plan, id: before.metadata.id } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
     const report = await previewLinearOwnership({ ...options, base }, root);
     baseline = report.observation;
     for (const field of report.fields) {
