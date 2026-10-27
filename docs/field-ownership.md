@@ -96,3 +96,23 @@ The packed-host test exercises all four review findings in JSON and native TOON
 through project-local, npm global, Bun global, npx and bunx consumers in plain
 trackers. Focused tests, per-class behavioral revert proofs and full serial
 npm/Bun release-gate results are recorded in the PM item and PR.
+
+
+SDK input normalization also matters before persistence canonicalization. A real
+SDK read-back probe found that a plain `none` tag input clears tags, and CSV
+splits commas inside a label. Both import writers now encode tag lists through
+the SDK's documented JSON-array input, retaining literal control words,
+delimiters, quotes and stdin tokens. A 500-sequence producer property compares
+those inputs through SDK `parseTags` and `canonicalDocument`; real atomic and
+legacy writes read every result back through the SDK. Both creation paths set
+parent and scopes explicitly, with focus under each actual writer author used
+as an adversarial fixture. Existing updates preserve their relationships.
+
+
+The final permanent 500-operation ownership model passed: one test, zero
+failures, with 500 SDK dry-run comparisons and SDK state read-backs (1718.6
+seconds for the test). The final atomic/tag sweep passed four tests, including
+500 producer inputs and real updates/creates through both writers. All eleven
+isolated behavioral reverts were rejected. The final packed rerun passed all
+five modes. Full npm/Bun release-gate status remains separately reported in the
+PR; interrupted local full attempts and earlier-head CI successes are excluded.

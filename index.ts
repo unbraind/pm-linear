@@ -2751,6 +2751,11 @@ export function deriveAtomicItemId(
   return normalizeItemId(`linear-${teamToken}-${identifier}`, idPrefix);
 }
 
+/** Use the SDK's JSON-array tag input so commas, unset words and stdin tokens stay literal labels. */
+function linearTagInput(tags: readonly string[]): string {
+  return JSON.stringify([...tags].sort());
+}
+
 /** Map one rendered import entry to its reversible SDK mutation sequence. */
 export function buildAtomicImportMutations(
   team: string,
@@ -2770,11 +2775,11 @@ export function buildAtomicImportMutations(
     priority: entry.priority,
     description: entry.description,
     body: entry.body,
-    // Sort before joining so the mutations slice of the transaction-id hash is
+    // Sort before encoding so the mutations slice of the transaction-id hash is
     // independent of Linear label-node order; a reordered retry resumes the same
     // journal instead of starting a fresh one (the canonical-entries side in
     // deriveAtomicTransactionId already sorts tags).
-    tags: [...entry.tags].sort().join(","),
+    tags: linearTagInput(entry.tags),
     ...(entry.deadline ? { deadline: entry.deadline } : {}),
     ...(entry.assignee ? { assignee: entry.assignee } : {}),
   };
@@ -2802,6 +2807,8 @@ export function buildAtomicImportMutations(
         id: managedItemId,
         options: {
           ...sharedOptions,
+          parent: "none",
+          unset: ["goal", "objective", "sprint", "release"],
           // A brand-new item must be created in a valid open state; the close
           // step below performs the closed transition when required.
           status: entry.status === "closed" ? "open" : entry.status,
@@ -3179,7 +3186,7 @@ export async function syncLinearIssues(
         "--priority", String(priority),
         "--description", description,
       ];
-      updateArgs.push("--body", body, "--tags", tags.join(","));
+      updateArgs.push("--body", body, "--tags", linearTagInput(tags));
       if (plan.deadline) updateArgs.push("--deadline", plan.deadline);
       if (plan.assignee) updateArgs.push("--assignee", plan.assignee);
 
@@ -3199,8 +3206,8 @@ export async function syncLinearIssues(
         "--priority", String(priority),
         "--description", description,
       ];
-      if (body) createArgs.push("--body", body);
-      if (tags.length > 0) createArgs.push("--tags", tags.join(","));
+      createArgs.push("--body", body, "--tags", linearTagInput(tags), "--parent", "none");
+      for (const field of ["goal", "objective", "sprint", "release"]) createArgs.push("--unset", field);
       if (plan.deadline) createArgs.push("--deadline", plan.deadline);
       if (plan.assignee) createArgs.push("--assignee", plan.assignee);
 

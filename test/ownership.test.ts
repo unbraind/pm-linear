@@ -6,9 +6,9 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { canonicalDocument, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata } from "@unbrained/pm-cli/sdk";
+import { canonicalDocument, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -224,6 +224,8 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
       const types = ["unstarted", "started", "completed", "canceled", "backlog", "triage"];
       next.state = { name: names[Math.floor(random() * names.length)], type: types[Math.floor(random() * types.length)] };
       next.priority = Math.floor(random() * 5);
+      const labels = ["none", "a,b", "-", " Bug ", "Ω label"];
+      next.labels = { nodes: [{ name: labels[Math.floor(random() * labels.length)] }], pageInfo: { hasNextPage: false } } as LinearIssue["labels"];
       next.cycle = sequence % 3 === 0 ? { name: null } : sequence % 3 === 1 ? undefined : { name: ` Week ${sequence} ` };
       next.estimate = sequence % 4 === 0 ? null : sequence / 2;
       next.title = `Provider ${sequence}`; next.description = sequence % 2 ? "\r\n Body " : "Body "; next.dueDate = sequence % 2 ? null : "2026-12-01"; next.assignee = sequence % 2 ? null : { name: "Peer", email: null }; state.issue = next; }
@@ -503,6 +505,13 @@ test("review class: export and credential consumers validate every dereferenced 
     assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "source_invalid");
     assert.match((result.result as { field: string }).field, /^team/);
   }
+  for (const viewer of [undefined, null, {}]) {
+    state.rawBody = JSON.stringify({ data: { viewer } });
+    const result = await harness.runCommand({ command: "linear validate", pmRoot: root, options: { checkNetwork: true }, global: { json: true } });
+    const diagnostics = result.result as { networkOk: boolean; networkError: string };
+    assert.equal(diagnostics.networkOk, false);
+    assert.match(diagnostics.networkError, /returned no viewer/);
+  }
   for (const viewer of [1, [], { id: {} }]) {
     state.rawBody = JSON.stringify({ data: { viewer } });
     const result = await harness.runCommand({ command: "linear validate", pmRoot: root, options: { checkNetwork: true }, global: { json: true } });
@@ -591,4 +600,77 @@ test("review class: every import alias advertises the same complete apply-path f
   const current = harness.assertFlags({ targetCommand: "linear import" });
   const alias = harness.assertFlags({ targetCommand: "linear-sync import", flags: current.flags.map((flag) => { assert.ok(typeof flag.long === "string"); return flag.long; }) });
   assert.deepEqual(alias.flags, current.flags);
+});
+
+test("review class: every offline import alias counts linked terminal items and excludes unlinked items", async (t) => {
+  const { root, pm, state } = await fixture(t);
+  for (const [id, status, description] of [["terminal", "closed", "[linear] linear_id=terminal"], ["unlinked", "open", "Ordinary context"]]) {
+    await pm.create({ id, title: id, status, description, closeReason: "Fixture completed", body: "", tags: "[]", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive", allowDuplicate: true });
+  }
+  const before = (await pm.listAllComplete({ includeBody: true })).items;
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const global of [{ json: true }, {}]) {
+    for (const run of [
+      () => harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "ENG", dryRun: true }, global }),
+      ...["linear", "linear-sync"].map((importer) => () => harness.runImporter({ importer, pmRoot: root, options: { team: "ENG", dryRun: true }, global })),
+    ]) {
+      const result = await run();
+      assert.equal((result.result as { existingLinkedItems: number }).existingLinkedItems, 2);
+    }
+  }
+  assert.equal(state.requests.length, 0);
+  assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items, before);
+});
+
+
+test("review class: every tag producer preserves literal SDK control words and delimiters through real writers", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const savedAuthor = process.env.PM_AUTHOR;
+  process.env.PM_AUTHOR = "fixture";
+  t.after(() => { if (savedAuthor === undefined) delete process.env.PM_AUTHOR; else process.env.PM_AUTHOR = savedAuthor; });
+  const bin = join(root, "bin"); await mkdir(bin);
+  await symlink(process.execPath, join(bin, "node"));
+  await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
+  process.env.PATH = bin;
+  const provider = state.issue as LinearIssue;
+  provider.cycle = null; provider.estimate = null; provider.customer = null;
+  const settings = await readSettings(root);
+  let seed = 0x1abe12026;
+  const reference = (await stateFromSdk(root, options.item)).metadata;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const vocabulary = ["none", "null", "-", "a,b", " BUG ", "Ω label", "quoted\"label", "CRLF\r\nlabel"];
+  for (let sequence = 0; sequence < 500; sequence++) {
+    const names = Array.from({ length: Math.floor(random() * 8) }, () => vocabulary[Math.floor(random() * vocabulary.length)]);
+    const plan = buildItemPlan({ ...provider, labels: { nodes: names.map((name) => ({ name })) } }, {});
+    const entry = { ...plan, identifier: provider.identifier, linearId: provider.id, match: { id: options.item } };
+    const mutation = buildAtomicImportMutations("ENG", entry, settings.id_prefix, normalizeItemId).mutations.find((row) => row.op === "update");
+    assert.ok(mutation?.op === "update" && typeof mutation.options.tags === "string");
+    const canonical = canonicalDocument({ metadata: { ...reference, tags: plan.tags }, body: "" }, { schema: settings.schema });
+    assert.deepEqual(parseTags(mutation.options.tags), canonical.metadata.tags ?? [], `tag producer sequence ${sequence}`);
+  }
+  for (const name of ["none", "a,b", "-", " Quoted \" Ω "]) {
+    provider.labels = { nodes: [{ name }] };
+    const expected = canonicalDocument({ metadata: { ...(await stateFromSdk(root, options.item)).metadata, tags: [name] }, body: "" }, { schema: settings.schema }).metadata.tags ?? [];
+    for (const atomic of [true, false]) {
+      await pm.update(options.item, { tags: '["peer"]', parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic }, root);
+      assert.equal(result.updated, 1); assert.equal(result.skipped, 0);
+      assert.deepEqual((await stateFromSdk(root, options.item)).metadata.tags ?? [], expected, `${atomic}/${name}`);
+    }
+  }
+  const foreign = await pm.create({ title: "Foreign focus", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.update(options.item, { parent: "none", goal: foreign.item.id, objective: foreign.item.id, sprint: "sprint", release: "release" });
+  await pm.focus(options.item);
+  for (const atomic of [true, false]) {
+    const actor = new PmClient({ pmRoot: root, cwd: root, noExtensions: true, author: atomic ? "pm-linear" : "fixture" });
+    await actor.focus(options.item);
+    provider.id = `created-${atomic}`; provider.identifier = `NEW-${atomic}`; provider.labels = { nodes: [{ name: "none" }] };
+    const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic }, root);
+    assert.equal(result.created, 1); assert.equal(result.skipped, 0);
+    const index = indexItemsByLinearId((await pm.listAllComplete({ includeBody: true })).items);
+    assert.ok(Object.hasOwn(index, provider.id));
+    const actual = (await stateFromSdk(root, index[provider.id].id!)).metadata;
+    assert.deepEqual(actual.tags, ["none"]);
+    for (const field of ["parent", "goal", "objective", "sprint", "release"] as const) assert.equal(actual[field], undefined, `${atomic}/${field}`);
+  }
 });

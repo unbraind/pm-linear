@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-27T09:23:36.129Z"
-updated_at: "2026-10-27T13:29:46.015Z"
+updated_at: "2026-10-27T15:31:05.068Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Disjoint edits are distinguished from same-field conflicts; unknown bases never imply safe overwrites; preview makes zero mutations and explicitly declines atomic cross-system guarantees; typed SDK and CLI, compact TOON/JSON, actionable refusals, docs, seeded model tests and public tracker validation."
-comments[16]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-10-27T09:23:55.309Z",codex-agent,"Overlap rechecked: host SDK exposes threeWayFieldConflict and complete SDK reads; Linear negotiateLinearSchema detects metadata drift while syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes. Jira mappings have no Linear ownership preview. This feature reuses SDK conflict decisions and existing Linear projections, isolates local reads, and adds observational context only. Installed pinned SDK is 2026.10.20; current registry CLI is 2026.10.27, with no dependency bump planned."
   "2026-10-27T09:24:04.444Z",codex-agent,"Overlap rechecked: SDK threeWayFieldConflict and complete SDK reads cover core comparison and acquisition. Linear negotiateLinearSchema detects metadata drift; syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes; Jira has no Linear ownership preview. This adds observational context only. Pinned SDK is 2026.10.20; registry CLI is 2026.10.27, with no pin bump planned."
   "2026-10-27T09:30:26.778Z",codex-agent,"Implemented read-only ownership preview with isolated SDK complete reads, SDK canonicalDocument normalization, role-based status mapping and existing due-date projection. No create/update/apply path or package journal is introduced. Baselines are explicit operator-acknowledged observation artifacts, scoped by item/provider identity and mapping. Invalid/duplicate field records fail alone as unknown. Correction to overlap note: threeWayFieldConflict is ADO package logic, not a core SDK export. Targeted tests caught timestamp-versus-date drift; both sides now use the existing export-date projection."
@@ -28,6 +28,12 @@ comments[16]{created_at,author,text}:
   "2026-10-27T12:23:20.989Z",codex-agent,"Expanded packed dispatch caught an inherited alias registration mismatch: linear-sync import handled all import options but advertised only schema-version, so the strict host parser rejected team/atomic/dry-run before the handler. Fixed the class by sharing one complete flag definition across both import aliases. Registry regression passes; reverting that definition in an isolated source copy fails the SDK flag assertion. Additional isolated behavioral reverts proved the real importer status projection, empty legacy update fields and import-page container validation (all fail expected assertions). Earlier full npm attempt was stopped early to include this production fix; it is not counted as a gate pass. Restarting unchanged serial npm/Bun gates after the focused registry pass; expanded five-mode packed acceptance is rerunning."
   "2026-10-27T12:47:19.345Z",codex-agent,"Expanded packed acceptance passed 5/5: project-local, npm global, Bun global, npx and bunx. Every mode used the pinned 2026.10.20 host SDK with package 2026.10.27, accepted nullable cycles, reported the status conflict, quarantined malformed duplicate baselines and preserved source_invalid/field/exit 2 in JSON and TOON across seven provider command surfaces. Each mode made 23 read requests, covered 14 source-refusal dispatches and emitted a 3221-byte host JSON receipt; no provider mutation request was sent. Report: docs/field-ownership-packed.json. Full npm gate remains active on its 10,001-item corpus test; no failure reported so far."
   "2026-10-27T13:29:46.014Z",codex-agent,"Full local npm attempt passed the 10,002-item complete SDK corpus export/match test and exposed one stale closure assertion: malformed JSON now correctly refuses with source_invalid at response rather than returning an unavailable frontier. Strengthened that assertion, retained all HTTP/no-retry checks and proved the corrected focused test passes (1/1). Added malformed/oversized status-map boundary cases; focused boundary test and test typecheck pass. Stopped the incomplete local full attempt to follow the original saturated-host instruction: full npm/Bun release evidence will come from CI, with at most two one-worker jobs. No full local gate pass is claimed. Production source remains df8f7e9; remaining changes strengthen tests only."
+  "2026-10-27T13:45:49.695Z",codex-agent,"Current-source CI: https://github.com/unbraind/pm-linear/actions/runs/40512915488 at 539b5b6. All four jobs remain queued, including both npm/Bun release gates; 0/2 full gates completed and pass counts unavailable. Prior-head success is not current-source evidence. The corrected closure refusal/no-retry regression also passed through pm test (1/1); linked ownership test timeouts are now explicit (600/900 seconds) after the earlier host-load timeout. Final static refresh passed 88-declaration docstrings, test typecheck, changelog check and whitespace check. No local full test process remains running."
+  "2026-10-27T13:51:27.405Z",codex-agent,"Correction to the preceding timeout note: both raw JSON edits of existing linked-test timeout metadata were refused by the guarded-item-format check because the project peer range starts at 2026.10.4. No 600/900-second stored timeout update was applied to those two existing links. Their successful runs used the explicit runner --timeout 600. The newly added closure link carries its accepted 600-second timeout and its pm test run passed. Dependency pins and existing history are preserved; no format migration or history repair was attempted. This optional tracker-CLI limitation does not affect ownership runtime behavior."
+  "2026-10-27T14:27:39.929Z",codex-agent,"Class audit found and reproduced an additional apply-input mismatch: SDK canonicalDocument keeps a literal none tag, while the old comma-joined update input clears it; comma-containing labels are also split by that transport. Both import writers now use the SDK-documented JSON-array tag input, not a second normalization implementation. All tag payloads use one serializer, empty create bodies/tags are explicit, and both creation paths unset ambient parent/scope defaults. Focused validation passed 4/4, including 500 generated producer inputs checked through SDK parseTags/canonicalDocument, real SDK read-back after atomic/legacy updates, and creates under each actual writer author focus. The permanent 500-operation ownership model now varies control-word, delimiter and Unicode labels. The first push CI wait cap elapsed with jobs still queued; no further CI waiting will be added while final independent regression/packed work completes."
+  "2026-10-27T15:13:17.661Z",codex-agent,"Final permanent model passed: node --test --test-concurrency=1 --test-name-pattern=\"500 seeded operation sequences\" test/ownership.test.ts — 1 test passed, 0 failed; 500 seeded operation sequences completed in 1718.6 seconds (1731.6 seconds total). It compares every preview field to a real atomic dry-run import plan and reads native state back through the SDK, including replayed inputs/bases, CRLF/whitespace, all mapped fields, literal control/delimiter labels, relationships, ambient focus and random status registries. Additional 500 tag-producer cases and real atomic/legacy update/create read-backs passed; final focused atomic/tag sweep 4/4, linked tag test 1/1, linked closure 1/1 and prior linked review sweep 10/10. All 11 isolated behavioral reverts failed as expected, including tag JSON input and both focus-safe creation paths. Final packed rerun passed 5/5 with 23 reads and 14 JSON/TOON refusal dispatches per mode; public-copy refresh remains 109 original items, 0 original requests, one synthetic overlay, 8 fields, 6 reads, 2542 compact JSON bytes, independent edits 1/1 and one same-field conflict, immutable hashes unchanged. Full release gates remain CI-only evidence; no incomplete local full attempt or older-head CI success is counted as a current full-gate pass. CI waiting stopped at the first-push cap while independent required model work completed. No merge or release."
+  "2026-10-27T15:22:25.341Z",codex-agent,"Final CI inspection of source head 539b5b6 found 400/400 tests passed on npm and Node 22, but the unchanged function threshold failed at 99.50% (lines 99.63%, branches 96.86%). Full-gate success is not claimed. Reclaimed the item to identify the single unexercised function. A local V8 function-coverage diagnostic is running with the already-proved 10,002-item stress case and two 500-state loops excluded from this diagnostic only; release-gate scripts and all thresholds remain unchanged. Added a must-allow viewer optional-object case. Current 500-operation ownership model, final packed modes, real-data copy, tag/writer/focus checks and all 11 behavioral reverts are already passed."
+  "2026-10-27T15:31:05.068Z",codex-agent,"Coverage diagnosis: the new offline linked-item filter was never invoked because existing dry-run fixtures contained zero items, even though full CI passed 400 tests. Added a non-git tracker containing linked active and terminal items plus an unlinked item; all three offline command/import aliases report exactly two linked items in JSON and native output, make zero provider requests, and retain SDK-read native state. Focused optional-viewer plus offline-count checks passed 2/2; V8 confirms the predicate is now invoked. The broad local coverage diagnostic was deliberately interrupted after identifying this gap; it is not a full-gate pass. A fresh fetch found main toolchain update b96a587; merging it next, then checking the final SDK pin. Existing 500-operation and five packed-mode receipts used SDK 2026.10.20 and remain explicitly version-scoped."
 files[7]{path,scope}:
   index.ts,project
   test/dependency-closure.test.ts,project
@@ -36,9 +42,37 @@ files[7]{path,scope}:
   test/ownership-validation.ts,project
   test/ownership.test.ts,project
   test/schema-drift.test.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-concurrency=1 --test-name-pattern='known bases|CLI agrees|strict dense|access refusals|custom status roles|source isolation|installed host SDK' test/ownership.test.ts,project,codex-agent,"2026-10-27T09:43:41.060Z",local_mutation,feat/field-ownership-conflict-previews
-  node --test --test-concurrency=1 --test-name-pattern='review class' test/ownership.test.ts,project,codex-agent,"2026-10-27T12:03:46.518Z",local_mutation,feat/field-ownership-conflict-previews
+tests[4]:
+  - command: node --test --test-concurrency=1 --test-name-pattern='known bases|CLI agrees|strict dense|access refusals|custom status roles|source isolation|installed host SDK' test/ownership.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T09:43:41.060Z"
+      source_kind: local_mutation
+      source_ref: feat/field-ownership-conflict-previews
+  - command: node --test --test-concurrency=1 --test-name-pattern='review class' test/ownership.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T12:03:46.518Z"
+      source_kind: local_mutation
+      source_ref: feat/field-ownership-conflict-previews
+  - command: node --test --test-concurrency=1 --test-name-pattern='access failures and unknown blocker' test/dependency-closure.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T13:43:13.655Z"
+      source_kind: local_mutation
+      source_ref: feat/field-ownership-conflict-previews
+  - command: node --test --test-concurrency=1 --test-name-pattern='every tag producer' test/ownership.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T14:38:17.514Z"
+      source_kind: local_mutation
+      source_ref: feat/field-ownership-conflict-previews
 docs[4]{path,scope}:
   docs/field-ownership-packed.json,project
   docs/field-ownership-validation.json,project

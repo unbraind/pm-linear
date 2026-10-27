@@ -396,6 +396,9 @@ and `LinearOwnershipRefusal`. Stable refusal codes are `invalid_input`,
 names and missing optional relation objects are accepted. The shared HTTP
 transport validates envelopes for import, export, schema, capture, closure and
 validation as well, using `LinearSourceRefusal` for invalid source contracts.
+Import uses the SDK's JSON-array tag input so literal control words, commas
+and quotes survive as labels. New imports explicitly clear relationship/scope
+defaults instead of inheriting an agent's focus.
 The explicit mapping revision makes earlier preview-policy baselines foreign
 and review-required rather than reinterpreting them.
 See the [SDK example and measured validation](docs/field-ownership.md).
