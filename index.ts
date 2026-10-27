@@ -9,11 +9,12 @@ import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
-import { chmod, cp, lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 
 import type {
+  ItemMetadata,
   BulkItemMutation,
   CommitItemMutationsOptions,
   CommitItemMutationsResult,
@@ -366,7 +367,7 @@ export function parseStatusMap(raw: string | undefined): Record<string, string> 
         (k) => k.toLowerCase() === key.toLowerCase()
       );
       if (existing) delete map[existing];
-      map[key] = value;
+      Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
     }
   }
   return map;
@@ -1663,6 +1664,163 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
   return report;
 }
 
+/** Native import fields compared after the SDK canonicalizes both sides. */
+export const LINEAR_OWNERSHIP_FIELDS = Object.freeze(["title", "body", "status", "priority", "tags", "deadline", "assignee", "description"] as const);
+/** A field owned by the Linear import mapping, including derived cycle/estimate/customer tags. */
+export type LinearOwnershipField = typeof LINEAR_OWNERSHIP_FIELDS[number];
+/** Content digests avoid disclosing field text in agent plans. */
+export interface LinearOwnershipSnapshot {
+  format: "pm-linear/ownership/1";
+  localId: string;
+  linearId: string;
+  mapping: string;
+  localRevision: string;
+  providerRevision: string;
+  fields: Array<{ field: LinearOwnershipField; local: string; provider: string }>;
+}
+/** Explicit selection, optional operator-acknowledged observation, and hard output budget. */
+export interface LinearOwnershipOptions {
+  item: string;
+  base?: LinearOwnershipSnapshot;
+  statusMap?: Record<string, string>;
+  maxOutputBytes?: number;
+}
+/** Stable ownership outcomes; no outcome authorizes a write. */
+export type LinearOwnershipDecision = "unchanged" | "aligned" | "local_edit" | "provider_edit" | "conflict" | "unknown_base";
+/** Read-only field plan and reusable observation. Saving it does not acknowledge or sync anything. */
+export interface LinearOwnershipReport {
+  ok: true;
+  mode: "preview";
+  atomicCrossSystem: false;
+  guarantee: string;
+  base: "acknowledged" | "missing" | "foreign";
+  disjoint: boolean;
+  fields: Array<{ field: LinearOwnershipField; decision: LinearOwnershipDecision }>;
+  counts: { local: number; provider: number; conflicts: number; unknown: number };
+  observation: LinearOwnershipSnapshot;
+  remedy: string;
+}
+/** Typed, sanitized refusals for callers that must decide whether and how to retry. */
+export class LinearOwnershipRefusal extends CommandError {
+  /** Stable refusal category for agent branching. */
+  readonly code: "invalid_input" | "local_read_failed" | "selection_required" | "source_invalid" | "source_changed" | "access_denied" | "output_budget";
+  /** Required recovery step before retrying. */
+  readonly remedy: string;
+  /** Preserve an actionable category without echoing provider bodies or operator paths. */
+  constructor(code: LinearOwnershipRefusal["code"], remedy: string) {
+    super(`Linear ownership refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearOwnershipRefusal";
+    this.code = code;
+    this.remedy = remedy;
+  }
+}
+
+/**
+ * Observe one linked issue and compare paired acknowledged field hashes with fresh values.
+ * Uses isolated complete SDK reads and canonicalDocument, plus the exact import projection.
+ * This is context only: there is no apply, saved journal, retry write, or atomic guarantee.
+ */
+export async function previewLinearOwnership(options: LinearOwnershipOptions, pmRoot: string): Promise<LinearOwnershipReport> {
+  if (!closureMatches(options, ownershipOptionsShape)) throw new LinearOwnershipRefusal("invalid_input", "Select one existing linked item, remove unknown options, and use an integer byte budget from 2048 through 65536.");
+  const budget = options.maxOutputBytes ?? 8192;
+  let sdk: Awaited<ReturnType<typeof importRuntimeSdk>>;
+  let source: string;
+  let view: ClosureReadView;
+  try {
+    sdk = await importRuntimeSdk();
+    source = await realpath(sdk.resolvePmRoot(process.cwd(), pmRoot));
+    view = await readClosureItems(source, [options.item]);
+  } catch { throw new LinearOwnershipRefusal("local_read_failed", "Restore a readable initialized tracker and a compatible pm SDK, then retry the complete isolated read."); }
+  const local = view.items.find((item) => item.id === view.selectedIds[0]);
+  const linearId = parseProvenance(local?.description)?.linear_id;
+  if (!local || !linearId || !closureMatches(linearId, closureId) || view.items.filter((item) => parseProvenance(item.description)?.linear_id === linearId).length !== 1) {
+    throw new LinearOwnershipRefusal("selection_required", "Select one existing item with unique Linear provenance; repair ambiguous links through supported pm tooling first.");
+  }
+  const key = process.env.LINEAR_API_KEY;
+  if (!key) throw new LinearOwnershipRefusal("access_denied", "Set LINEAR_API_KEY with read access to the selected issue, then retry.");
+  /** Reuse the bounded HTTP transport without retrying an observational acquisition. */
+  async function observe(): Promise<LinearIssue & { updatedAt: string }> {
+    let response: LinearResponse<{ issue?: unknown }>;
+    try { response = await linearRequestOnce(key!, OWNERSHIP_QUERY, { id: linearId }, 131072); }
+    catch { throw new LinearOwnershipRefusal("access_denied", "Restore Linear read access and connectivity; no writes were attempted."); }
+    if (response.errors?.length) throw new LinearOwnershipRefusal("access_denied", "Restore permission to read every selected issue field and retry; provider error text is withheld.");
+    const issue = response.data?.issue;
+    if (!closureMatches(issue, ownershipIssueShape) || (issue as LinearIssue).id !== linearId) throw new LinearOwnershipRefusal("source_invalid", "Retry with a complete issue response in the documented field domains; partial or unrelated issues cannot establish ownership.");
+    return issue as LinearIssue & { updatedAt: string };
+  }
+  const issue = await observe();
+  const registry = sdk.resolveRuntimeStatusRegistry(view.settings.schema);
+  const normalizedMap = new Map<string, string>();
+  for (const [name, value] of Object.entries(options.statusMap ?? {})) {
+    const target = sdk.normalizeStatusInput(value, registry);
+    const key = name.trim().toLowerCase();
+    if (!key || !target || normalizedMap.has(key) && normalizedMap.get(key) !== target) throw new LinearOwnershipRefusal("invalid_input", "Use unambiguous state mappings to statuses in the configured SDK registry.");
+    normalizedMap.set(key, target);
+  }
+  const mapping = schemaDigest({ configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
+  const overridden = normalizedMap.get(issue.state.name.trim().toLowerCase());
+  const status = overridden === undefined
+    ? issue.state.type === "started" ? registry.in_progress_status : issue.state.type === "completed" ? registry.close_status : issue.state.type === "canceled" ? registry.canceled_status : registry.open_status
+    : sdk.normalizeStatusInput(overridden, registry);
+  if (!status) throw new LinearOwnershipRefusal("invalid_input", "Map provider states to statuses in the configured SDK registry, then review a new baseline.");
+  const plan = { ...buildItemPlan(issue, Object.fromEntries([[issue.state.name, status]])), status };
+  /** The same SDK canonicalizer used by persistence handles status aliases and metadata. */
+  function project(item: PmItem): Map<LinearOwnershipField, string> {
+    const document = sdk.canonicalDocument({ metadata: { id: local!.id!, type: "Task", title: "", status: "open", created_at: "", updated_at: "", description: "", ...item } as ItemMetadata, body: item.body ?? "" }, { schema: view.settings.schema });
+    const metadata = document.metadata as unknown as Record<string, unknown>;
+    return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, schemaDigest(field === "body" ? document.body : field === "deadline" ? itemToLinearPayload({ deadline: document.metadata.deadline }).dueDate ?? null : metadata[field] ?? null)]));
+  }
+  const incoming = project({ ...plan, id: local.id });
+  const current = project(local);
+  const observation: LinearOwnershipSnapshot = {
+    format: "pm-linear/ownership/1", localId: local.id!, linearId, mapping,
+    localRevision: schemaDigest(local), providerRevision: schemaDigest(issue),
+    fields: LINEAR_OWNERSHIP_FIELDS.map((field) => ({ field, local: current.get(field)!, provider: incoming.get(field)! })),
+  };
+  const supplied = options.base;
+  const compatible = supplied && supplied.format === observation.format && supplied.localId === observation.localId && supplied.linearId === linearId && supplied.mapping === mapping;
+  const bases = new Map<LinearOwnershipField, { local: string; provider: string }>();
+  if (compatible) for (const row of supplied.fields) {
+    // Invalid or duplicate records fail alone. Foreign records never become authority.
+    if (!closureMatches(row, ownershipFieldShape)) continue;
+    if (bases.has(row.field)) bases.set(row.field, { local: "", provider: "" });
+    else bases.set(row.field, row);
+  }
+  const counts = { local: 0, provider: 0, conflicts: 0, unknown: 0 };
+  const fields = LINEAR_OWNERSHIP_FIELDS.map((field) => {
+    const left = current.get(field)!;
+    const right = incoming.get(field)!;
+    const base = bases.get(field);
+    let decision: LinearOwnershipDecision;
+    if (!base || !base.local || base.local !== base.provider) decision = "unknown_base";
+    else if (left === right) decision = left === base.local ? "unchanged" : "aligned";
+    else if (left === base.local) decision = "provider_edit";
+    else if (right === base.provider) decision = "local_edit";
+    else decision = "conflict";
+    if (decision === "local_edit") counts.local++;
+    if (decision === "provider_edit") counts.provider++;
+    if (decision === "conflict") counts.conflicts++;
+    if (decision === "unknown_base") counts.unknown++;
+    return { field, decision };
+  });
+  const verified = await observe();
+  let fresh: ClosureReadView;
+  try { fresh = await readClosureItems(source, [options.item]); }
+  catch { throw new LinearOwnershipRefusal("local_read_failed", "Restore complete local reads and retry both observations; no saved plan authorizes a write."); }
+  if (schemaDigest(issue) !== schemaDigest(verified) || schemaDigest(view) !== schemaDigest(fresh)) throw new LinearOwnershipRefusal("source_changed", "Local or provider state changed during observation. Read both again and review a new preview; saved plans never authorize writes.");
+  const report: LinearOwnershipReport = {
+    ok: true, mode: "preview", atomicCrossSystem: false,
+    guarantee: "Observations only; no atomic cross-system guarantees. Values can change after reading.",
+    base: supplied ? compatible ? "acknowledged" : "foreign" : "missing",
+    disjoint: counts.local > 0 && counts.provider > 0 && counts.conflicts === 0 && counts.unknown === 0,
+    fields, counts, observation,
+    remedy: "Review conflicts and unknown bases explicitly. Re-read both systems before any separate write; promote an observation to a baseline only after acknowledging every field.",
+  };
+  if (!closureMatches(report.observation, ownershipSnapshotShape) || Object.values(counts).some((count) => !Number.isSafeInteger(count) || count < 0 || count > LINEAR_OWNERSHIP_FIELDS.length)) throw new LinearOwnershipRefusal("source_invalid", "Restore valid native field metadata and retry; no invalid receipt is returned.");
+  if (Buffer.byteLength(JSON.stringify(report)) > budget) throw new LinearOwnershipRefusal("output_budget", "Raise --max-output-bytes up to 65536; the complete preview is never truncated.");
+  return report;
+}
+
 /** Explicit local selections and hard acquisition/output budgets; all operations are read-only. */
 export interface LinearClosureOptions {
   items: string[];
@@ -1722,8 +1880,8 @@ export interface LinearClosureReport {
 }
 
 /** Declarative boundary vocabulary shared by options, provider responses and emitted receipts. */
-type ClosureShape = { kind: "string"; max: number; pattern?: RegExp } |
-  { kind: "number"; min: number; max: number } | { kind: "boolean" } |
+type ClosureShape = { kind: "opaque" } | { kind: "record"; max: number; row: ClosureShape } | { kind: "string"; max: number; pattern?: RegExp; empty?: boolean } |
+  { kind: "number"; min: number; max: number; fractional?: boolean } | { kind: "boolean" } |
   { kind: "literal"; value: string | boolean } | { kind: "array"; max: number; row: ClosureShape } |
   { kind: "object"; fields: Record<string, ClosureShape>; optional?: string[] } |
   { kind: "nullable"; inner: ClosureShape };
@@ -1772,8 +1930,10 @@ const closureReportShape: ClosureShape = { kind: "object", fields: {
 /** Validate once per boundary using the same strict schema interpreter, including dense arrays. */
 function closureMatches(value: unknown, shape: ClosureShape): boolean {
   switch (shape.kind) {
-    case "string": return typeof value === "string" && value.length > 0 && value.length <= shape.max && (!shape.pattern || shape.pattern.test(value));
-    case "number": return typeof value === "number" && Number.isSafeInteger(value) && value >= shape.min && value <= shape.max;
+    case "opaque": return true;
+    case "record": return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length <= shape.max && Object.values(value).every((entry) => closureMatches(entry, shape.row));
+    case "string": return typeof value === "string" && (shape.empty || value.length > 0) && value.length <= shape.max && (!shape.pattern || shape.pattern.test(value));
+    case "number": return typeof value === "number" && (shape.fractional ? Number.isFinite(value) : Number.isSafeInteger(value)) && value >= shape.min && value <= shape.max;
     case "boolean": return typeof value === "boolean";
     case "literal": return value === shape.value;
     case "nullable": return value === null || closureMatches(value, shape.inner);
@@ -1789,6 +1949,38 @@ function closureMatches(value: unknown, shape: ClosureShape): boolean {
   }
 }
 
+const ownershipDigest: ClosureShape = { kind: "string", max: 64, pattern: /^[a-f0-9]{64}$/ };
+const ownershipText: ClosureShape = { kind: "string", max: 32768, empty: true };
+const ownershipName: ClosureShape = { kind: "object", fields: { name: ownershipText } };
+const ownershipNullableName: ClosureShape = { kind: "nullable", inner: ownershipName };
+const ownershipFieldShape: ClosureShape = { kind: "object", fields: {
+  field: { kind: "string", max: 16, pattern: new RegExp(`^(${LINEAR_OWNERSHIP_FIELDS.join("|")})$`) }, local: ownershipDigest, provider: ownershipDigest,
+} };
+const ownershipSnapshotShape: ClosureShape = { kind: "object", fields: {
+  format: { kind: "literal", value: "pm-linear/ownership/1" }, localId: closureId, linearId: closureId,
+  mapping: ownershipDigest, localRevision: ownershipDigest, providerRevision: ownershipDigest,
+  fields: { kind: "array", max: LINEAR_OWNERSHIP_FIELDS.length, row: ownershipFieldShape },
+} };
+const ownershipOptionsShape: ClosureShape = { kind: "object", fields: {
+  item: closureId, base: { ...ownershipSnapshotShape, fields: { ...(ownershipSnapshotShape as Extract<ClosureShape, { kind: "object" }>).fields, fields: { kind: "array", max: LINEAR_OWNERSHIP_FIELDS.length, row: { kind: "opaque" } } } } as ClosureShape, statusMap: { kind: "record", max: 128, row: closureText },
+  maxOutputBytes: { kind: "number", min: 2048, max: 65536 },
+}, optional: ["base", "statusMap", "maxOutputBytes"] };
+const ownershipIssueShape: ClosureShape = { kind: "object", fields: {
+  id: closureId, identifier: closureText, title: ownershipText, description: { kind: "nullable", inner: ownershipText },
+  priority: { kind: "number", min: 0, max: 4 }, estimate: { kind: "nullable", inner: { kind: "number", min: 0, max: 1000000, fractional: true } },
+  state: { kind: "object", fields: { name: ownershipText, type: { kind: "string", max: 16, pattern: /^(triage|backlog|unstarted|started|completed|canceled)$/ } } },
+  labels: { kind: "object", fields: { nodes: { kind: "array", max: 128, row: ownershipName }, pageInfo: { kind: "object", fields: { hasNextPage: { kind: "literal", value: false } } } } },
+  dueDate: { kind: "nullable", inner: ownershipText }, cycle: ownershipNullableName,
+  assignee: { kind: "nullable", inner: { kind: "object", fields: { name: { kind: "nullable", inner: ownershipText }, email: { kind: "nullable", inner: ownershipText } } } },
+  project: ownershipNullableName, customer: ownershipNullableName, url: { kind: "nullable", inner: ownershipText }, updatedAt: closureText,
+}, optional: ["estimate", "assignee", "project", "customer", "url"] };
+const OWNERSHIP_QUERY = `query LinearOwnership($id: String!) {
+  issue(id: $id) { id identifier title description priority estimate updatedAt
+    state { name type } labels(first: 128) { nodes { name } pageInfo { hasNextPage } }
+    dueDate cycle { name } assignee { name email } project { name } customer { name } url
+  }
+}`;
+
 const CLOSURE_QUERY = `query LinearPrerequisites($id: String!, $after: String) {
   issue(id: $id) { id identifier title updatedAt
     inverseRelations(first: 50, after: $after, includeArchived: true) {
@@ -1803,6 +1995,7 @@ interface ClosureReadView {
   items: PmItem[];
   selectedIds: Array<string | null>;
   configuration: string;
+  settings: Awaited<ReturnType<Awaited<ReturnType<typeof importRuntimeSdk>>["readSettings"]>>;
 }
 
 /**
@@ -1831,6 +2024,9 @@ async function readClosureItems(source: string, selections: string[]): Promise<C
   try {
     await cp(source, bootstrap, { recursive: true, filter: async (path) => {
       const info = await lstat(path);
+      // Installed packages carry the host SDK link. It is runtime code, never
+      // tracker membership; do not follow or copy it into observational reads.
+      if (info.isSymbolicLink() && /^extensions\/[^/]+\/node_modules\/@unbrained\/pm-cli$/.test(relative(source, path).replaceAll("\\", "/"))) return false;
       if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw new Error("Unsupported tracker entry");
       files++;
       bytes += info.isFile() ? info.size : 0;
@@ -1865,7 +2061,7 @@ async function readClosureItems(source: string, selections: string[]): Promise<C
       const located = await sdk.locateItem(reader, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
       selectedIds.push(located?.id ?? null);
     }
-    return { items, selectedIds, configuration: schemaDigest(settings) };
+    return { items, selectedIds, configuration: schemaDigest(settings), settings };
   } finally {
     await writableMirror();
     await rm(scratch, { recursive: true, force: true });
@@ -3517,6 +3713,39 @@ export default defineExtension({
   version: "2026.10.26",
 
   activate(api: ExtensionApi) {
+    api.registerCommand({
+      name: "linear ownership",
+      description: "Preview field ownership and conflicts against an acknowledged Linear snapshot",
+      intent: "Read one linked item without mutating either system; unknown bases require review",
+      examples: ["pm linear ownership --item pm-example --json", "pm linear ownership --item pm-example --base acknowledged.json --json"],
+      flags: [
+        { long: "--item", value_name: "id", description: "One existing item with unique Linear provenance." },
+        { long: "--base", value_name: "file", description: "Explicitly acknowledged observation JSON, at most 16 KiB; absent means unknown base." },
+        { long: "--status-map", value_name: "map", description: "Same Linear state-to-pm mapping used for import." },
+        { long: "--max-output-bytes", value_name: "bytes", description: "Complete receipt budget, 2048..65536 (default 8192)." },
+      ],
+      async run(ctx) {
+        try {
+          const options: LinearOwnershipOptions = { item: readStringOption(ctx.options, "item") ?? "" };
+          const file = readStringOption(ctx.options, "base");
+          if (file !== undefined) {
+            try {
+              const info = await lstat(file);
+              if (!info.isFile() || info.size > 16384) throw new Error("Unbounded input");
+              options.base = JSON.parse(await readFile(file, "utf8")) as LinearOwnershipSnapshot;
+            } catch { throw new LinearOwnershipRefusal("invalid_input", "Pass a readable baseline JSON file of at most 16 KiB; preserve the reviewed observation format."); }
+          }
+          const mapping = readStringOption(ctx.options, "status-map");
+          if (mapping !== undefined) options.statusMap = parseStatusMap(mapping);
+          const budget = readStringOption(ctx.options, "max-output-bytes");
+          if (budget !== undefined) options.maxOutputBytes = Number(budget);
+          return await previewLinearOwnership(options, ctx.pm_root);
+        } catch (error: unknown) {
+          if (!(error instanceof LinearOwnershipRefusal)) throw error;
+          return { ok: false, code: error.code, remedy: error.remedy, remediation: error.remedy, exit_code: error.exitCode };
+        }
+      },
+    });
     api.registerCommand({
       name: "linear closure",
       description: "Read the bounded missing Linear prerequisite frontier for selected linked items",

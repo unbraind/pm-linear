@@ -1,0 +1,36 @@
+{
+  "packageVersion": "2026.10.26",
+  "hostVersion": "2026.10.20",
+  "modes": [
+    {
+      "mode": "project-local",
+      "passed": true,
+      "requests": 2,
+      "jsonBytes": 3221
+    },
+    {
+      "mode": "npm-global",
+      "passed": true,
+      "requests": 2,
+      "jsonBytes": 3221
+    },
+    {
+      "mode": "bun-global",
+      "passed": true,
+      "requests": 2,
+      "jsonBytes": 3221
+    },
+    {
+      "mode": "npx",
+      "passed": true,
+      "requests": 2,
+      "jsonBytes": 3221
+    },
+    {
+      "mode": "bunx",
+      "passed": true,
+      "requests": 2,
+      "jsonBytes": 3221
+    }
+  ]
+}

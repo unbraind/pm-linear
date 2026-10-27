@@ -1,0 +1,32 @@
+id: pm-linear-field-ownership
+title: Preview Linear field ownership and same-field conflicts
+description: Compare an explicitly acknowledged Linear field snapshot with complete SDK local reads and current provider observations. Read-only preview; no cross-system atomic guarantee.
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-27T09:23:36.129Z"
+updated_at: "2026-10-27T09:55:22.251Z"
+author: codex-agent
+acceptance_criteria: "Disjoint edits are distinguished from same-field conflicts; unknown bases never imply safe overwrites; preview makes zero mutations and explicitly declines atomic cross-system guarantees; typed SDK and CLI, compact TOON/JSON, actionable refusals, docs, seeded model tests and public tracker validation."
+comments[7]{created_at,author,text}:
+  "2026-10-27T09:23:55.309Z",codex-agent,"Overlap rechecked: host SDK exposes threeWayFieldConflict and complete SDK reads; Linear negotiateLinearSchema detects metadata drift while syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes. Jira mappings have no Linear ownership preview. This feature reuses SDK conflict decisions and existing Linear projections, isolates local reads, and adds observational context only. Installed pinned SDK is 2026.10.20; current registry CLI is 2026.10.27, with no dependency bump planned."
+  "2026-10-27T09:24:04.444Z",codex-agent,"Overlap rechecked: SDK threeWayFieldConflict and complete SDK reads cover core comparison and acquisition. Linear negotiateLinearSchema detects metadata drift; syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes; Jira has no Linear ownership preview. This adds observational context only. Pinned SDK is 2026.10.20; registry CLI is 2026.10.27, with no pin bump planned."
+  "2026-10-27T09:30:26.778Z",codex-agent,"Implemented read-only ownership preview with isolated SDK complete reads, SDK canonicalDocument normalization, role-based status mapping and existing due-date projection. No create/update/apply path or package journal is introduced. Baselines are explicit operator-acknowledged observation artifacts, scoped by item/provider identity and mapping. Invalid/duplicate field records fail alone as unknown. Correction to overlap note: threeWayFieldConflict is ADO package logic, not a core SDK export. Targeted tests caught timestamp-versus-date drift; both sides now use the existing export-date projection."
+  "2026-10-27T09:37:41.613Z",codex-agent,"Public immutable-copy validation: 109 real items; original unlinked selection refused before network (0 requests). A separately declared one-item synthetic overlay produced disjoint local/provider edits (1/1), 0 unknowns, 1 same-field conflict, 6 total read requests, and a 2542-byte JSON receipt. Source hashes unchanged during previews; live Linear is not claimed. Behavioral revert proof: replacing only the new classification with two-way equality failed the known-bases regression (expected 8 unknown fields, observed 0); source restored."
+  "2026-10-27T09:47:17.410Z",codex-agent,"Boundary checks passed individually: 4 initial targeted tests, 2 custom-status/isolation tests, and installed-host-link regression. Combined linked-test run hit its 120-second runner timeout under host contention after 2 passing tests; no assertion failure occurred and it is missing full evidence, not approval. Full release gates remain delegated to npm/Bun CI at unchanged thresholds. Inherited atomic import replay probe confirmed same transaction/recovered=true despite a newer differing SDK target; recorded separately as pm-linear-atomic-replay-revision. Ownership preview has no write/recovery path."
+  "2026-10-27T09:54:28.284Z",codex-agent,"Linked tests rerun with explicit 600-second timeout: 7 tests passed, 0 failed, in 88 seconds. Separate prototype-shaped key test passed; reverting only parseStatusMap own-property insertion made it fail, then source was restored. Source classification revert likewise failed the known-bases regression. Model test contains 500 seeded sequences and is included in CI; local long attempt was canceled under shared-host contention and is not counted as passed. No dedicated lint script exists; typecheck, test typecheck, docstring gate and diff check passed."
+  "2026-10-27T09:55:13.927Z",codex-agent,"Packed acceptance passed all 5 isolated host modes: project-local npm, npm global symlink, Bun global, npx and bunx; each made 2 provider reads and returned all 8 unknown fields without a baseline. Supported lazy SDK loading uses host-installed SDK linkage, never argv/which/symlink path inference. Exact report: docs/field-ownership-packed.json. Installed runtime SDK links are excluded from source data copies; foreign item symlinks still refuse. Ready for review with full npm/Bun CI gate evidence pending; inherited replay follow-up remains open."
+files[4]{path,scope}:
+  index.ts,project
+  test/ownership-packed-acceptance.ts,project
+  test/ownership-validation.ts,project
+  test/ownership.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=1 --test-name-pattern='known bases|CLI agrees|strict dense|access refusals|custom status roles|source isolation|installed host SDK' test/ownership.test.ts,project,codex-agent,"2026-10-27T09:43:41.060Z",local_mutation,feat/field-ownership-conflict-previews
+docs[4]{path,scope}:
+  docs/field-ownership-packed.json,project
+  docs/field-ownership-validation.json,project
+  docs/field-ownership.md,project
+  README.md,project
+body: ""

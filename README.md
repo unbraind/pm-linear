@@ -334,9 +334,63 @@ review and apply close together; `--atomic` protects the local batch.
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
+## Field ownership conflict previews
+
+`pm linear ownership --item ITEM --base acknowledged.json` compares the last
+explicitly acknowledged observation with current local and Linear values. It
+returns a compact host-rendered TOON receipt, or JSON with `--json`. No field
+text is included: the reusable observation contains field hashes and revision
+digests. Digests are change indicators, not anonymization of low-entropy data.
+
+```sh
+pm linear ownership --item pm-example --json > preview.json
+# Review both systems. Only after acknowledging the observation:
+jq '.observation' preview.json > acknowledged.json
+pm linear ownership --item pm-example --base acknowledged.json --json
+```
+
+The preview reports `local_edit`, `provider_edit`, `conflict`, `aligned`,
+`unchanged`, or `unknown_base` per field. `disjoint: true` requires local and
+provider edits on different fields, with no conflicts or unknown fields. An
+absent, foreign, changed-mapping, malformed, duplicate, or previously divergent
+field base never implies a safe overwrite. Baselines are supplied explicitly;
+preview does not write acknowledgements, notes, settings, histories or Linear.
+
+The comparison covers the import projection: title (including the issue
+identifier), body, status, priority, tags (including cycle/estimate/customer),
+deadline and assignee, plus provenance description. Both sides use SDK
+canonicalization; due dates use the existing export date mapping. Lifecycle
+mapping uses the configured SDK registry roles and optional `--status-map`,
+never guesses from status names. Custom import field/project mappings are not
+inferred; use this command for the documented default import projection.
+
+This is an observation for review with **no atomic cross-system guarantees**.
+Repeated local and provider reads detect observable drift, but cannot establish
+a transaction or prevent later edits. The command offers no apply operation.
+Re-read both systems before any separate write. Linear does not gain ADO's
+revision-test primitive through this command.
+
+`--max-output-bytes` accepts integers 2048..65536 (default 8192); the complete
+representation of the JSON receipt must fit or the command refuses instead of
+truncating it. The budget measures compact UTF-8 JSON; host pretty-printing may
+add whitespace. One
+provider issue is selected, with two bounded read requests, no automatic retries,
+at most 128 labels and a 128 KiB response cap. Partial label connections refuse.
+Provider text fields are bounded to 32768 characters, priority to integers 0..4,
+and estimate to finite numbers 0..1000000. Baseline JSON files are limited to
+16 KiB and eight dense field records. Existing local content is read through
+the SDK without applying new content filters.
+
+The typed SDK export is `previewLinearOwnership(options, pmRoot)` with
+`LinearOwnershipOptions`, `LinearOwnershipSnapshot`, `LinearOwnershipReport`
+and `LinearOwnershipRefusal`. Stable refusal codes are `invalid_input`,
+`local_read_failed`, `selection_required`, `access_denied`, `source_invalid`,
+`source_changed` and `output_budget`; each carries a remedy and exit code 2.
+See the [SDK example and measured validation](docs/field-ownership.md).
+
 ## Without git
 
-Focused dependency closure, thread capture, schema negotiation, validate, sync/import and export work in
+Field ownership previews, focused dependency closure, thread capture, schema negotiation, validate, sync/import and export work in
 plain pm trackers without a git executable. Live provider operations still need
 Linear access; offline previews work without credentials. Release tooling that
 reads git tags needs a repository, separately from tracker operations.
