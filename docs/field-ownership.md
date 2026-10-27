@@ -43,7 +43,7 @@ keeps these boundaries explicit and does not broaden sync guarantees.
 tracker items. The original unlinked selection refused with zero requests.
 A declared one-item synthetic link/provider overlay exercised all eight fields,
 disjoint local/provider edits, and one same-field conflict. Its complete receipt
-was 2542 JSON bytes; every source file hash stayed unchanged during preview.
+is 2623 JSON bytes on the final SDK projection; every source file hash stayed unchanged during preview.
 This validates a public tracker with a synthetic provider, not live Linear.
 
 `pm test pm-linear-field-ownership --run --progress --timeout 600` passed all
@@ -173,3 +173,10 @@ document as its oracle. Permissions are bypassed only in that reference copy;
 field effects still come from the SDK coordinator. Deadline hashes now use
 native SDK timestamps on both sides, so a local time change cannot be hidden
 by export-only calendar-date conversion.
+
+The final SDK 2026.10.24 packed artifact passed project-local, npm global,
+Bun global, npx and bunx acceptance. Each mode made 123 read requests,
+returned a 3302-byte host JSON receipt, and passed 28 literal-value plus
+14 malformed-source dispatch checks across JSON and TOON. The public-copy
+run measured six reads and one same-field conflict across eight fields;
+both the immutable source and derived tracker stayed unchanged during previews.
