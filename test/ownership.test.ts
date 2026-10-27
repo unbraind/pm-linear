@@ -220,7 +220,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     // A reference import replaces every mapped field; omitted assignments clear
     // mapped optional values instead of inheriting the previous local value.
     const retained = Object.fromEntries(Object.entries(before.metadata).filter(([key]) => !LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)));
-    const remote = hashes(canonicalDocument({ metadata: { ...retained, ...plan, id: before.metadata.id } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
+    const remote = hashes(canonicalDocument({ metadata: { ...retained, ...plan, id: before.metadata.id, type: before.metadata.type, created_at: before.metadata.created_at, updated_at: before.metadata.updated_at } as ItemMetadata, body: plan.body }, { schema: settings.schema }));
     const report = await previewLinearOwnership({ ...options, base }, root);
     baseline = report.observation;
     for (const field of report.fields) {
