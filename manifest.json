@@ -1,6 +1,6 @@
 {
   "name": "pm-linear",
-  "version": "2026.10.27",
+  "version": "2026.10.28",
   "description": "Linear.app issue sync for pm-cli",
   "author": "@unbraind",
   "entry": "./dist/index.js",
