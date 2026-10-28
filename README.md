@@ -334,9 +334,93 @@ review and apply close together; `--atomic` protects the local batch.
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
+## Field ownership conflict previews
+
+`pm linear ownership --item ITEM --base acknowledged.json` compares the last
+explicitly acknowledged observation with current local and Linear values. It
+returns a compact host-rendered TOON receipt, or JSON with `--json`. No field
+text is included: the reusable observation contains field hashes and revision
+digests. Digests are change indicators, not anonymization of low-entropy data.
+
+```sh
+pm linear ownership --item pm-example --json > preview.json
+# Review both systems. Only after acknowledging the observation:
+jq '.observation' preview.json > acknowledged.json
+pm linear ownership --item pm-example --base acknowledged.json --json
+```
+
+The preview reports `local_edit`, `provider_edit`, `conflict`, `aligned`,
+`unchanged`, or `unknown_base` per field. `disjoint: true` requires local and
+provider edits on different fields, with no conflicts or unknown fields. An
+absent, foreign, changed-mapping, malformed, duplicate, or previously divergent
+field base never implies a safe overwrite. Baselines are supplied explicitly;
+preview does not write acknowledgements, notes, settings, histories or Linear.
+
+The comparison covers the import projection: title (including the issue
+identifier), body, status, priority, tags (including cycle/estimate/customer),
+deadline and assignee, plus provenance description. Both sides use SDK
+canonicalization; due dates use the existing export date mapping. The preview
+calls the same `buildItemPlan`/`resolveStatus` mapping as import, including
+configured `--status-map` overrides and the importer's provider-name fallback.
+Resulting local statuses use the SDK registry's alias normalization. There is no
+separate preview lifecycle policy. Omitted optional assignments retain the
+current local value, matching an SDK upsert. Custom import field/project mappings are not
+inferred; use this command for the documented default import projection.
+
+This is an observation for review with **no atomic cross-system guarantees**.
+Repeated local and provider reads detect observable drift, but cannot establish
+a transaction or prevent later edits. The command offers no apply operation.
+Re-read both systems before any separate write. Linear does not gain ADO's
+revision-test primitive through this command.
+
+`--max-output-bytes` accepts integers 2048..65536 (default 8192); the complete
+representation of the JSON receipt must fit or the command refuses instead of
+truncating it. The budget measures compact UTF-8 JSON; host pretty-printing may
+add whitespace. One
+provider issue is selected, with two bounded read requests, no automatic retries,
+at most 128 labels and a 128 KiB response cap. Partial label connections refuse.
+Provider text fields are bounded to 32768 characters, priority to integers 0..4,
+and estimate to finite numbers 0..1000000. Baseline JSON files are limited to
+16 KiB and eight dense field records. Existing local content is read through
+the SDK without applying new content filters. Local isolation is bounded to
+20000 filesystem entries and 64 MiB; a larger tracker refuses before provider
+access.
+
+The typed SDK export is `previewLinearOwnership(options, pmRoot)` with
+`LinearOwnershipOptions`, `LinearOwnershipSnapshot`, `LinearOwnershipReport`
+and `LinearOwnershipRefusal`. Stable refusal codes are `invalid_input`,
+`local_read_failed`, `selection_required`, `access_denied`, `source_invalid`,
+`source_changed` and `output_budget`; each carries a remedy and exit code 2.
+`source_invalid` also names the schema-owned `field` (for example,
+`issue.cycle.name` or `response.data`) without echoing its value. Nullable cycle
+names and missing optional relation objects are accepted. The shared HTTP
+transport validates envelopes for import, export, schema, capture, closure and
+validation as well, using `LinearSourceRefusal` for invalid source contracts.
+Import uses the SDK's JSON-array tag input so literal control words, commas
+and quotes survive as labels. New imports explicitly clear relationship/scope
+defaults instead of inheriting an agent's focus.
+Provider values are data. Both import writers use typed SDK options, including
+leading-dash titles and literal `@file` strings; imports never read process
+stdin. Until [pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614) exposes
+a supported literal mutation option, `LinearImportRefusal` reports
+`unrepresentable_value`, the native `field`, a remedy and exit code 2 for a body
+or metadata description whose trimmed value is `-`, or an assignment whose
+trimmed value is `none`/`null` (case-insensitive). The same shared guard runs
+before import writes and before ownership hashing. Ownership applies the shared
+SDK mutation rows only to an owned disposable copy with hooks disabled, then
+reads the projected fields back through the SDK. This includes input parsing
+and lifecycle effects; it does not certify permission to apply. Dates must be
+documented literal calendar dates. The entire selected import batch is checked before its
+first item write; unsupported values are preserved rather than silently changed.
+Existing local records remain readable and exportable. Structured captured
+comments use SDK JSON notes, so control words remain literal inside their text.
+The explicit mapping revision makes earlier preview-policy baselines foreign
+and review-required rather than reinterpreting them.
+See the [SDK example and measured validation](docs/field-ownership.md).
+
 ## Without git
 
-Focused dependency closure, thread capture, schema negotiation, validate, sync/import and export work in
+Field ownership previews, focused dependency closure, thread capture, schema negotiation, validate, sync/import and export work in
 plain pm trackers without a git executable. Live provider operations still need
 Linear access; offline previews work without credentials. Release tooling that
 reads git tags needs a repository, separately from tracker operations.

@@ -1,0 +1,71 @@
+{
+  "packageVersion": "2026.10.27",
+  "hostVersion": "2026.10.24",
+  "modes": [
+    {
+      "mode": "project-local",
+      "passed": true,
+      "requests": 123,
+      "jsonBytes": 3302,
+      "nullableCycle": true,
+      "statusConflict": true,
+      "malformedDuplicate": true,
+      "typedEnvelope": true,
+      "sourceDispatches": 14,
+      "literalDispatches": 28,
+      "toon": true
+    },
+    {
+      "mode": "npm-global",
+      "passed": true,
+      "requests": 123,
+      "jsonBytes": 3302,
+      "nullableCycle": true,
+      "statusConflict": true,
+      "malformedDuplicate": true,
+      "typedEnvelope": true,
+      "sourceDispatches": 14,
+      "literalDispatches": 28,
+      "toon": true
+    },
+    {
+      "mode": "bun-global",
+      "passed": true,
+      "requests": 123,
+      "jsonBytes": 3302,
+      "nullableCycle": true,
+      "statusConflict": true,
+      "malformedDuplicate": true,
+      "typedEnvelope": true,
+      "sourceDispatches": 14,
+      "literalDispatches": 28,
+      "toon": true
+    },
+    {
+      "mode": "npx",
+      "passed": true,
+      "requests": 123,
+      "jsonBytes": 3302,
+      "nullableCycle": true,
+      "statusConflict": true,
+      "malformedDuplicate": true,
+      "typedEnvelope": true,
+      "sourceDispatches": 14,
+      "literalDispatches": 28,
+      "toon": true
+    },
+    {
+      "mode": "bunx",
+      "passed": true,
+      "requests": 123,
+      "jsonBytes": 3302,
+      "nullableCycle": true,
+      "statusConflict": true,
+      "malformedDuplicate": true,
+      "typedEnvelope": true,
+      "sourceDispatches": 14,
+      "literalDispatches": 28,
+      "toon": true
+    }
+  ]
+}

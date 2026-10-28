@@ -1,0 +1,24 @@
+{
+  "source": "unbraind/pm-linear origin/main public tracker",
+  "provider": "synthetic HTTP read fixture",
+  "liveLinearValidated": false,
+  "originalItems": 109,
+  "originalRequests": 0,
+  "originalRefusal": "selection_required",
+  "syntheticOverlayItems": 1,
+  "fields": 8,
+  "disjoint": true,
+  "counts": {
+    "local": 1,
+    "provider": 1,
+    "conflicts": 0,
+    "unknown": 0
+  },
+  "sameFieldConflicts": 1,
+  "requests": 6,
+  "jsonBytes": 2623,
+  "elapsedMs": 5752,
+  "originalSha256": "66fce2e3d4e0aad55b091995b43ec30545648d1d9b4c78f5a38176d409024a6a",
+  "originalUnchanged": true,
+  "derivedUnchangedDuringPreviews": true
+}

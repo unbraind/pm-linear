@@ -5,15 +5,15 @@ import type {
   ImportExportContext,
   PreflightOverrideContext,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { spawnSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
-import { chmod, cp, lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 
 import type {
+  ItemMetadata,
   BulkItemMutation,
   CommitItemMutationsOptions,
   CommitItemMutationsResult,
@@ -57,6 +57,102 @@ export class CommandError extends Error {
   }
 }
 
+/** Typed source-contract failures shared by every Linear HTTP consumer. */
+export class LinearSourceRefusal extends CommandError {
+  /** Stable category independent of the command that observed malformed data. */
+  readonly code = "source_invalid";
+  /** Schema-owned field path, never a provider value or operator path. */
+  readonly field: string;
+  /** Action required before retrying a complete read. */
+  readonly remedy: string;
+  /** True only when transport failure followed a mutation request. */
+  readonly writeUnconfirmed: boolean;
+  /** Keep source failures sanitized and recoverable across CLI and SDK boundaries. */
+  constructor(field: string, invalidJson = false, writeUnconfirmed = false) {
+    const remedy = `Check LINEAR_API_BASE_URL and retry with a complete Linear response matching the documented schema at ${field}; no partial response is authoritative.${writeUnconfirmed ? " Re-read provider and tracker before any retry; a write may already have succeeded." : ""}`;
+    super(`${invalidJson ? "Linear request failed: Failed to parse Linear response. " : ""}Linear source refused (source_invalid: ${field}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearSourceRefusal";
+    this.writeUnconfirmed = writeUnconfirmed;
+    this.field = field;
+    this.remedy = remedy;
+  }
+}
+
+/** Provider data refused before SDK control-token parsing or any item write. */
+export class LinearImportRefusal extends CommandError {
+  /** Stable category for values the installed SDK cannot store literally. */
+  readonly code = "unrepresentable_value";
+  /** Mapped native field whose literal value cannot be safely passed to the SDK. */
+  readonly field: string;
+  /** Required recovery preserves the provider value instead of silently changing it. */
+  readonly remedy: string;
+  /** Refuse without echoing provider content or attempting a write. */
+  constructor(field: string) {
+    const recovery = field === "deadline" ? "Supply Linear's documented literal YYYY-MM-DD calendar date; relative dates and clear tokens cannot be imported as data." : field === "title" ? "Supply a non-empty native title; empty titles cannot be stored literally." : "Preserve the provider value and retry after SDK literal mutation support is available.";
+    const remedy = `${recovery} SDK control-token parsing is tracked by pm-cli#1614. Imports never consume stdin. No item writes were attempted.`;
+    super(`Linear import refused (unrepresentable_value: ${field}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearImportRefusal";
+    this.field = field;
+    this.remedy = remedy;
+  }
+}
+
+/** Reject SDK control values before either import writer or ownership projection uses a plan. */
+function assertLiteralImportValues(plan: Pick<ItemPlan, "title" | "body" | "description" | "assignee" | "deadline">): void {
+  if (typeof plan !== "object" || plan === null || Array.isArray(plan)) throw new LinearImportRefusal("record");
+  if (typeof plan.title !== "string" || !plan.title.trim()) throw new LinearImportRefusal("title");
+  for (const field of ["body", "description"] as const) {
+    if (typeof plan[field] !== "string" || plan[field].trim() === "-") throw new LinearImportRefusal(field);
+  }
+  for (const field of ["assignee", "deadline"] as const) {
+    const value = plan[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim() || /^(?:none|null)$/i.test(value.trim()))) throw new LinearImportRefusal(field);
+  }
+  if (plan.deadline !== undefined) {
+    const instant = Date.parse(plan.deadline);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(plan.deadline) || !Number.isFinite(instant) || new Date(instant).toISOString().slice(0, 10) !== plan.deadline) throw new LinearImportRefusal("deadline");
+  }
+}
+
+/** Standard host error receipt for source-contract and literal-representability failures. */
+export interface LinearSourceErrorReceipt {
+  ok: false;
+  code: "source_invalid" | "unrepresentable_value";
+  field: string;
+  remedy: string;
+  remediation: string;
+  exit_code: typeof EXIT_CODE.USAGE;
+  write_unconfirmed?: true;
+}
+
+/** Preserve source and literal-value refusals across the host's JSON/TOON and nonzero-exit contract. */
+async function withLinearSource<T>(action: () => T | Promise<T>): Promise<T | LinearSourceErrorReceipt> {
+  try { return await action(); }
+  catch (error: unknown) {
+    if (!(error instanceof CommandError) || !("code" in error) || (error.code !== "source_invalid" && error.code !== "unrepresentable_value")) throw error;
+    const field = "field" in error && typeof error.field === "string" ? error.field : "issue";
+    const remedy = "remedy" in error && typeof error.remedy === "string" ? error.remedy : `Retry a complete provider response at ${field}.`;
+    return { ok: false, code: error.code, field, remedy, remediation: remedy, exit_code: EXIT_CODE.USAGE,
+      ...("writeUnconfirmed" in error && error.writeUnconfirmed === true ? { write_unconfirmed: true as const } : {}) };
+  }
+}
+
+/** Apply the shared source-error renderer without changing command metadata or context. */
+function registerLinearCommand(api: ExtensionApi, definition: Parameters<ExtensionApi["registerCommand"]>[0] & { run: (ctx: CommandHandlerContext) => unknown }): void {
+  const run = definition.run;
+  api.registerCommand({ ...definition, run: (ctx) => withLinearSource(() => run(ctx)) });
+}
+
+/** Import aliases share the same typed source-error renderer as commands. */
+function registerLinearImporter(api: ExtensionApi, name: string, handler: Parameters<ExtensionApi["registerImporter"]>[1]): void {
+  api.registerImporter(name, (ctx) => withLinearSource(() => handler(ctx)));
+}
+
+/** Export failures retain source diagnostics even when the host renders JSON or TOON. */
+function registerLinearExporter(api: ExtensionApi, name: string, handler: Parameters<ExtensionApi["registerExporter"]>[1]): void {
+  api.registerExporter(name, (ctx) => withLinearSource(() => handler(ctx)));
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -71,7 +167,7 @@ interface LinearState {
 }
 
 interface LinearCycle {
-  name: string;
+  name?: string | null;
 }
 
 interface LinearAssignee {
@@ -97,7 +193,7 @@ export interface LinearIssue {
   state: LinearState;
   labels: { nodes: LinearLabel[] };
   dueDate: string | null;
-  cycle: LinearCycle | null;
+  cycle?: LinearCycle | null;
   assignee?: LinearAssignee | null;
   project?: { name: string } | null;
   customer?: { name: string } | null;
@@ -149,6 +245,8 @@ interface LinearViewerData {
 // Linear's GraphQL API caps `first` at 250 per page; request at most that and
 // follow pageInfo.endCursor for the rest.
 const LINEAR_MAX_PAGE_SIZE = 250;
+/** Shared issue-label read bound for import and ownership acquisition. */
+const LINEAR_ISSUE_LABEL_CAP = 128;
 
 // ---------------------------------------------------------------------------
 // Option readers — tolerate both kebab-case and camelCase keys.
@@ -156,6 +254,11 @@ const LINEAR_MAX_PAGE_SIZE = 250;
 // arrives as `dryRun`). Reading only the kebab key silently yields undefined,
 // which for --dry-run means a "preview" that actually writes. Check both.
 // ---------------------------------------------------------------------------
+
+/** Read only an explicitly supplied mapping entry; prototype names are ordinary provider data. */
+function ownMappingValue<T>(mapping: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.hasOwn(mapping, key) ? mapping[key] : undefined;
+}
 
 function camelKey(kebab: string): string {
   return kebab.replace(/-([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
@@ -366,7 +469,7 @@ export function parseStatusMap(raw: string | undefined): Record<string, string> 
         (k) => k.toLowerCase() === key.toLowerCase()
       );
       if (existing) delete map[existing];
-      map[key] = value;
+      Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
     }
   }
   return map;
@@ -434,7 +537,7 @@ export function invertStatusMap(
   const inverted: Record<string, string> = {};
   for (const [linearName, pmStatus] of Object.entries(statusMap)) {
     const key = pmStatus.trim().toLowerCase();
-    if (key && !(key in inverted)) inverted[key] = linearName;
+    if (key && !Object.hasOwn(inverted, key)) Object.defineProperty(inverted, key, { value: linearName, enumerable: true, writable: true, configurable: true });
   }
   return inverted;
 }
@@ -457,7 +560,7 @@ export function resolveLinearStateName(
 ): string | undefined {
   if (!pmStatus) return undefined;
   const key = pmStatus.trim().toLowerCase();
-  return invertedMap[key] ?? DEFAULT_PM_TO_LINEAR_STATE[key];
+  return ownMappingValue(invertedMap, key) ?? ownMappingValue(DEFAULT_PM_TO_LINEAR_STATE, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +608,7 @@ export function parseProjectMap(raw: string | undefined): ProjectMap {
     const key = pair.slice(0, idx).trim().toLowerCase();
     const value = pair.slice(idx + 1).trim();
     if (key && value) {
-      map[key] = value;
+      Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
       sawPair = true;
     }
   }
@@ -523,7 +626,7 @@ export function resolveProjectTag(
   if (!projectMap.enabled) return undefined;
   const name = projectName?.trim();
   if (!name) return undefined;
-  const override = projectMap.map[name.toLowerCase()];
+  const override = ownMappingValue(projectMap.map, name.toLowerCase());
   if (override) {
     return override.toLowerCase() === "ignore" ? undefined : override;
   }
@@ -550,7 +653,7 @@ export function parseFieldMap(raw: string | undefined): Record<string, string> {
     if (idx === -1) continue;
     const key = pair.slice(0, idx).trim().toLowerCase();
     const value = pair.slice(idx + 1).trim().toLowerCase();
-    if (key && value) map[key] = value;
+    if (key && value) Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
   }
   return map;
 }
@@ -560,7 +663,7 @@ export function fieldIsIgnored(
   fieldMap: Record<string, string>,
   linearField: string
 ): boolean {
-  return fieldMap[linearField.toLowerCase()] === "ignore";
+  return ownMappingValue(fieldMap, linearField.toLowerCase()) === "ignore";
 }
 
 // Resolve the pm target field for a given Linear field, honoring an override.
@@ -570,7 +673,7 @@ export function resolvePmField(
   fieldMap: Record<string, string>,
   linearField: string
 ): string {
-  const override = fieldMap[linearField.toLowerCase()];
+  const override = ownMappingValue(fieldMap, linearField.toLowerCase());
   if (!override || override === "ignore") return linearField.toLowerCase();
   return override;
 }
@@ -705,7 +808,7 @@ ${filterBody}
       priority
       estimate
       state { name type }
-      labels { nodes { name } }
+      labels(first: ${LINEAR_ISSUE_LABEL_CAP}) { nodes { name } pageInfo { hasNextPage } }
       assignee { name email }
       dueDate
       cycle { name }
@@ -818,6 +921,8 @@ async function fetchAllLinearIssues(
       throw new CommandError(`Linear API error: ${msgs}`);
     }
 
+    const invalid = closureInvalidField(response.data, linearIssuesDataShape, "issues");
+    if (invalid) throw new LinearSourceRefusal(invalid);
     const page = response.data?.issues;
     const nodes = page?.nodes ?? [];
     all.push(...nodes);
@@ -1038,13 +1143,12 @@ function linearRequestOnce<TData>(
           }
           try {
             const raw = Buffer.concat(chunks).toString("utf8");
-            // Wire-boundary deserialization: the body cannot be validated
-            // field-by-field cheaply, so the envelope is trusted per the
-            // operation's selection set and every reader still defends with
-            // optional chaining (Linear may return partial data + errors).
-            resolve(JSON.parse(raw) as LinearResponse<TData>);
-          } catch (err) {
-            reject(new Error(`Failed to parse Linear response: ${String(err)}`));
+            const envelope: unknown = JSON.parse(raw);
+            const invalid = closureInvalidField(envelope, linearEnvelopeShape, "response");
+            if (invalid) { reject(new LinearSourceRefusal(invalid, false, /^\s*mutation\b/.test(query))); return; }
+            resolve(envelope as LinearResponse<TData>);
+          } catch {
+            reject(new LinearSourceRefusal("response", true, /^\s*mutation\b/.test(query)));
           }
         });
       }
@@ -1094,6 +1198,7 @@ async function linearRequest<TData>(
   // with a USAGE exit code — "the key is bad/expired/missing scope, fix it" —
   // rather than the generic "Linear request failed" wrap. AuthHttpError is not
   // retriable, so the loop broke on the first attempt.
+  if (lastErr instanceof LinearSourceRefusal) throw lastErr;
   if (lastErr instanceof AuthHttpError) {
     throw new CommandError(
       `Linear API rejected the API key (HTTP ${lastErr.status}). ` +
@@ -1317,7 +1422,10 @@ async function readSchemaStatuses(pmRoot: string) {
   try {
     const sdk = await importRuntimeSdk();
     const local = await sdk.schemaList({ pmRoot, noExtensions: true });
-    return [...local.statuses.builtin, ...local.statuses.custom].sort((a, b) => compareSchemaKeys(a.id, b.id));
+    const settings = await sdk.readSettings(sdk.resolvePmRoot(process.cwd(), pmRoot));
+    const registry = sdk.resolveRuntimeStatusRegistry(settings.schema);
+    return { statuses: [...local.statuses.builtin, ...local.statuses.custom].sort((a, b) => compareSchemaKeys(a.id, b.id)),
+      normalize: (value: string) => sdk.normalizeStatusInput(value, registry) };
   } catch {
     throw new LinearSchemaRefusal("schema_unavailable", "Repair the local tracker schema or upgrade the resolvable pm SDK, then retry linear schema.");
   }
@@ -1336,7 +1444,8 @@ export async function negotiateLinearSchema(
 ): Promise<LinearSchemaReport> {
   const apiKey = process.env["LINEAR_API_KEY"];
   if (!apiKey) throw new LinearSchemaRefusal("access_denied", "Set LINEAR_API_KEY with Read access to the target team, then retry linear schema.");
-  const statuses = await readSchemaStatuses(pmRoot);
+  const localStatuses = await readSchemaStatuses(pmRoot);
+  const statuses = localStatuses.statuses;
   const stateRows = new Map<string, { id: string; name: string; type: string }>();
   const labelRows = new Map<string, { id: string; name: string }>();
   const stateCursors = new Set<string>();
@@ -1356,6 +1465,7 @@ export async function negotiateLinearSchema(
         key: options.team.trim().toUpperCase(), statesAfter, labelsAfter,
       });
     } catch (error: unknown) {
+      if (error instanceof LinearSourceRefusal) throw error;
       const denied = error instanceof CommandError && /rejected the API key/.test(error.message);
       // Only our fixed endpoint-validation messages may cross this boundary.
       // Other request errors can contain configured paths, queries or secrets.
@@ -1419,7 +1529,7 @@ export async function negotiateLinearSchema(
   }
   const states = [...stateRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
   const labels = [...labelRows.values()].sort((a, b) => compareSchemaKeys(a.id, b.id));
-  const overrides = Object.entries(options.statusMap ?? {}).map(([name, status]) => [name.trim().toLowerCase(), status] as const).sort(([a], [b]) => compareSchemaKeys(a, b));
+  const overrides = Object.entries(options.statusMap ?? {}).map(([name, status]) => [name.trim().toLowerCase(), localStatuses.normalize(status) ?? status] as const).sort(([a], [b]) => compareSchemaKeys(a, b));
   if (!states.length || new Set(overrides.map(([name]) => name)).size !== overrides.length ||
       overrides.some(([name, status]) => !states.some((state) => state.name.toLowerCase() === name) || !statuses.some((s) => s.id === status))) {
     throw new LinearSchemaRefusal("mapping_invalid", "Remove stale state overrides and map each workflow state to a registered pm status using --status-map.");
@@ -1557,7 +1667,7 @@ async function readThreadEvidence(threadId: string, disclosure: "metadata" | "te
   for (let page = 0; ; page++) {
     let response: LinearResponse<unknown>;
     try { response = await linearRequest<unknown>(key, THREAD_QUERY, { id: threadId, after }); }
-    catch { throw new ThreadCaptureRefusal("access_denied", "Check Linear connectivity, endpoint and Read permission for the selected thread, then retry."); }
+    catch (error: unknown) { if (error instanceof LinearSourceRefusal) throw error; throw new ThreadCaptureRefusal("access_denied", "Check Linear connectivity, endpoint and Read permission for the selected thread, then retry."); }
     if (response.errors?.length) throw new ThreadCaptureRefusal("access_denied", "Restore complete thread read access and verify Linear schema support, then retry.");
     const root = threadObject(threadObject(response.data).comment);
     if (root.id !== threadId || root.parentId !== null) {
@@ -1663,6 +1773,172 @@ export async function captureLinearThread(options: ThreadCaptureOptions, pmRoot:
   return report;
 }
 
+/** Native import fields compared after the SDK canonicalizes both sides. */
+export const LINEAR_OWNERSHIP_FIELDS = Object.freeze(["title", "body", "status", "priority", "tags", "deadline", "assignee", "description"] as const);
+/** A field owned by the Linear import mapping, including derived cycle/estimate/customer tags. */
+export type LinearOwnershipField = typeof LINEAR_OWNERSHIP_FIELDS[number];
+/** Content digests avoid disclosing field text in agent plans. */
+export interface LinearOwnershipSnapshot {
+  format: "pm-linear/ownership/1";
+  localId: string;
+  linearId: string;
+  mapping: string;
+  localRevision: string;
+  providerRevision: string;
+  fields: Array<{ field: LinearOwnershipField; local: string; provider: string }>;
+}
+/** Explicit selection, optional operator-acknowledged observation, and hard output budget. */
+export interface LinearOwnershipOptions {
+  item: string;
+  base?: LinearOwnershipSnapshot;
+  statusMap?: Record<string, string>;
+  maxOutputBytes?: number;
+}
+/** Stable ownership outcomes; no outcome authorizes a write. */
+export type LinearOwnershipDecision = "unchanged" | "aligned" | "local_edit" | "provider_edit" | "conflict" | "unknown_base";
+/** Read-only field plan and reusable observation. Saving it does not acknowledge or sync anything. */
+export interface LinearOwnershipReport {
+  ok: true;
+  mode: "preview";
+  atomicCrossSystem: false;
+  guarantee: string;
+  base: "acknowledged" | "missing" | "foreign";
+  disjoint: boolean;
+  fields: Array<{ field: LinearOwnershipField; decision: LinearOwnershipDecision }>;
+  counts: { local: number; provider: number; conflicts: number; unknown: number };
+  observation: LinearOwnershipSnapshot;
+  remedy: string;
+}
+/** Typed, sanitized refusals for callers that must decide whether and how to retry. */
+export class LinearOwnershipRefusal extends CommandError {
+  /** Stable refusal category for agent branching. */
+  readonly code: "invalid_input" | "local_read_failed" | "selection_required" | "source_invalid" | "source_changed" | "access_denied" | "output_budget";
+  /** Required recovery step before retrying. */
+  readonly remedy: string;
+  /** Schema-owned field coordinate when source validation fails. */
+  readonly field?: string;
+  constructor(code: LinearOwnershipRefusal["code"], remedy: string, field?: string) {
+    super(`Linear ownership refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
+    this.name = "LinearOwnershipRefusal";
+    this.field = field;
+    this.code = code;
+    this.remedy = remedy;
+  }
+}
+
+/**
+ * Observe one linked issue and compare paired acknowledged field hashes with fresh values.
+ * Uses isolated complete SDK reads and canonicalDocument, plus the exact import projection.
+ * This is context only: there is no apply, saved journal, retry write, or atomic guarantee.
+ */
+export async function previewLinearOwnership(options: LinearOwnershipOptions, pmRoot: string): Promise<LinearOwnershipReport> {
+  if (!closureMatches(options, ownershipOptionsShape)) throw new LinearOwnershipRefusal("invalid_input", "Select one existing linked item, remove unknown options, and use an integer byte budget from 2048 through 65536.");
+  const budget = options.maxOutputBytes ?? 8192;
+  let sdk: Awaited<ReturnType<typeof importRuntimeSdk>>;
+  let source: string;
+  let view: ClosureReadView;
+  try {
+    sdk = await importRuntimeSdk();
+    source = await realpath(sdk.resolvePmRoot(process.cwd(), pmRoot));
+    view = await readClosureItems(source, [options.item]);
+  } catch { throw new LinearOwnershipRefusal("local_read_failed", "Restore a readable initialized tracker and a compatible pm SDK, then retry the complete isolated read."); }
+  const local = view.items.find((item) => item.id === view.selectedIds[0]);
+  const linearId = parseProvenance(local?.description)?.linear_id;
+  if (!local || !linearId || !closureMatches(linearId, closureId) || view.items.filter((item) => parseProvenance(item.description)?.linear_id === linearId).length !== 1) {
+    throw new LinearOwnershipRefusal("selection_required", "Select one existing item with unique Linear provenance; repair ambiguous links through supported pm tooling first.");
+  }
+  const key = process.env.LINEAR_API_KEY;
+  if (!key) throw new LinearOwnershipRefusal("access_denied", "Set LINEAR_API_KEY with read access to the selected issue, then retry.");
+  /** Reuse the bounded HTTP transport without retrying an observational acquisition. */
+  async function observe(): Promise<LinearIssue & { updatedAt: string }> {
+    let response: LinearResponse<{ issue?: unknown }>;
+    try { response = await linearRequestOnce(key!, OWNERSHIP_QUERY, { id: linearId }, 131072); }
+    catch (error: unknown) {
+      if (error instanceof LinearSourceRefusal) throw new LinearOwnershipRefusal(error.code, error.remedy, error.field);
+      throw new LinearOwnershipRefusal("access_denied", "Restore Linear read access and connectivity; no writes were attempted.");
+    }
+    if (response.errors?.length) throw new LinearOwnershipRefusal("access_denied", "Restore permission to read every selected issue field and retry; provider error text is withheld.");
+    const issue = response.data?.issue;
+    const invalid = closureInvalidField(issue, ownershipIssueShape, "issue");
+    if (invalid || (issue as LinearIssue).id !== linearId) {
+      const field = invalid ?? "issue.id";
+      throw new LinearOwnershipRefusal("source_invalid", `Retry with a complete issue response matching the documented domain at ${field}.`, field);
+    }
+    return issue as LinearIssue & { updatedAt: string };
+  }
+  const issue = await observe();
+  const registry = sdk.resolveRuntimeStatusRegistry(view.settings.schema);
+  const normalizedMap = new Map<string, string>();
+  for (const [name, value] of Object.entries(options.statusMap ?? {})) {
+    const target = sdk.normalizeStatusInput(value, registry);
+    const key = name.trim().toLowerCase();
+    if (!key || !target || normalizedMap.has(key)) throw new LinearOwnershipRefusal("invalid_input", "Use unambiguous state mappings to statuses in the configured SDK registry.");
+    normalizedMap.set(key, target);
+  }
+  const mapping = schemaDigest({ projection: "linear-import-v3-sdk-projection", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
+  const plan = buildItemPlan(issue, Object.fromEntries(normalizedMap));
+  /** The same SDK canonicalizer used by persistence handles status aliases and metadata. */
+  function project(item: PmItem): Map<LinearOwnershipField, string> {
+    const document = sdk.canonicalDocument({ metadata: { id: local!.id!, type: "Task", title: "", status: "open", created_at: "", updated_at: "", description: "", ...item } as ItemMetadata, body: item.body ?? "" }, { schema: view.settings.schema });
+    const metadata = document.metadata as unknown as Record<string, unknown>;
+    return new Map(LINEAR_OWNERSHIP_FIELDS.map((field) => [field, schemaDigest(field === "body" ? document.body : metadata[field] ?? null)]));
+  }
+  // Execute the exact writer rows through the SDK in an owned disposable copy.
+  // Persistence canonicalization alone does not cover SDK option parsing or
+  // lifecycle effects (for example, canceled-role assignment clearing).
+  let projection: ClosureReadView;
+  try { projection = await readClosureItems(source, [options.item], { ...plan, identifier: issue.identifier, linearId, match: local }); }
+  catch (error: unknown) {
+    if (error instanceof LinearImportRefusal) throw error;
+    throw new LinearOwnershipRefusal("invalid_input", "The SDK could not project this import against an isolated copy. Review native values and tracker schema/policy before retrying; no source writes or hooks ran.", "plan");
+  }
+  const { projected, ...projectionSource } = projection;
+  if (schemaDigest(projectionSource) !== schemaDigest(view)) throw new LinearOwnershipRefusal("source_changed", "Local state changed while the SDK projection was staged. Read both systems again; no source writes were attempted.");
+  const incoming = project(projected!);
+  const current = project(local);
+  const observation: LinearOwnershipSnapshot = {
+    format: "pm-linear/ownership/1", localId: local.id!, linearId, mapping,
+    localRevision: schemaDigest(local), providerRevision: schemaDigest(issue),
+    fields: LINEAR_OWNERSHIP_FIELDS.map((field) => ({ field, local: current.get(field)!, provider: incoming.get(field)! })),
+  };
+  const supplied = options.base;
+  const compatible = supplied && supplied.format === observation.format && supplied.localId === observation.localId && supplied.linearId === linearId && supplied.mapping === mapping;
+  const bases = validateOwnershipBase(compatible ? supplied : undefined);
+  const counts = { local: 0, provider: 0, conflicts: 0, unknown: 0 };
+  const fields = LINEAR_OWNERSHIP_FIELDS.map((field) => {
+    const left = current.get(field)!;
+    const right = incoming.get(field)!;
+    const base = bases.get(field);
+    let decision: LinearOwnershipDecision;
+    if (!base || !base.local || base.local !== base.provider) decision = "unknown_base";
+    else if (left === right) decision = left === base.local ? "unchanged" : "aligned";
+    else if (left === base.local) decision = "provider_edit";
+    else if (right === base.provider) decision = "local_edit";
+    else decision = "conflict";
+    if (decision === "local_edit") counts.local++;
+    if (decision === "provider_edit") counts.provider++;
+    if (decision === "conflict") counts.conflicts++;
+    if (decision === "unknown_base") counts.unknown++;
+    return { field, decision };
+  });
+  const verified = await observe();
+  let fresh: ClosureReadView;
+  try { fresh = await readClosureItems(source, [options.item]); }
+  catch { throw new LinearOwnershipRefusal("local_read_failed", "Restore complete local reads and retry both observations; no saved plan authorizes a write."); }
+  if (schemaDigest(issue) !== schemaDigest(verified) || schemaDigest(view) !== schemaDigest(fresh)) throw new LinearOwnershipRefusal("source_changed", "Local or provider state changed during observation. Read both again and review a new preview; saved plans never authorize writes.");
+  const report: LinearOwnershipReport = {
+    ok: true, mode: "preview", atomicCrossSystem: false,
+    guarantee: "Observations only; no atomic cross-system guarantees. Values can change after reading. Native SDK effects only; authorization and extension effects remain unvalidated.",
+    base: supplied ? compatible ? "acknowledged" : "foreign" : "missing",
+    disjoint: counts.local > 0 && counts.provider > 0 && counts.conflicts === 0 && counts.unknown === 0,
+    fields, counts, observation,
+    remedy: "Review conflicts and unknown bases explicitly. Re-read both systems before any separate write; promote an observation to a baseline only after acknowledging every field.",
+  };
+  if (!closureMatches(report.observation, ownershipSnapshotShape) || Object.values(counts).some((count) => !Number.isSafeInteger(count) || count < 0 || count > LINEAR_OWNERSHIP_FIELDS.length)) throw new LinearOwnershipRefusal("source_invalid", "Restore valid native field metadata and retry; no invalid receipt is returned at receipt.observation.", "receipt.observation");
+  if (Buffer.byteLength(JSON.stringify(report)) > budget) throw new LinearOwnershipRefusal("output_budget", "Raise --max-output-bytes up to 65536; the complete preview is never truncated.");
+  return report;
+}
+
 /** Explicit local selections and hard acquisition/output budgets; all operations are read-only. */
 export interface LinearClosureOptions {
   items: string[];
@@ -1682,9 +1958,12 @@ export class LinearClosureRefusal extends CommandError {
   readonly code: LinearClosureRefusalCode;
   /** Action needed before retrying the observational acquisition. */
   readonly remedy: string;
-  constructor(code: LinearClosureRefusalCode, remedy: string) {
+  /** Schema-owned path when malformed provider data caused the refusal. */
+  readonly field?: string;
+  constructor(code: LinearClosureRefusalCode, remedy: string, field?: string) {
     super(`Linear dependency closure refused (${code}). ${remedy}`, EXIT_CODE.USAGE);
     this.name = "LinearClosureRefusal";
+    this.field = field;
     this.code = code;
     this.remedy = remedy;
   }
@@ -1722,10 +2001,10 @@ export interface LinearClosureReport {
 }
 
 /** Declarative boundary vocabulary shared by options, provider responses and emitted receipts. */
-type ClosureShape = { kind: "string"; max: number; pattern?: RegExp } |
-  { kind: "number"; min: number; max: number } | { kind: "boolean" } |
+type ClosureShape = { kind: "opaque" } | { kind: "record"; max: number; row: ClosureShape } | { kind: "string"; max: number; pattern?: RegExp; empty?: boolean } |
+  { kind: "number"; min: number; max: number; fractional?: boolean } | { kind: "boolean" } |
   { kind: "literal"; value: string | boolean } | { kind: "array"; max: number; row: ClosureShape } |
-  { kind: "object"; fields: Record<string, ClosureShape>; optional?: string[] } |
+  { kind: "object"; fields: Record<string, ClosureShape>; optional?: string[]; additional?: boolean; requiredAny?: string[] } |
   { kind: "nullable"; inner: ClosureShape };
 
 const closureId: ClosureShape = { kind: "string", max: 128, pattern: /^[a-zA-Z0-9_-]+$/ };
@@ -1769,25 +2048,140 @@ const closureReportShape: ClosureShape = { kind: "object", fields: {
     outputBytes: { kind: "number", min: 1024, max: 131072 } } },
 } };
 
-/** Validate once per boundary using the same strict schema interpreter, including dense arrays. */
-function closureMatches(value: unknown, shape: ClosureShape): boolean {
+/** Validate consumed fields once with the shared schema and retain a safe diagnostic coordinate. */
+function closureInvalidField(value: unknown, shape: ClosureShape, path: string): string | undefined {
   switch (shape.kind) {
-    case "string": return typeof value === "string" && value.length > 0 && value.length <= shape.max && (!shape.pattern || shape.pattern.test(value));
-    case "number": return typeof value === "number" && Number.isSafeInteger(value) && value >= shape.min && value <= shape.max;
-    case "boolean": return typeof value === "boolean";
-    case "literal": return value === shape.value;
-    case "nullable": return value === null || closureMatches(value, shape.inner);
-    case "array": return Array.isArray(value) && value.length <= shape.max &&
-      Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index) && closureMatches(value[index], shape.row)).every(Boolean);
+    case "opaque": return undefined;
+    case "record": {
+      if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length > shape.max) return path;
+      for (const entry of Object.values(value)) { const invalid = closureInvalidField(entry, shape.row, `${path}.entry`); if (invalid) return invalid; }
+      return undefined;
+    }
+    case "string": return typeof value === "string" && (shape.empty || value.length > 0) && value.length <= shape.max && (!shape.pattern || shape.pattern.test(value)) ? undefined : path;
+    case "number": return typeof value === "number" && (shape.fractional ? Number.isFinite(value) : Number.isSafeInteger(value)) && value >= shape.min && value <= shape.max ? undefined : path;
+    case "boolean": return typeof value === "boolean" ? undefined : path;
+    case "literal": return value === shape.value ? undefined : path;
+    case "nullable": return value === null ? undefined : closureInvalidField(value, shape.inner, path);
+    case "array": {
+      if (!Array.isArray(value) || value.length > shape.max) return path;
+      for (let index = 0; index < value.length; index++) {
+        const child = `${path}[${index}]`;
+        if (!Object.hasOwn(value, index)) return child;
+        const invalid = closureInvalidField(value[index], shape.row, child);
+        if (invalid) return invalid;
+      }
+      return undefined;
+    }
     case "object": {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return path;
       const row = value as Record<string, unknown>;
-      return Object.keys(row).every((key) => Object.hasOwn(shape.fields, key)) &&
-        Object.entries(shape.fields).every(([key, field]) =>
-          shape.optional?.includes(key) && row[key] === undefined || Object.hasOwn(row, key) && closureMatches(row[key], field));
+      if (shape.requiredAny && !shape.requiredAny.some((key) => Object.hasOwn(row, key))) return `${path}.${shape.requiredAny[0]}`;
+      if (!shape.additional && Object.keys(row).some((key) => !Object.hasOwn(shape.fields, key))) return path;
+      for (const [key, field] of Object.entries(shape.fields)) {
+        if (shape.optional?.includes(key) && row[key] === undefined) continue;
+        if (!Object.hasOwn(row, key)) return `${path}.${key}`;
+        const invalid = closureInvalidField(row[key], field, `${path}.${key}`);
+        if (invalid) return invalid;
+      }
+      return undefined;
     }
   }
 }
+
+/** Boolean facade used by existing producers and consumers of the same schemas. */
+function closureMatches(value: unknown, shape: ClosureShape): boolean {
+  return closureInvalidField(value, shape, "value") === undefined;
+}
+
+/** Validate all rows and identities before returning any authoritative baseline field. */
+function validateOwnershipBase(base: LinearOwnershipSnapshot | undefined): Map<LinearOwnershipField, { local: string; provider: string }> {
+  const candidates = new Map<LinearOwnershipField, { local: string; provider: string }>();
+  const seen = new Set<LinearOwnershipField>();
+  const invalid = new Set<LinearOwnershipField>();
+  let unidentifiable = false;
+  for (const value of base?.fields ?? []) {
+    const row: unknown = value;
+    const valid = closureMatches(row, ownershipFieldShape);
+    if (typeof row !== "object" || row === null || Array.isArray(row)) { unidentifiable = true; continue; }
+    const field = (row as Record<string, unknown>).field;
+    if (!LINEAR_OWNERSHIP_FIELDS.some((name) => name === field)) { unidentifiable = true; continue; }
+    const name = field as LinearOwnershipField;
+    if (seen.has(name) || !valid) invalid.add(name);
+    seen.add(name);
+    if (valid) candidates.set(name, value);
+  }
+  if (unidentifiable) return new Map();
+  for (const field of invalid) candidates.delete(field);
+  return candidates;
+}
+
+/** Every transport consumer receives the same validated GraphQL envelope. */
+const linearEnvelopeShape: ClosureShape = { kind: "object", fields: {
+  data: { kind: "nullable", inner: { kind: "record", max: 10000, row: { kind: "opaque" } } },
+  errors: { kind: "array", max: 1000, row: { kind: "object", fields: { message: { kind: "string", max: 65536, empty: true } }, additional: true } },
+}, optional: ["data", "errors"], requiredAny: ["data", "errors"], additional: true };
+
+/** Export metadata permits partial optional connections but never malformed containers or scalar types. */
+const linearTeamRowShape: ClosureShape = { kind: "object", fields: {
+  id: closureText, name: { kind: "nullable", inner: { kind: "string", max: 32768, empty: true } },
+  number: { kind: "nullable", inner: { kind: "number", min: 0, max: Number.MAX_SAFE_INTEGER, fractional: true } },
+}, optional: ["id", "name", "number"], additional: true };
+const linearTeamConnectionShape: ClosureShape = { kind: "nullable", inner: { kind: "object", fields: {
+  nodes: { kind: "array", max: 10000, row: linearTeamRowShape },
+}, optional: ["nodes"], additional: true } };
+const linearTeamDataShape: ClosureShape = { kind: "nullable", inner: { kind: "object", fields: {
+  teams: { kind: "object", fields: { nodes: { kind: "array", max: 10000, row: { kind: "object", fields: {
+    id: closureText, states: linearTeamConnectionShape, labels: linearTeamConnectionShape, cycles: linearTeamConnectionShape,
+  }, optional: ["id", "states", "labels", "cycles"], additional: true } } }, optional: ["nodes"], additional: true },
+}, optional: ["teams"], additional: true } };
+const preflightSourceFieldShape: ClosureShape = { kind: "string", max: 128,
+  pattern: /^(?:response(?:\.(?:data|errors(?:\[[0-9]{1,3}\](?:\.message)?)?))?|viewer(?:\.viewer(?:\.id)?)?)$/ };
+const linearViewerDataShape: ClosureShape = { kind: "nullable", inner: { kind: "object", fields: {
+  viewer: { kind: "nullable", inner: { kind: "object", fields: { id: closureText }, optional: ["id"], additional: true } },
+}, optional: ["viewer"], additional: true } };
+
+const ownershipDigest: ClosureShape = { kind: "string", max: 64, pattern: /^[a-f0-9]{64}$/ };
+const ownershipText: ClosureShape = { kind: "string", max: 32768, empty: true };
+const ownershipName: ClosureShape = { kind: "object", fields: { name: ownershipText } };
+const ownershipNullableName: ClosureShape = { kind: "nullable", inner: ownershipName };
+const ownershipFieldShape: ClosureShape = { kind: "object", fields: {
+  field: { kind: "string", max: 16, pattern: new RegExp(`^(${LINEAR_OWNERSHIP_FIELDS.join("|")})$`) }, local: ownershipDigest, provider: ownershipDigest,
+} };
+const ownershipSnapshotShape: ClosureShape = { kind: "object", fields: {
+  format: { kind: "literal", value: "pm-linear/ownership/1" }, localId: closureId, linearId: closureId,
+  mapping: ownershipDigest, localRevision: ownershipDigest, providerRevision: ownershipDigest,
+  fields: { kind: "array", max: LINEAR_OWNERSHIP_FIELDS.length, row: ownershipFieldShape },
+} };
+const ownershipOptionsShape: ClosureShape = { kind: "object", fields: {
+  item: closureId, base: { ...ownershipSnapshotShape, fields: { ...(ownershipSnapshotShape as Extract<ClosureShape, { kind: "object" }>).fields, fields: { kind: "array", max: LINEAR_OWNERSHIP_FIELDS.length, row: { kind: "opaque" } } } } as ClosureShape, statusMap: { kind: "record", max: 128, row: closureText },
+  maxOutputBytes: { kind: "number", min: 2048, max: 65536 },
+}, optional: ["base", "statusMap", "maxOutputBytes"] };
+const linearIssueShape: Extract<ClosureShape, { kind: "object" }> = { kind: "object", fields: {
+  id: closureId, identifier: closureText, title: ownershipText, description: { kind: "nullable", inner: ownershipText },
+  priority: { kind: "number", min: 0, max: 4 }, estimate: { kind: "nullable", inner: { kind: "number", min: 0, max: 1000000, fractional: true } },
+  state: { kind: "object", fields: { name: ownershipText, type: ownershipText } },
+  labels: { kind: "object", fields: { nodes: { kind: "array", max: LINEAR_ISSUE_LABEL_CAP, row: ownershipName }, pageInfo: { kind: "object", fields: { hasNextPage: { kind: "literal", value: false } } } } },
+  dueDate: { kind: "nullable", inner: ownershipText }, cycle: { kind: "nullable", inner: { kind: "object", fields: { name: { kind: "nullable", inner: ownershipText } }, optional: ["name"] } },
+  assignee: { kind: "nullable", inner: { kind: "object", fields: { name: { kind: "nullable", inner: ownershipText }, email: { kind: "nullable", inner: ownershipText } } } },
+  project: ownershipNullableName, customer: ownershipNullableName, url: { kind: "nullable", inner: ownershipText }, updatedAt: closureText,
+}, optional: ["estimate", "cycle", "assignee", "project", "customer", "url", "updatedAt"] };
+const ownershipIssueShape: ClosureShape = { ...linearIssueShape, optional: linearIssueShape.optional!.filter((key) => key !== "updatedAt") };
+const importIssueShape: ClosureShape = { ...linearIssueShape, fields: { ...linearIssueShape.fields, labels: { ...(linearIssueShape.fields.labels as Extract<ClosureShape, { kind: "object" }>), optional: ["pageInfo"] } } };
+/** Validate optional import connections and every consumed page coordinate before planning. */
+const linearIssuesDataShape: ClosureShape = { kind: "nullable", inner: { kind: "object", fields: {
+  issues: { kind: "nullable", inner: { kind: "object", fields: {
+    nodes: { kind: "array", max: LINEAR_MAX_PAGE_SIZE, row: importIssueShape },
+    pageInfo: { kind: "nullable", inner: { kind: "object", fields: {
+      hasNextPage: closureBoolean, endCursor: { kind: "nullable", inner: ownershipText },
+    }, optional: ["hasNextPage", "endCursor"], additional: true } },
+  }, optional: ["nodes", "pageInfo"], additional: true } },
+}, optional: ["issues"], additional: true } };
+const OWNERSHIP_QUERY = `query LinearOwnership($id: String!) {
+  issue(id: $id) { id identifier title description priority estimate updatedAt
+    state { name type } labels(first: ${LINEAR_ISSUE_LABEL_CAP}) { nodes { name } pageInfo { hasNextPage } }
+    dueDate cycle { name } assignee { name email } project { name } customer { name } url
+  }
+}`;
 
 const CLOSURE_QUERY = `query LinearPrerequisites($id: String!, $after: String) {
   issue(id: $id) { id identifier title updatedAt
@@ -1803,6 +2197,9 @@ interface ClosureReadView {
   items: PmItem[];
   selectedIds: Array<string | null>;
   configuration: string;
+  settings: Awaited<ReturnType<Awaited<ReturnType<typeof importRuntimeSdk>>["readSettings"]>>;
+  /** SDK-applied import projection read from an owned disposable copy only. */
+  projected?: PmItem;
 }
 
 /**
@@ -1812,7 +2209,7 @@ interface ClosureReadView {
  * the final read view. Only owned copies ever reach repairing SDK entry points.
  * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(source: string, selections: string[]): Promise<ClosureReadView> {
+async function readClosureItems(source: string, selections: string[], projection?: PreparedLinearImport): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
   const bootstrap = join(scratch, "bootstrap");
   const reader = join(scratch, "reader");
@@ -1831,6 +2228,9 @@ async function readClosureItems(source: string, selections: string[]): Promise<C
   try {
     await cp(source, bootstrap, { recursive: true, filter: async (path) => {
       const info = await lstat(path);
+      // Installed packages carry the host SDK link. It is runtime code, never
+      // tracker membership; do not follow or copy it into observational reads.
+      if (info.isSymbolicLink() && /^extensions\/[^/]+\/node_modules\/@unbrained\/pm-cli$/.test(relative(source, path).replaceAll("\\", "/"))) return false;
       if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw new Error("Unsupported tracker entry");
       files++;
       bytes += info.isFile() ? info.size : 0;
@@ -1865,7 +2265,22 @@ async function readClosureItems(source: string, selections: string[]): Promise<C
       const located = await sdk.locateItem(reader, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
       selectedIds.push(located?.id ?? null);
     }
-    return { items, selectedIds, configuration: schemaDigest(settings) };
+    const sourceView = { items: structuredClone(items), selectedIds, configuration: schemaDigest(settings), settings: structuredClone(settings) };
+    let projected: PmItem | undefined;
+    if (projection) {
+      const transactionSdk = await loadAtomicSdk();
+      const commit = assertSdkFunction(transactionSdk.commitItemMutations, "commitItemMutations");
+      const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
+      const planned = buildAtomicImportMutations("ownership", projection, settings.id_prefix, sdk.normalizeItemId);
+      // Use the actual coordinator, including its inspection/skip semantics.
+      // Permissions are bypassed only on owned copies, never on source state.
+      const mutations: BulkItemMutation[] = planned.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
+      const revision = schemaDigest({ target: projection.match, mutations });
+      await withoutHooks({ path: reader, noExtensions: true }, () => commit({ pmRoot: reader, transactionId: `projection-${revision}`, author: "pm-linear", mutations }));
+      projected = (await readPmItems(reader)).find((item) => item.id === projection.match?.id);
+      if (!projected) throw new Error("SDK projection target disappeared");
+    }
+    return { ...sourceView, ...(projected ? { projected } : {}) };
   } finally {
     await writableMirror();
     await rm(scratch, { recursive: true, force: true });
@@ -1953,14 +2368,18 @@ export async function fetchLinearDependencyClosure(options: LinearClosureOptions
       requests++;
       let response: LinearResponse<{ issue: unknown }>;
       try { response = await linearRequestOnce<{ issue: unknown }>(apiKey, CLOSURE_QUERY, { id, after }, 262144); }
-      catch (error) { boundary(id, error instanceof AuthHttpError ? "access_denied" : "unavailable"); break; }
+      catch (error: unknown) {
+        if (error instanceof LinearSourceRefusal) throw new LinearClosureRefusal("source_invalid", error.remedy, error.field);
+        boundary(id, error instanceof AuthHttpError ? "access_denied" : "unavailable"); break;
+      }
       if (typeof response !== "object" || response === null || Array.isArray(response)) {
         throw new LinearClosureRefusal("source_invalid", "Retry with a valid Linear GraphQL response envelope containing the selected issue.");
       }
-      if (response.errors !== undefined || response.data?.issue === null) { boundary(id, "access_denied"); break; }
+      if (response.errors?.length || response.data?.issue === null) { boundary(id, "access_denied"); break; }
       const raw = response.data?.issue;
-      if (!closureMatches(raw, closureProviderShape) || raw === null) {
-        throw new LinearClosureRefusal("source_invalid", "Retry with complete, bounded Linear issue and relation pages matching the documented GraphQL schema.");
+      const invalid = closureInvalidField(raw, closureProviderShape, "issue");
+      if (invalid) {
+        throw new LinearClosureRefusal("source_invalid", `Retry with complete, bounded issue and relation pages matching the documented GraphQL schema at ${invalid}.`, invalid);
       }
       const issue = raw as { id: string; identifier: string; title: string; updatedAt: string;
         inverseRelations: { nodes: { id: string; type: string; issue: { id: string } | null; relatedIssue: { id: string } }[];
@@ -2054,6 +2473,8 @@ export interface SyncRunDependencies {
 
 /** Counts and schema evidence returned by either supported writer path. */
 export interface SyncResult {
+  /** SDK-only desired field plans from the exact atomic dry-run preparation used by writes. CLI receipts retain compact counts. */
+  prepared?: PreparedLinearImport[];
   schema?: LinearSchemaReport;
   synced: number;
   created: number;
@@ -2070,6 +2491,19 @@ export interface SyncResult {
   recoveredItems?: number;
 }
 
+/** Quarantine every non-unique provider identity before any import target is selected. */
+function ambiguousLinearIds(items: PmItem[]): Set<string> {
+  const seen = new Set<string>();
+  const ambiguous = new Set<string>();
+  for (const item of items) {
+    const id = parseProvenance(item.description)?.linear_id;
+    if (!id) continue;
+    if (seen.has(id)) ambiguous.add(id);
+    seen.add(id);
+  }
+  return ambiguous;
+}
+
 // Index existing pm items by their stored Linear id (parsed from the provenance
 // marker) so a re-import can UPDATE the matching item instead of creating a
 // duplicate. Items without Linear provenance are ignored. Pure + exported.
@@ -2079,8 +2513,9 @@ export function indexItemsByLinearId(
   const index: Record<string, PmItem> = {};
   for (const item of items) {
     const prov = parseProvenance(item.description);
-    if (prov?.linear_id) index[prov.linear_id] = item;
+    if (prov?.linear_id) Object.defineProperty(index, prov.linear_id, { value: item, enumerable: true, writable: true, configurable: true });
   }
+  for (const id of ambiguousLinearIds(items)) delete index[id];
   return index;
 }
 
@@ -2164,6 +2599,7 @@ export function buildItemPlan(
     const assignee = issue.assignee?.email?.trim() || issue.assignee?.name?.trim();
     if (assignee) plan.assignee = assignee;
   }
+  assertLiteralImportValues(plan);
   return plan;
 }
 
@@ -2195,9 +2631,7 @@ async function buildImportDryRunPlan(
   });
   // Local-only read; no Linear network call. Reports how many already-linked pm
   // items exist so the preview can hint at create-vs-update without fetching.
-  const existingLinkedItems = Object.keys(
-    indexItemsByLinearId(await readPmItems(pm_root))
-  ).length;
+  const existingLinkedItems = (await readPmItems(pm_root)).filter((item) => parseProvenance(item.description) !== undefined).length;
   return {
     dryRun: true,
     team: options.team.toUpperCase(),
@@ -2219,7 +2653,7 @@ async function buildImportDryRunPlan(
 // is compensated in reverse order; if compensation itself is incomplete the
 // tracker MAY hold partial state and the error tells the user to retry the same
 // import to resume the durable journal. The non-atomic path is byte-compatible
-// (unchanged); --atomic --dry-run shares the atomic preparation/matching path
+// uses the same mapped fields; --atomic --dry-run shares the atomic preparation/matching path
 // and reports create/update/skip counts WITHOUT touching the SDK commit.
 
 const ATOMIC_IMPORT_PREFIX = "linear-import-";
@@ -2380,6 +2814,23 @@ export function deriveAtomicItemId(
   return normalizeItemId(`linear-${teamToken}-${identifier}`, idPrefix);
 }
 
+/** Use the SDK's JSON-array tag input so commas, unset words and stdin tokens stay literal labels. */
+function linearTagInput(tags: readonly string[]): string {
+  return JSON.stringify([...tags].sort());
+}
+
+/** Encode literal mapped fields for the SDK option contract shared by both import writers. */
+function linearImportOptions(entry: ItemPlan) {
+  assertLiteralImportValues(entry);
+  return {
+    title: entry.title, priority: entry.priority, description: entry.description, body: entry.body,
+    // JSON arrays escape label control words, commas, quotes and stdin tokens.
+    tags: linearTagInput(entry.tags),
+    ...(entry.deadline ? { deadline: entry.deadline } : {}),
+    ...(entry.assignee ? { assignee: entry.assignee } : {}),
+  };
+}
+
 /** Map one rendered import entry to its reversible SDK mutation sequence. */
 export function buildAtomicImportMutations(
   team: string,
@@ -2394,19 +2845,7 @@ export function buildAtomicImportMutations(
   // and webhooks on every run. Each mutation sets status explicitly instead
   // (create seeds a valid open item; update only carries status for non-closed
   // entries; the close step owns the closed transition).
-  const sharedOptions: Record<string, unknown> = {
-    title: entry.title,
-    priority: entry.priority,
-    description: entry.description,
-    body: entry.body,
-    // Sort before joining so the mutations slice of the transaction-id hash is
-    // independent of Linear label-node order; a reordered retry resumes the same
-    // journal instead of starting a fresh one (the canonical-entries side in
-    // deriveAtomicTransactionId already sorts tags).
-    tags: [...entry.tags].sort().join(","),
-    ...(entry.deadline ? { deadline: entry.deadline } : {}),
-    ...(entry.assignee ? { assignee: entry.assignee } : {}),
-  };
+  const sharedOptions = linearImportOptions(entry);
 
   const managedItemId = deriveAtomicItemId(
     team,
@@ -2431,6 +2870,8 @@ export function buildAtomicImportMutations(
         id: managedItemId,
         options: {
           ...sharedOptions,
+          parent: "none",
+          unset: ["goal", "objective", "sprint", "release"],
           // A brand-new item must be created in a valid open state; the close
           // step below performs the closed transition when required.
           status: entry.status === "closed" ? "open" : entry.status,
@@ -2487,6 +2928,7 @@ export async function importLinearAtomic(
   recoveredItems?: number;
   itemIds: Map<string, string>;
 }> {
+  for (const entry of entries) assertLiteralImportValues(entry);
   const {
     commitItemMutations: commit,
     normalizeItemId,
@@ -2615,7 +3057,9 @@ export async function syncLinearIssues(
   console.error(`Fetching issues from Linear team: ${options.team}${scope} (limit: ${options.limit})`);
 
   // Certify the entire matching corpus before provider access or item writes.
-  const existingByLinearId = indexItemsByLinearId(await (dependencies.readItems ?? readPmItems)(pm_root));
+  const existingItems = await (dependencies.readItems ?? readPmItems)(pm_root);
+  const existingByLinearId = indexItemsByLinearId(existingItems);
+  const ambiguous = ambiguousLinearIds(existingItems);
   const negotiate = dependencies.negotiateSchema ?? (dependencies.fetchIssues && options.schemaVersion === undefined ? undefined : negotiateLinearSchema);
   const schema = await negotiate?.(options, pm_root);
   const issues = await (dependencies.fetchIssues ?? fetchAllLinearIssues)(apiKey ?? "", options.team, options.limit, filters);
@@ -2638,52 +3082,48 @@ export async function syncLinearIssues(
   // and reports its own counts, so hoisting them here would be a dead store).
   let skipped = 0;
 
-  // -------------------------------------------------------------------------
-  // --atomic: commit the whole batch as ONE crash-resumable transaction via
-  // the SDK commitItemMutations helper. --atomic --dry-run shares this exact
-  // preparation/matching path and reports counts WITHOUT touching the commit.
-  // The non-atomic per-issue loop below stays byte-compatible (unchanged).
-  // -------------------------------------------------------------------------
-  if (options.atomic) {
-    const prepared: PreparedLinearImport[] = [];
-    for (const issue of issues) {
-      // Reuse the same server-side state/cycle backstop filters as the legacy
-      // path so `--atomic` skips the same issues and reports the same counts.
-      if (options.stateFilter) {
-        const stateName = issue.state.name.toLowerCase();
-        if (!stateName.includes(options.stateFilter.toLowerCase())) {
-          skipped++;
-          continue;
-        }
+  // Resolve and validate the entire selected batch before the first write.
+  const prepared: PreparedLinearImport[] = [];
+  for (const issue of issues) {
+    if (ambiguous.has(issue.id)) { skipped++; console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
+    // Reuse the same server-side state/cycle backstop filters as the legacy
+    // path so `--atomic` skips the same issues and reports the same counts.
+    if (options.stateFilter) {
+      const stateName = issue.state.name.toLowerCase();
+      if (!stateName.includes(options.stateFilter.toLowerCase())) {
+        skipped++;
+        continue;
       }
-      if (options.cycleFilter) {
-        const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
-        if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
-          skipped++;
-          continue;
-        }
-      }
-      const plan = buildItemPlan(
-        issue,
-        statusMap,
-        options.fieldMap ?? {},
-        options.projectMap ?? { enabled: false, passthrough: false, map: {} }
-      );
-      prepared.push({
-        identifier: issue.identifier,
-        linearId: issue.id,
-        title: plan.title,
-        status: plan.status,
-        priority: plan.priority,
-        description: plan.description,
-        body: plan.body,
-        tags: plan.tags,
-        ...(plan.deadline ? { deadline: plan.deadline } : {}),
-        ...(plan.assignee ? { assignee: plan.assignee } : {}),
-        match: existingByLinearId[issue.id],
-      });
     }
+    if (options.cycleFilter) {
+      const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
+      if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
+        skipped++;
+        continue;
+      }
+    }
+    const plan = buildItemPlan(
+      issue,
+      statusMap,
+      options.fieldMap ?? {},
+      options.projectMap ?? { enabled: false, passthrough: false, map: {} }
+    );
+    prepared.push({
+      identifier: issue.identifier,
+      linearId: issue.id,
+      title: plan.title,
+      status: plan.status,
+      priority: plan.priority,
+      description: plan.description,
+      body: plan.body,
+      tags: plan.tags,
+      ...(plan.deadline ? { deadline: plan.deadline } : {}),
+      ...(plan.assignee ? { assignee: plan.assignee } : {}),
+      match: ownMappingValue(existingByLinearId, issue.id),
+    });
+  }
 
+  if (options.atomic) {
     if (options.dryRun) {
       const wouldCreate = prepared.filter((e) => !e.match?.id).length;
       const wouldUpdate = prepared.length - wouldCreate;
@@ -2699,6 +3139,7 @@ export async function syncLinearIssues(
         issues: [],
         atomic: true,
         dryRun: true,
+        prepared,
       };
     }
 
@@ -2750,92 +3191,21 @@ export async function syncLinearIssues(
 
   let created = 0;
   let updated = 0;
-  for (const issue of issues) {
-    // State name filter. The authoritative constraint is now server-side
-    // (`state: { name: { containsIgnoreCase: $state } }` in buildIssuesQuery),
-    // so `--limit` bounds the MATCHING issues rather than the pre-filter page.
-    // This identical case-insensitive substring check is a harmless backstop —
-    // the server applies the same predicate, so it never drops a server hit.
-    if (options.stateFilter) {
-      const stateName = issue.state.name.toLowerCase();
-      if (!stateName.includes(options.stateFilter.toLowerCase())) {
-        skipped++;
-        continue;
+  const sdk = await importRuntimeSdk();
+  const pm = new sdk.PmClient({ pmRoot: pm_root, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
+  for (const entry of prepared) {
+    const values = linearImportOptions(entry);
+    try {
+      if (entry.match?.id) {
+        await pm.update(entry.match.id, { ...values, status: entry.status });
+        updated++;
+      } else {
+        await pm.create({ ...values, status: entry.status, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+        created++;
       }
-    }
-
-    // Cycle name filter. The authoritative constraint is server-side
-    // (`cycle: { name: { containsIgnoreCase: $cycle } }` in buildIssuesQuery),
-    // so `--limit` bounds the MATCHING issues. This identical case-insensitive
-    // substring check is a harmless backstop; the server applies the same
-    // predicate, so it never drops a server hit. An issue with no cycle never
-    // matches a cycle filter (server-side null cycle is excluded too).
-    if (options.cycleFilter) {
-      const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
-      if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
-        skipped++;
-        continue;
-      }
-    }
-
-    // `pm create` has no generic setter for the registerItemFields custom
-    // fields from a standalone extension, so buildItemPlan persists Linear
-    // provenance in the description behind a stable marker. This survives
-    // round-trips and is what re-import + `pm linear export` read back to stay
-    // idempotent. The same builder feeds the offline --dry-run preview.
-    const plan = buildItemPlan(
-      issue,
-      statusMap,
-      options.fieldMap ?? {},
-      options.projectMap ?? { enabled: false, passthrough: false, map: {} }
-    );
-    const { title, body, status, priority, description } = plan;
-    const tags = plan.tags;
-    const existing = existingByLinearId[issue.id];
-
-    if (existing && existing.id) {
-      // Update the matched item in place (no duplicate).
-      const updateArgs = [
-        "--path", pm_root,
-        "update", existing.id,
-        "--title", title,
-        "--status", status,
-        "--priority", String(priority),
-        "--description", description,
-      ];
-      if (body) updateArgs.push("--body", body);
-      if (tags.length > 0) updateArgs.push("--tags", tags.join(","));
-      if (plan.deadline) updateArgs.push("--deadline", plan.deadline);
-      if (plan.assignee) updateArgs.push("--assignee", plan.assignee);
-
-      const result = spawnSync("pm", updateArgs, { encoding: "utf-8" });
-      if (result.status !== 0) {
-        console.error(`Failed to update item for ${issue.identifier}: ${result.stderr}`);
-        skipped++;
-        continue;
-      }
-      updated++;
-    } else {
-      const createArgs = [
-        "--path", pm_root,
-        "create",
-        "--title", title,
-        "--status", status,
-        "--priority", String(priority),
-        "--description", description,
-      ];
-      if (body) createArgs.push("--body", body);
-      if (tags.length > 0) createArgs.push("--tags", tags.join(","));
-      if (plan.deadline) createArgs.push("--deadline", plan.deadline);
-      if (plan.assignee) createArgs.push("--assignee", plan.assignee);
-
-      const result = spawnSync("pm", createArgs, { encoding: "utf-8" });
-      if (result.status !== 0) {
-        console.error(`Failed to create item for ${issue.identifier}: ${result.stderr}`);
-        skipped++;
-        continue;
-      }
-      created++;
+    } catch (error: unknown) {
+      console.error(`Failed to ${entry.match?.id ? "update" : "create"} item for ${entry.identifier}: ${error instanceof Error ? error.message : String(error)}`);
+      skipped++;
     }
   }
 
@@ -3039,25 +3409,27 @@ async function resolveTeamContext(apiKey: string, teamKey: string): Promise<Team
       `Linear API error resolving team ${teamKey}: ${resp.errors.map((e) => e.message).join("; ")}`
     );
   }
+  const invalid = closureInvalidField(resp.data, linearTeamDataShape, "team");
+  if (invalid) throw new LinearSourceRefusal(invalid);
   const node = resp.data?.teams?.nodes?.[0];
   if (!node?.id) {
     throw new CommandError(`Linear team "${teamKey}" not found.`, EXIT_CODE.NOT_FOUND);
   }
   const statesByName: Record<string, string> = {};
   for (const s of node.states?.nodes ?? []) {
-    if (s?.name && s?.id) statesByName[String(s.name).trim().toLowerCase()] = s.id;
+    if (s?.name && s?.id) Object.defineProperty(statesByName, String(s.name).trim().toLowerCase(), { value: s.id, enumerable: true, writable: true, configurable: true });
   }
   const labelsByName: Record<string, string> = {};
   for (const l of node.labels?.nodes ?? []) {
-    if (l?.name && l?.id) labelsByName[String(l.name).trim().toLowerCase()] = l.id;
+    if (l?.name && l?.id) Object.defineProperty(labelsByName, String(l.name).trim().toLowerCase(), { value: l.id, enumerable: true, writable: true, configurable: true });
   }
   const cyclesByName: Record<string, string> = {};
   for (const c of node.cycles?.nodes ?? []) {
     if (!c?.id) continue;
-    if (c.name) cyclesByName[String(c.name).trim().toLowerCase()] = c.id;
+    if (c.name) Object.defineProperty(cyclesByName, String(c.name).trim().toLowerCase(), { value: c.id, enumerable: true, writable: true, configurable: true });
     // Numbered cycles often have no name; index by number too so a
     // `cycle:42` tag still resolves.
-    if (c.number != null) cyclesByName[String(c.number).trim().toLowerCase()] = c.id;
+    if (c.number != null) Object.defineProperty(cyclesByName, String(c.number).trim().toLowerCase(), { value: c.id, enumerable: true, writable: true, configurable: true });
   }
   return { teamId: node.id, statesByName, labelsByName, cyclesByName };
 }
@@ -3080,7 +3452,7 @@ export function resolveLabelIds(
   if (!labels?.length) return [];
   const ids: string[] = [];
   for (const name of labels) {
-    const id = labelsByName[name.trim().toLowerCase()];
+    const id = ownMappingValue(labelsByName, name.trim().toLowerCase());
     if (id && !ids.includes(id)) ids.push(id);
   }
   return ids;
@@ -3102,7 +3474,7 @@ export function resolveCycleId(
   cyclesByName: Record<string, string>
 ): string | undefined {
   if (!cycleName) return undefined;
-  return cyclesByName[cycleName.trim().toLowerCase()];
+  return ownMappingValue(cyclesByName, cycleName.trim().toLowerCase());
 }
 
 // Apply estimate + (resolved) cycleId onto a REAL push input (issueCreate or
@@ -3254,6 +3626,7 @@ export function buildExportMutationPlan(
 // clean CommandError. This keeps the `preflight` capability load-bearing.
 // ---------------------------------------------------------------------------
 const PREFLIGHT_ERROR_OPTION = "__linear_preflight_error";
+const PREFLIGHT_SOURCE_FIELD_OPTION = "__linear_preflight_source_field";
 
 /**
  * Whether an invocation reaches Linear and so requires a credential preflight.
@@ -3311,7 +3684,8 @@ export function commandNeedsLinearAccess(command: string, options: Record<string
  * @returns An error message, or null when the credential is acceptable.
  */
 async function preflightLinear(
-  checkReachability: boolean
+  checkReachability: boolean,
+  sourceFailure?: (error: LinearSourceRefusal) => void,
 ): Promise<string | null> {
   const apiKey = process.env["LINEAR_API_KEY"];
   if (!apiKey) {
@@ -3326,11 +3700,14 @@ async function preflightLinear(
     if (resp.errors?.length) {
       return `Linear API rejected the credentials: ${resp.errors.map((e) => e.message).join("; ")}`;
     }
+    const invalid = closureInvalidField(resp.data, linearViewerDataShape, "viewer");
+    if (invalid) throw new LinearSourceRefusal(invalid);
     if (!resp.data?.viewer?.id) {
       return "Linear API reachable but returned no viewer; check the API key scope.";
     }
     return null;
   } catch (err) {
+    if (err instanceof LinearSourceRefusal) sourceFailure?.(err);
     return `Linear API unreachable: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
@@ -3422,6 +3799,8 @@ function buildValidationReport(): ValidationReport {
 function assertPreflightOk(options: Record<string, unknown>): void {
   const err = options[PREFLIGHT_ERROR_OPTION];
   if (typeof err === "string" && err) {
+    const field = options[PREFLIGHT_SOURCE_FIELD_OPTION];
+    if (closureMatches(field, preflightSourceFieldShape)) throw new LinearSourceRefusal(field as string);
     throw new CommandError(err, EXIT_CODE.USAGE);
   }
 }
@@ -3517,7 +3896,40 @@ export default defineExtension({
   version: "2026.10.28",
 
   activate(api: ExtensionApi) {
-    api.registerCommand({
+    registerLinearCommand(api, {
+      name: "linear ownership",
+      description: "Preview field ownership and conflicts against an acknowledged Linear snapshot",
+      intent: "Read one linked item without mutating either system; unknown bases require review",
+      examples: ["pm linear ownership --item pm-example --json", "pm linear ownership --item pm-example --base acknowledged.json --json"],
+      flags: [
+        { long: "--item", value_name: "id", description: "One existing item with unique Linear provenance." },
+        { long: "--base", value_name: "file", description: "Explicitly acknowledged observation JSON, at most 16 KiB; absent means unknown base." },
+        { long: "--status-map", value_name: "map", description: "Same Linear state-to-pm mapping used for import." },
+        { long: "--max-output-bytes", value_name: "bytes", description: "Complete receipt budget, 2048..65536 (default 8192)." },
+      ],
+      async run(ctx) {
+        try {
+          const options: LinearOwnershipOptions = { item: readStringOption(ctx.options, "item") ?? "" };
+          const file = readStringOption(ctx.options, "base");
+          if (file !== undefined) {
+            try {
+              const info = await lstat(file);
+              if (!info.isFile() || info.size > 16384) throw new Error("Unbounded input");
+              options.base = JSON.parse(await readFile(file, "utf8")) as LinearOwnershipSnapshot;
+            } catch { throw new LinearOwnershipRefusal("invalid_input", "Pass a readable baseline JSON file of at most 16 KiB; preserve the reviewed observation format."); }
+          }
+          const mapping = readStringOption(ctx.options, "status-map");
+          if (mapping !== undefined) options.statusMap = parseStatusMap(mapping);
+          const budget = readStringOption(ctx.options, "max-output-bytes");
+          if (budget !== undefined) options.maxOutputBytes = Number(budget);
+          return await previewLinearOwnership(options, ctx.pm_root);
+        } catch (error: unknown) {
+          if (!(error instanceof LinearOwnershipRefusal)) throw error;
+          return { ok: false, code: error.code, ...(error.field ? { field: error.field } : {}), remedy: error.remedy, remediation: error.remedy, exit_code: error.exitCode };
+        }
+      },
+    });
+    registerLinearCommand(api, {
       name: "linear closure",
       description: "Read the bounded missing Linear prerequisite frontier for selected linked items",
       intent: "Acquire prerequisite context without importing or mutating tracker or provider state",
@@ -3540,7 +3952,7 @@ export default defineExtension({
         return fetchLinearDependencyClosure(options, ctx.pm_root);
       },
     });
-    api.registerCommand({
+    registerLinearCommand(api, {
       name: "linear capture",
       description: "Propose revisioned evidence notes from one explicitly selected Linear thread",
       intent: "Preview selected discussion evidence; append a reviewed revision only with explicit apply",
@@ -3590,16 +4002,17 @@ export default defineExtension({
           !readBooleanOption(ctx.options, "skip-preflight-network") &&
           !readBooleanOption(ctx.options, "no-preflight-network") &&
           process.env["LINEAR_PREFLIGHT_NO_NETWORK"] !== "1";
-        const error = await preflightLinear(checkReachability);
+        let sourceField: string | undefined;
+        const error = await preflightLinear(checkReachability, (source) => { sourceField = source.field; });
         if (!error) return {};
-        return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error } };
+        return { options: { ...ctx.options, [PREFLIGHT_ERROR_OPTION]: error, ...(sourceField ? { [PREFLIGHT_SOURCE_FIELD_OPTION]: sourceField } : {}) } };
       },
     });
 
     // -----------------------------------------------------------------------
     // Command: pm linear sync
     // -----------------------------------------------------------------------
-    api.registerCommand({
+    registerLinearCommand(api, {
       name: "linear sync",
       description: "Sync Linear.app issues into pm items",
       intent: "Fetch issues from a Linear team and upsert them as pm items",
@@ -3732,7 +4145,7 @@ export default defineExtension({
     // whether push-on-write is enabled. Offline by default; --check-network
     // (opt-in) probes the Linear API. --json returns the structured object.
     // -----------------------------------------------------------------------
-    api.registerCommand({
+    registerLinearCommand(api, {
       name: "linear schema",
       description: "Negotiate a versioned Linear workflow mapping before sync",
       intent: "Inspect team settings, states and labels without writes",
@@ -3752,10 +4165,7 @@ export default defineExtension({
         }, ctx.pm_root);
       },
     });
-    api.registerFlags("linear-sync import", [
-      { long: "--schema-version", value_name: "version", description: "Require the version from linear schema before local changes." },
-    ]);
-    api.registerCommand({
+    registerLinearCommand(api, {
       name: "linear validate",
       description: "Check pm-linear configuration + Linear API readiness",
       intent: "Report whether LINEAR_API_KEY and team config are present (without leaking the key)",
@@ -3798,7 +4208,7 @@ export default defineExtension({
     // Surface importer/exporter flags in help. The importer/exporter read these
     // off ctx.options regardless, but declaring them makes `pm linear import
     // --help` / `pm linear export --help` self-documenting.
-    api.registerFlags("linear import", [
+    const linearImportFlags: Parameters<ExtensionApi["registerFlags"]>[1] = [
       { long: "--team", value_name: "slug", description: "Linear team slug. Optional when LINEAR_DEFAULT_TEAM is set." },
       { long: "--project", value_name: "name", description: "Filter by Linear project name." },
       { long: "--state", value_name: "name", description: "Filter by Linear state name." },
@@ -3813,7 +4223,8 @@ export default defineExtension({
       { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
       { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
-    ]);
+    ];
+    for (const command of ["linear import", "linear-sync import"]) api.registerFlags(command, linearImportFlags);
     api.registerFlags("linear export", [
       { long: "--push", description: "Create/update the issues in Linear (requires LINEAR_API_KEY + --team)." },
       { long: "--team", value_name: "slug", description: "Target Linear team slug (required with --push when LINEAR_DEFAULT_TEAM is unset)." },
@@ -3826,7 +4237,7 @@ export default defineExtension({
     // importer — `pm linear import` (native import pipeline; pulls issues via
     // the Linear GraphQL API and creates pm items, reusing the sync core).
     // -----------------------------------------------------------------------
-    api.registerImporter("linear", async (ctx) => {
+    registerLinearImporter(api, "linear", async (ctx) => {
       assertPreflightOk(ctx.options);
       const teamSelection = resolveTeamSelection(ctx.options);
       if (!teamSelection) {
@@ -3903,7 +4314,7 @@ export default defineExtension({
     // payloads). Prints the payload JSON by default; only mutates Linear when
     // BOTH --push is set AND LINEAR_API_KEY is present (requires --team).
     // -----------------------------------------------------------------------
-    api.registerExporter("linear", async (ctx) => {
+    registerLinearExporter(api, "linear", async (ctx) => {
       assertPreflightOk(ctx.options);
       const push = readBooleanOption(ctx.options, "push");
       const dryRun = readBooleanOption(ctx.options, "dry-run");
@@ -4036,7 +4447,7 @@ export default defineExtension({
           // when one resolves; otherwise leave the state untouched.
           const stateName = resolveLinearStateName(payload.pmStatus, invertedStatusMap);
           const stateId = stateName
-            ? teamCtx.statesByName[stateName.trim().toLowerCase()]
+            ? ownMappingValue(teamCtx.statesByName, stateName.trim().toLowerCase())
             : undefined;
 
           // Resolve pm tags -> existing Linear label ids for this team (symmetric
@@ -4089,6 +4500,7 @@ export default defineExtension({
           }
           created++;
         } catch (err) {
+          if (err instanceof LinearSourceRefusal) throw err;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Failed to push item ${label}: ${message}`);
           skipped++;
@@ -4114,7 +4526,7 @@ export default defineExtension({
     // -----------------------------------------------------------------------
     // Importer: linear-sync
     // -----------------------------------------------------------------------
-    api.registerImporter("linear-sync", async (ctx) => {
+    registerLinearImporter(api, "linear-sync", async (ctx) => {
       // The deprecated alias reaches the same write path as `linear import`,
       // so it must clear the same credential gate. The runtime swallows throws
       // from a preflight override, which is why every mutating handler asserts
