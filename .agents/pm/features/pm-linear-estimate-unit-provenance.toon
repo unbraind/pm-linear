@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: "gh:unbraind/pm-linear#189","gh:unbraind/pm-linear#191","gh:unbraind/pm-linear#193"
 created_at: "2026-10-29T01:53:20.572Z"
-updated_at: "2026-10-29T23:14:43.950Z"
+updated_at: "2026-10-29T23:23:52.493Z"
 author: codex-agent
 acceptance_criteria: Five points never become five minutes without a declared conversion; changing one team scale affects only its items; unconvertible estimates remain usable as native points.
-comments[89]{created_at,author,text}:
+comments[91]{created_at,author,text}:
   "2026-10-29T01:53:34.597Z",codex-agent,"Overlap checked against the installed CLI SDK public declarations, existing Linear estimate tags and round-trip features, and pm-gantt-chart duration inputs. Core estimated_minutes is numeric effort; Gantt consumes minutes and prior capacity work consumes estimates. Neither knows Linear team identity or scale settings. This feature owns provider unit provenance and an explicit scale-bound lookup conversion, preserving native points when unmapped. Existing atomic replay revision follow-up remains relevant; transactions do not exclude ordinary writers (pm-cli#1620)."
   "2026-10-29T02:03:57.444Z",codex-agent,"Implemented versioned per-item unit contracts with exact discrete conversion lookups and bounded team-scoped inspection. Provenance uses lowercase hexadecimal encoding because SDK tag normalization changes letter case; the real SDK tests caught this and the producer/reader now share one codec. Unit-aware writes use a single native mutation per item, registered status roles, explicit scopes and SDK history revision checks. The ordinary-writer read-to-write window remains and is documented; no lock-isolation claim."
   "2026-10-29T02:25:52.769Z",codex-agent,"Read-only public tracker validation passed against main: 112 items, 232 files, 1644154 bytes, 2 complete inspections, unchanged SHA-256, no git executable. No owned unit contracts exist in that corpus; conversion coverage is explicitly synthetic. Targeted network tests exercised sync and both import aliases in serial and transaction modes; the 500-sequence SDK reference-model test uses independent bounded tracker pairs with random custom lifecycle registries, whitespace, native fields, relationships, ambient focus and older-input replays."
@@ -99,6 +99,8 @@ comments[89]{created_at,author,text}:
   "2026-10-29T22:26:08.762Z",codex-agent,Current-source npm run reached the unchanged 900-second seed-1620 timer after the 400/500 milestone. No assertion failure preceded the cancellation. Other tests continue; this is not a passing gate claim. Production source remains 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. Retaining the full output and unchanged test timeout; the serial Bun gate and exact-head CI will re-run the case. Only a successful retry or CI result can classify this as a host-load timeout under the task rule.
   "2026-10-29T22:44:30.592Z",codex-agent,"Latest runtime consumer acceptance PASS: all 10 layouts, 830 commands, 310 SDK checks, 200 process-status cases, zero provider mutations. Artifact b38b9aed417eb15b3d9551ce86a404f9e6c069fc1d2df2d7420eae1774b1e449 matched all 9 shipped files and rejected an ignored dist mutation. Remote main advanced with release notes only (PR192); incorporating it changes shipped CHANGELOG bytes, so current-artifact acceptance will be refreshed after merge. The local npm run has one unchanged seed-1620 timer cancellation and was stopped to free host capacity after that known non-passing result; no local gate pass is claimed. Dedicated exact-head CI will execute full npm and Bun release gates. Current-source behavioral proofs (20 failing mutations with restored successes) remain valid because main changes no runtime code."
   "2026-10-29T23:14:43.007Z",codex-agent,"Final shipped archive PASS after merging main release notes: all 10 consumer layouts, 830 commands, 310 SDK checks, 200 process-status cases, zero provider mutations. Exact verification matches all 9 shipped files, rejects ignored dist mutation and verifies restoration. Artifact SHA256 7833dbef22e41e814eb87243f308dc122bb7c3b0083cddf3a88e159896095d10. Runtime SHA256 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. Typecheck, test compilation, 112-declaration docstrings, generated changelog, release date and publish attestation checks pass; clean-identity strict health passes with unchanged legacy advisories; production audit reports 0 vulnerabilities. Full npm/Bun verification is delegated to the exact pushed-head CI at https://github.com/unbraind/pm-linear/pull/189/checks after the local seed-1620 unchanged 900-second timer was hit under load. No current local full-gate pass is claimed. Work item stays in_progress for orchestrator verification; releasing only my codex-agent claim."
+  "2026-10-29T23:22:21.868Z",codex-agent,"Exact pushed-head DeepScan finding 238955540 is a test dataflow limitation: strict assert.equal(payloads?.length,3) already throws when payloads are absent, so the following filter cannot dereference absent payloads at runtime. Added explicit assert.ok(payloads), retained the exact length/conflict assertions, and removed optional access to make the invariant statically visible. No production code or shipped file changes. Required CI jobs are queued. Reclaimed own item for this test-only follow-up; the original 23:46:59 UTC CI cutoff remains unchanged."
+  "2026-10-29T23:23:51.000Z",codex-agent,"DeepScan clarification verified: focused identity export test passes (1/1) and full test compilation passes with the explicit payload presence assertion. All previous exact length, conflict count and mutation-exclusion checks are retained. Production SHA and final archive SHA are unchanged. Releasing own claim again and pushing only this test plus its PM evidence; original CI cutoff 23:46:59 UTC remains in force."
 files[34]{path,scope}:
   index.ts,project
   manifest.json,project
@@ -134,7 +136,7 @@ files[34]{path,scope}:
   test/smoke.test.ts,project
   test/sync-result-contract.test.ts,project
   test/verify-estimate-artifact.ts,project
-tests[30]:
+tests[31]:
   - command: node --test --test-concurrency=1 test/estimate-units.test.ts
     scope: project
     provenance:
@@ -354,6 +356,14 @@ tests[30]:
     provenance:
       author: codex-agent
       created_at: "2026-10-29T21:52:00.430Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"identity export class\" test/network.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T23:22:20.322Z"
       source_kind: local_mutation
       source_ref: feat/estimate-unit-provenance
 docs[21]{path,scope}:

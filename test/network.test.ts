@@ -1127,7 +1127,10 @@ test("identity export class: duplicate native provenance is retained for reads b
         const output = await harness.runExporter({ exporter: "linear", pmRoot: root, options: { team: "ENG", push: mode === "push", dryRun: mode === "plan" }, global: { json } });
         const receipt = output.result as { skipped: number; created: number; exported: number; mutations?: unknown[]; exportConflicts: unknown[]; payloads?: Array<{ title: string; action: string }> };
         assert.equal(output.exitCode, 1); assert.equal(receipt.skipped, 2); assert.equal(receipt.exportConflicts.length, 2); assert.equal(receipt.exported, 3);
-        if (mode === "read" && json) { assert.equal(receipt.payloads?.length, 3); assert.equal(receipt.payloads.filter((row) => row.action === "conflict").length, 2); }
+        if (mode === "read" && json) {
+          assert.ok(receipt.payloads, "JSON read previews retain every native payload");
+          assert.equal(receipt.payloads.length, 3); assert.equal(receipt.payloads.filter((row) => row.action === "conflict").length, 2);
+        }
         if (mode === "plan") assert.equal(receipt.mutations?.length, 1, "preview uses the apply path's unambiguous target selection");
         if (mode === "push") assert.equal(receipt.created, 1);
         assert.equal(mutations, mode === "push" ? 1 : 0);
