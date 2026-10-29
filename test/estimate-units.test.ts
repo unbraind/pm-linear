@@ -37,7 +37,7 @@ function refusal(code = "estimate_input_invalid") {
 }
 /** Exercise the same import engine as every command/import alias. */
 async function sync(root: string, value: LinearIssue, atomic = false, conversion?: LinearEstimateMapping, onEstimateBoundary?: (stage: string, id: string) => Promise<void>) {
-  return syncLinearIssues({ team: value.team?.key ?? "ENG", limit: 10, atomic, estimateMapping: conversion }, root,
+  return syncLinearIssues({ team: value.team?.key ?? "ENG", limit: 10, atomic, forwardOnly: true, estimateMapping: conversion }, root,
     { fetchIssues: async () => [structuredClone(value)], onEstimateBoundary });
 }
 
@@ -159,14 +159,14 @@ test("planning images and revisions form one SDK observation at every acquisitio
     for (const aba of [false, true]) {
       const value = issue(`snapshot-${atomic}-${boundary}-${aba}`);
       const independent = issue(`independent-${value.id}`);
-      await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, { fetchIssues: async () => [value, independent] });
+      await syncLinearIssues({ team: "ENG", limit: 10, atomic, forwardOnly: true }, root, { fetchIssues: async () => [value, independent] });
       const rows = (await pm.listAllComplete({ includeBody: true })).items;
       const original = rows.find((row) => row.description?.includes(`linear_id=${value.id} `)); assert.ok(original);
       const independentItem = rows.find((row) => row.description?.includes(`linear_id=${independent.id} `)); assert.ok(independentItem);
       let injected = false;
       let peer: (typeof rows)[number] | undefined;
       value.title = "Provider must not replace peer"; independent.title = "Independent target progresses";
-      const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, {
+      const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic, forwardOnly: true }, root, {
         fetchIssues: async () => [value, independent],
         onEstimateBoundary: async (stage, id) => {
           if (injected || id !== original.id || stage !== boundary) return;
@@ -199,7 +199,7 @@ test("missing planning revisions never fall back to newer native state; stable m
     const rows = (await pm.listAllComplete({ includeBody: true })).items;
     const original = rows.find((row) => row.description?.includes(`linear_id=${value.id} `)); assert.ok(original);
     value.title = "Stale unpaired plan";
-    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, { readItems: async () => rows, fetchIssues: async () => [value] });
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic, forwardOnly: true }, root, { readItems: async () => rows, fetchIssues: async () => [value] });
     assert.equal(result.skipped, 1, "an existing target requires a paired revision");
     assert.deepEqual(result.estimateSkips, [{ id: original.id, reason: "superseded" }]);
     assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === original.id), original);
@@ -294,14 +294,14 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         if ((rng() >>> 8) % 2) await actual.pm.focus(aParent.item.id);
         const previous = known ? (await model.get(aId, { depth: "deep" })).item : undefined;
         const atomic = Boolean((rng() >>> 8) % 2);
-        const input = { team: "ENG", limit: 10, atomic, statusMap, estimateMapping: conversion };
+        const input = { team: "ENG", limit: 10, atomic, forwardOnly: true, statusMap, estimateMapping: conversion };
         const preview = sequence % 25 === 0 ? await syncLinearIssues({ ...input, dryRun: true }, actual.root, { fetchIssues: async () => [remote] }) : undefined;
         wire.current = remote;
         const route = routes[sequence % routes.length]; routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
         let applied: SyncResult;
         if (route === "sdk") applied = await syncLinearIssues(input, actual.root, { fetchIssues: async () => [remote] });
         else {
-          const options = { team: "ENG", atomic, skipPreflightNetwork: true, statusMap: statusNames.map((name) => `${name}=${name}`).join(","), ...(conversion ? { estimateMapping: conversionFile } : {}) };
+          const options = { team: "ENG", atomic, forwardOnly: true, skipPreflightNetwork: true, statusMap: statusNames.map((name) => `${name}=${name}`).join(","), ...(conversion ? { estimateMapping: conversionFile } : {}) };
           const dispatched = route === "sync" ? await harness.runCommand({ command: "linear sync", pmRoot: actual.root, options, global: { json: true } }) : await harness.runImporter({ importer: route, pmRoot: actual.root, options, global: { json: true } });
           assert.equal(dispatched.exitCode ?? 0, 0, `model route ${route}`);
           const receipt = dispatched.result as SyncResult & { imported?: number };
@@ -373,7 +373,7 @@ test("network inspection and every importer alias preserve the unit contract and
   const file = join(root, "conversion.json"); await writeFile(file, JSON.stringify(mapping));
   for (const atomic of [false, true]) for (const route of ["sync", "linear", "linear-sync"]) {
     provider.description = atomic ? " CRLF\r\nbody " : " LF\nbody ";
-    const options = { team: "ENG", estimateMapping: file, atomic, skipPreflightNetwork: true };
+    const options = { team: "ENG", estimateMapping: file, atomic, forwardOnly: true, skipPreflightNetwork: true };
     const result = route === "sync" ? await harness.runCommand({ command: "linear sync", pmRoot: root, options, global: { json: true } }) : await harness.runImporter({ importer: route, pmRoot: root, options, global: { json: true } });
     assert.equal(result.exitCode ?? 0, 0, JSON.stringify(result));
     const inspection = await harness.runCommand({ command: "linear estimates", pmRoot: root, options: { team: "ENG", limit: "1" }, global: { json: true } });
@@ -394,7 +394,7 @@ test("network inspection and every importer alias preserve the unit contract and
 test("unit plans preview exact SDK effects and refuse foreign deterministic targets", async (t) => {
   const { root, pm } = await fixture(t);
   const value = issue("preview");
-  const options = { team: "ENG", limit: 10, atomic: true, estimateMapping: mapping };
+  const options = { team: "ENG", limit: 10, atomic: true, forwardOnly: true, estimateMapping: mapping };
   const fetchIssues = async () => [value];
   const preview = await syncLinearIssues({ ...options, dryRun: true }, root, { fetchIssues });
   assert.equal((await pm.listAllComplete()).items.length, 0);
@@ -474,7 +474,7 @@ test("forward create lineages retry repeatedly without losing native history or 
   for (const atomic of [false, true]) {
     const values = [issue(`retry-a-${atomic}`), issue(`retry-z-${atomic}`)];
     const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues(
-      { team: "ENG", limit: 10, atomic, estimateMapping: mapping }, root, { fetchIssues: async () => values, onEstimateBoundary });
+      { team: "ENG", limit: 10, atomic, forwardOnly: true, estimateMapping: mapping }, root, { fetchIssues: async () => values, onEstimateBoundary });
     const settings = await readSettings(root);
     const ids = values.map((value) => deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId));
     for (const stage of ["observed", "inspect", "before_write", "validated", "before_update", "written", "after_write"]) {
@@ -551,7 +551,7 @@ test("historical and malformed deletion records skip alone and never authorize i
     await pm.run("delete", { id, options: { force: true, message } });
     const before = await readHistoryEntries(getHistoryPath(root, id), id);
     const independent = issue(`valid-peer-${index}`);
-    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: Boolean(index % 2) }, root, { fetchIssues: async () => [value, independent] });
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: Boolean(index % 2), forwardOnly: true }, root, { fetchIssues: async () => [value, independent] });
     assert.equal(result.created, 1); assert.equal(result.skipped, 1);
     assert.deepEqual(result.estimateSkips, [{ id, reason: "foreign" }]);
     assert.deepEqual(await readHistoryEntries(getHistoryPath(root, id), id), before, "foreign history remains untouched");
@@ -578,14 +578,14 @@ test("historical and malformed deletion records skip alone and never authorize i
     const historyPath = getHistoryPath(root, target); await mkdir(dirname(historyPath), { recursive: true });
     await writeFile(historyPath, contents, { flag: "wx" });
     const independent = issue(`readable-target-${index}`);
-    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => [malformed, independent] });
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, { fetchIssues: async () => [malformed, independent] });
     assert.equal(result.created, 1); assert.equal(result.skipped, 1); assert.deepEqual(result.estimateSkips, [{ id: target, reason: "foreign" }]);
     assert.equal((await sync(root, malformed, true)).skipped, 1, "all-foreign batches do not write an empty journal");
   }
 });
 
 test("a peer revision cannot be replaced during forward retry planning", async (t) => {
-  const { root, pm } = await fixture(t);
+  const { root } = await fixture(t);
   const peerMapping = { ...mapping, entries: [{ points: 5, minutes: 480 }] };
   for (const atomic of [false, true]) for (const boundary of ["observed", "inspect", "before_write", "validated", "before_update"]) {
     const value = issue(`tombstone-aba-${atomic}-${boundary}`); await sync(root, value, atomic, mapping);
@@ -610,11 +610,11 @@ test("estimate ignore mappings retain the same guarded forward retry contract", 
   const { root, pm } = await fixture(t);
   for (const ignoreAgain of [false, true]) {
     const value = issue(`ignored-retry-${ignoreAgain}`);
-    const failed = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, fieldMap: { estimate: "ignore" } }, root, {
+    const failed = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true, fieldMap: { estimate: "ignore" } }, root, {
       fetchIssues: async () => [value], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Ignored observer failure"); },
     });
     assert.equal(failed.created, 1); assert.equal(failed.importResults?.[0].code, "import_observer_failed");
-    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, ...(ignoreAgain ? { fieldMap: { estimate: "ignore" } } : {}) }, root, { fetchIssues: async () => [value] });
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true, ...(ignoreAgain ? { fieldMap: { estimate: "ignore" } } : {}) }, root, { fetchIssues: async () => [value] });
     assert.equal(result.created, 0); assert.equal(result.skipped, 0);
     const row = (await pm.listAllComplete()).items.find((item) => item.description?.includes(value.id)); assert.ok(row);
     assert.equal(itemToLinearPayload(row).estimate, ignoreAgain ? undefined : 5);
@@ -630,7 +630,7 @@ test("forward producers and validators preserve SDK-native identity domains", as
     const reference = await pm.create({ title: "Registry reference", status: name, closeReason: "Reference terminal state", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
     const value = { ...issue(`native-domain-${index}`), identifier, state: { name, type: "started" } };
     const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", identifier, settings.id_prefix, normalizeItemId);
-    const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues({ team: "ENG", limit: 10, atomic: true, statusMap: { [name]: name } }, root, { fetchIssues: async () => [value], onEstimateBoundary });
+    const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true, statusMap: { [name]: name } }, root, { fetchIssues: async () => [value], onEstimateBoundary });
     const first = await run(async (stage) => { if (stage === "after_write") throw new Error("Native observer failure"); });
     assert.equal(first.created, 1); assert.equal(first.importResults?.[0].code, "import_observer_failed");
     const history = await readHistoryEntries(getHistoryPath(root, id), id);
@@ -649,7 +649,7 @@ test("multi-item imports sort targets, replay without duplicates and isolate a s
   const { root, pm } = await fixture(t);
   const a = issue("batch-a"), z = issue("batch-z");
   const observed: string[] = [];
-  const initial = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, {
+  const initial = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, {
     fetchIssues: async () => [z, a], onEstimateBoundary: async (stage, id) => { if (stage === "observed") observed.push(id); },
   });
   assert.equal(initial.created, 2);
@@ -657,11 +657,11 @@ test("multi-item imports sort targets, replay without duplicates and isolate a s
   const aId = items.find((item) => item.description?.includes(a.id))!.id;
   const zId = items.find((item) => item.description?.includes(z.id))!.id;
   assert.deepEqual(observed, [aId, zId]);
-  const replay = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => [a, z] });
+  const replay = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, { fetchIssues: async () => [a, z] });
   assert.equal(replay.synced, 0); assert.equal(replay.skipped, 0); assert.equal((await pm.listAllComplete()).items.length, 2);
   a.title = "Changed A"; z.title = "Changed Z";
   let injected = false;
-  const changed = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, {
+  const changed = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, {
     fetchIssues: async () => [z, a], onEstimateBoundary: async (stage, id) => {
       if (stage === "before_write" && id === aId && !injected) { injected = true; await pm.update(aId, { title: "Peer preserved" }); }
     },

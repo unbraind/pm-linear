@@ -8,7 +8,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { canonicalDocument, locateItem, normalizeItemId, PmClient, readLocatedItem, readSettings, type ItemMetadata } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildAtomicImportMutations, buildItemPlan, importLinearAtomic, LinearImportRefusal, previewLinearOwnership, syncLinearIssues, type LinearIssue, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildAtomicImportMutations, buildItemPlan, importLinearForwardOnly, LinearImportRefusal, previewLinearOwnership, syncLinearIssues, type LinearIssue, type LinearOwnershipSnapshot } from "../index.ts";
 
 /** Every provider field exercised by the shared import projection. */
 function provider(): LinearIssue & { updatedAt: string } {
@@ -74,7 +74,7 @@ test("literal class: every import and preview boundary refuses SDK controls befo
   for (const [field, value] of [["body", "-"], ["body", " \r\n-\t"], ["description", "-"], ["title", ""], ["assignee", "none"], ["assignee", " NULL "], ["assignee", ""], ["deadline", "none"], ["deadline", ""], ["deadline", "-"], ["deadline", "@file"], ["deadline", "--"], ["deadline", "tomorrow"], ["deadline", "2026-02-30"], ["deadline", "2026-99-99"]] as const) {
     const entry = { ...normal, [field]: value, linearId: state.issue.id, identifier: state.issue.identifier, match: { id } };
     assert.throws(() => buildAtomicImportMutations("LIT", entry, settings.id_prefix, normalizeItemId), refused(field));
-    await assert.rejects(importLinearAtomic(root, "LIT", [entry]), refused(field));
+    await assert.rejects(importLinearForwardOnly(root, "LIT", [entry]), refused(field));
   }
   for (const field of ["title", "body", "description", "assignee", "deadline"]) for (const value of [null, 42, [], {}]) {
     const entry = { ...normal, [field]: value, linearId: state.issue.id, identifier: state.issue.identifier };
@@ -91,7 +91,7 @@ test("literal class: every import and preview boundary refuses SDK controls befo
       for (const reverse of [false, true]) {
         const rows = [provider(), state.issue];
         if (reverse) rows.reverse();
-        await assert.rejects(syncLinearIssues({ team: "LIT", limit: 2, atomic }, root, { fetchIssues: async () => rows }), refused(field));
+        await assert.rejects(syncLinearIssues({ team: "LIT", limit: 2, atomic, forwardOnly: true }, root, { fetchIssues: async () => rows }), refused(field));
       }
     }
     await assert.rejects(previewLinearOwnership({ item: id }, root), refused(field));
@@ -108,8 +108,8 @@ test("literal class: JSON and TOON dispatch preserve typed literal refusals thro
       for (const run of [
         () => harness.runCommand({ command: "linear ownership", pmRoot: root, options: { item: id }, global }),
         ...[true, false].flatMap((atomic) => [
-          () => harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "LIT", atomic }, global }),
-          ...["linear", "linear-sync"].map((importer) => () => harness.runImporter({ importer, pmRoot: root, options: { team: "LIT", atomic }, global })),
+          () => harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "LIT", atomic, forwardOnly: true }, global }),
+          ...["linear", "linear-sync"].map((importer) => () => harness.runImporter({ importer, pmRoot: root, options: { team: "LIT", atomic, forwardOnly: true }, global })),
         ]),
       ]) {
         const result = await run(); assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "unrepresentable_value");
@@ -133,7 +133,7 @@ test("literal class: leading-dash titles and @file values remain data in both ty
   const { root, state, pm } = await fixture(t);
   for (const atomic of [true, false]) for (const [index, title] of ["-", "--", "--title", "@file", "none", "null"].entries()) {
     state.issue = provider(); state.issue.id = `new-${atomic}-${index}`; state.issue.identifier = `LIT-${atomic}-${index}`; state.issue.title = title;
-    const result = await syncLinearIssues({ team: "LIT", limit: 1, atomic, fieldMap: { identifier: "ignore" } }, root, { fetchIssues: async () => [state.issue] });
+    const result = await syncLinearIssues({ team: "LIT", limit: 1, atomic, forwardOnly: true, fieldMap: { identifier: "ignore" } }, root, { fetchIssues: async () => [state.issue] });
     assert.equal(result.created, 1); assert.equal(result.skipped, 0);
     const item = (await pm.listAllComplete({ includeBody: true })).items.find((item) => item.description?.includes(`linear_id=${state.issue.id} `) || item.description === `[linear] linear_id=${state.issue.id}`);
     assert.ok(item); assert.equal(item.title, title);
@@ -161,7 +161,7 @@ test("literal class: 500 seeded imports round-trip literal values and agree with
     const unsupported = state.issue.description === "-" ? "body" : ["none", "null"].includes(state.issue.assignee.name!.toLowerCase()) ? "assignee" : undefined;
     if (unsupported) {
       const beforeRefusal = await document(root, id);
-      await assert.rejects(syncLinearIssues({ team: "LIT", limit: 1, atomic }, root, { fetchIssues: async () => [state.issue] }), refused(unsupported));
+      await assert.rejects(syncLinearIssues({ team: "LIT", limit: 1, atomic, forwardOnly: true }, root, { fetchIssues: async () => [state.issue] }), refused(unsupported));
       await assert.rejects(previewLinearOwnership({ item: id }, root), refused(unsupported));
       assert.deepEqual(await document(root, id), beforeRefusal);
     }
@@ -171,7 +171,7 @@ test("literal class: 500 seeded imports round-trip literal values and agree with
     state.issue.labels = { nodes: [{ name: `sequence-${sequence}` }, { name: ["none", "null", "-", "@file", "--", "a,b"][sequence % 6] }], pageInfo: { hasNextPage: false } } as LinearIssue["labels"];
     const before = await document(root, id);
     const plan = buildItemPlan(state.issue, {});
-    const result = await syncLinearIssues({ team: "LIT", limit: 1, atomic }, root, { fetchIssues: async () => [state.issue] });
+    const result = await syncLinearIssues({ team: "LIT", limit: 1, atomic, forwardOnly: true }, root, { fetchIssues: async () => [state.issue] });
     assert.equal(result.updated, 1, `import ${sequence}`); assert.equal(result.skipped, 0);
     const after = await document(root, id);
     assert.equal(after.body, state.issue.description, `literal body ${sequence}`);
@@ -202,7 +202,7 @@ test("literal class: projection reads real SDK lifecycle effects instead of hash
   const first = await previewLinearOwnership({ item: id, statusMap }, root);
   assert.equal(state.requests - requests, 2, "staged SDK writes never run provider hooks");
   assert.deepEqual(await document(root, id), before);
-  await syncLinearIssues({ team: "LIT", limit: 1, atomic: true, statusMap }, root, { fetchIssues: async () => [state.issue] });
+  await syncLinearIssues({ team: "LIT", limit: 1, atomic: true, forwardOnly: true, statusMap }, root, { fetchIssues: async () => [state.issue] });
   const stored = await document(root, id);
   assert.equal(stored.metadata.assignee, undefined);
   const after = await previewLinearOwnership({ item: id, statusMap }, root);

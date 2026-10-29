@@ -23,7 +23,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 >   `issueCreate`/`issueUpdate` mutations, and make **no** network call.
 > - **Reaches Linear** (live `LINEAR_API_KEY` required): the real (non-dry-run)
 >   `sync`/`import`, `export --push`, `validate --check-network`, and
->   `sync`/`import` with **`--atomic --dry-run`** — the atomic preview fetches
+>   `sync`/`import` with **`--forward-only --dry-run`** — the live preview fetches
 >   issues in order to build the plan it reports, so it needs credentials even
 >   though it writes nothing.
 >
@@ -119,7 +119,9 @@ pm linear sync --team <slug> [options]
 | `--map` | string | — | Remap Linear→pm fields, e.g. `"identifier=ignore,priority=ignore"` |
 | `--project-map` | string | — | Tag items by Linear project name (additive). Bare flag tags with the verbatim name; `"Mobile=mobile,Web=web"` remaps |
 | `--limit` | number | `100` | Max issues to fetch |
-| `--dry-run` | boolean | `false` | Print the exact GraphQL request, no writes. **Offline** on its own; with `--atomic` it fetches issues to build the plan and needs `LINEAR_API_KEY` |
+| `--dry-run` | boolean | `false` | Print the exact GraphQL request, no writes. **Offline** on its own; with `--forward-only` it fetches and simulates the native apply path and needs `LINEAR_API_KEY` |
+| `--atomic` | boolean | `false` | Refuse unavailable batch atomicity unless `--forward-only` explicitly accepts migration |
+| `--forward-only` | boolean | `false` | Explicitly accept retained prior successes and per-item outcomes; with `--dry-run`, fetch and simulate the apply path |
 | `--skip-preflight-network` | boolean | `false` | Skip the preflight reachability probe (offline/CI) |
 
 #### `--map` field remapping
@@ -296,7 +298,7 @@ pm linear schema --team ENG --status-map "Review=in_progress"
 pm --json linear schema --team ENG --status-map "Review=in_progress"
 
 # Copy schemaVersion from the report; use the same mapping when applying
-pm linear sync --team ENG --atomic --status-map "Review=in_progress" \
+pm linear sync --team ENG --forward-only --status-map "Review=in_progress" \
   --schema-version "linear-schema-v1:<reported-sha256>"
 ```
 
@@ -331,23 +333,23 @@ code `2`, and a fresh `report` when a version comparison fails.
 | `schema_drift` | Run `linear schema` again, review the new report and use its version. |
 
 An offline `--dry-run` still makes no network request and cannot certify remote
-metadata. `--atomic --dry-run` negotiates and previews against current metadata.
+metadata. `--forward-only --dry-run` negotiates and previews against current metadata.
 Negotiation proves **read** access for importing; it does not attest Linear write
 permissions or gate export/push. Linear exposes no cross-request metadata snapshot
 transaction: a provider change after the final check remains a race. Run schema
-review and apply close together; `--atomic` is a deprecated compatibility flag; imports are forward-only per item.
+review and apply close together; `--atomic` is an explicit stronger-guarantee request and refuses with `atomic_unavailable` before import work unless `--forward-only` explicitly accepts migration.
 
 `syncLinearIssues` returns `SyncResult.issues`: the complete fetched provider
 array in provider order, including records filtered or skipped by local apply.
 This applies to normal, replay, dry-run and deprecated atomic-flag modes. The
 provider-free `LinearImportReceipt` reports native write outcomes;
-`importLinearAtomic` returns that receipt because it accepts prepared rows and
+`importLinearForwardOnly` returns that receipt because it accepts prepared rows and
 fetches no issues. CLI JSON/TOON retain compact counts and `importResults` without
 embedding the fetched issue payloads.
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
-Live `--atomic --dry-run` receipts retain `dryRun: true` on sync and both import aliases, including empty or filtered results. Counts describe simulated changes; summaries say “Would sync/import”, and no item/history mutation is applied.
+Live `--forward-only --dry-run` receipts retain `dryRun: true` on sync and both import aliases, including empty or filtered results. Counts describe simulated changes; summaries say “Would sync/import”, and no item/history mutation is applied.
 
 ## Field ownership conflict previews
 
@@ -731,8 +733,7 @@ credentials; `linear estimates --scale` and export previews work offline.
 ### Forward-only imports
 
 All `linear sync`, `linear import`, `linear-sync import` and typed SDK imports
-apply each item forward-only. The deprecated `--atomic` flag keeps parsing, but
-never enables batch rollback. If item B fails, item A stays applied; `importMode`
+apply each item forward-only. An explicit `--atomic` request refuses with `atomic_unavailable` (exit 2) before provider access or native writes. To migrate, remove `--atomic` and explicitly pass `--forward-only`, or add `--forward-only` to an existing invocation. In the SDK, use `importLinearForwardOnly`; `SyncOptions.atomic: true` and deprecated `importLinearAtomic` require `forwardOnly: true` before any work. The default sync/import mode remains forward-only. If item B fails, item A stays applied; `importMode`
 is `forward-only`, `atomic` is false, and `importResults` lists every selected
 native target as created, updated, unchanged, skipped or unconfirmed. A conflict has code
 `import_conflict` and a remedy. A skipped prerequisite skips its dependents.
@@ -760,3 +761,7 @@ fields and close separately; their exact one-item plan is validated with the SDK
 in an isolated copy first. This does not guarantee isolation from a peer or an
 I/O/policy failure inside the final native call. Inspect a failed target before
 retrying; the importer never rolls back successful writes or peer state. Failed native calls re-read through the SDK: a complete current target is `unchanged`/`import_reconciled` without attributing a new write, an unchanged target is skipped, and a changed/incomplete target is `unconfirmed` with `import_incomplete`. Its dependents skip.
+
+Failed, conflicted or unconfirmed rows set `success: false` and nonzero `exit_code` on SDK receipts and every JSON/TOON command/import alias. Filters and complete readback reconciliation remain successful. Duplicate native provenance or duplicate selected provider IDs select no target, report `import_conflict`, and write nothing for those rows.
+
+Export previews preserve duplicate native records as conflict-marked payloads. Mutation plans and pushes omit ambiguous provider targets and report `exportConflicts` with a nonzero exit, while independent rows can proceed.

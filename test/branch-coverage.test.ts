@@ -17,7 +17,7 @@ import extension, {
   buildProvenance,
   buildAtomicImportMutations,
   deriveAtomicTransactionId,
-  importLinearAtomic,
+  importLinearForwardOnly,
   normalizeDueDate,
   parseFieldMap,
   parseProvenance,
@@ -197,7 +197,7 @@ test("atomic import sorts equal identifiers through the real mutation seam", asy
   try {
     const one = prepared("ENG-1");
     const two = prepared("ENG-1", { title: "Second representation" });
-    const result = await importLinearAtomic(root, "ENG", [two, one], {
+    const result = await importLinearForwardOnly(root, "ENG", [two, one], {
       readSettings: async () => ({ id_prefix: "pm-" }),
       normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
       commitItemMutations: async () => ({
@@ -218,7 +218,7 @@ test("atomic import reports a non-Error settings-read rejection", async () => {
   try {
     await assert.rejects(
       () =>
-        importLinearAtomic(root, "ENG", [prepared("ENG-1"), prepared("ENG-2")], {
+        importLinearForwardOnly(root, "ENG", [prepared("ENG-1"), prepared("ENG-2")], {
           readSettings: async () => Promise.reject("settings failure"),
           normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
           commitItemMutations: async () => ({
@@ -238,7 +238,7 @@ test("atomic import reports a non-Error settings-read rejection", async () => {
 test("forward import ignores a non-Error obsolete rollback rejection", async () => {
   const root = workspace();
   try {
-    const result = await importLinearAtomic(root, "ENG", [prepared("ENG-1")], {
+    const result = await importLinearForwardOnly(root, "ENG", [prepared("ENG-1")], {
       commitItemMutations: async () => Promise.reject("must not run"),
     });
     assert.equal(result.created, 1); assert.equal(result.skipped, 0); assert.equal(result.atomic, false);
@@ -257,7 +257,7 @@ test("sync scope logging covers every optional filter and the forward fetch seam
       updatedSince: "-P7D",
       stateFilter: "Progress",
       cycleFilter: "Sprint",
-      atomic: true,
+      atomic: true, forwardOnly: true,
       dryRun: true,
     },
     root,
@@ -270,7 +270,7 @@ test("sync scope logging covers every optional filter and the forward fetch seam
   assert.equal(result.synced, 0);
 
   const withOptionalFields = await syncLinearIssues(
-    { team: "ENG", limit: 10, atomic: true, dryRun: true },
+    { team: "ENG", limit: 10, atomic: true, forwardOnly: true, dryRun: true },
     root,
     {
       fetchIssues: async () => [
@@ -285,7 +285,7 @@ test("sync scope logging covers every optional filter and the forward fetch seam
   assert.equal(withOptionalFields.created, 1);
 
   const recovered = await syncLinearIssues(
-    { team: "ENG", limit: 10, atomic: true },
+    { team: "ENG", limit: 10, atomic: true, forwardOnly: true },
     root,
     {
       fetchIssues: async () => [issue()],

@@ -27,7 +27,7 @@ import extension, {
   CommandError,
   EXIT_CODE,
   commandNeedsLinearAccess,
-  importLinearAtomic,
+  importLinearForwardOnly,
   syncLinearIssues,
   type LinearIssue,
 } from "../index.ts";
@@ -226,7 +226,7 @@ test("syncLinearIssues --atomic --dry-run reports a plan without committing", as
   try {
     await withEnv({ LINEAR_API_KEY: "lin_test" }, async () => {
       const result = await syncLinearIssues(
-        { team: "ENG", limit: 100, atomic: true, dryRun: true },
+        { team: "ENG", limit: 100, atomic: true, forwardOnly: true, dryRun: true },
         root,
         { fetchIssues: async () => [issue("ENG-1")] },
       );
@@ -246,7 +246,7 @@ test("syncLinearIssues --atomic returns a zero result when every issue is filter
   try {
     await withEnv({ LINEAR_API_KEY: "lin_test" }, async () => {
       const result = await syncLinearIssues(
-        { team: "ENG", limit: 100, atomic: true, stateFilter: "Nonexistent" },
+        { team: "ENG", limit: 100, atomic: true, forwardOnly: true, stateFilter: "Nonexistent" },
         root,
         { fetchIssues: async () => [issue("ENG-1", { state: { name: "In Progress", type: "started" } })] },
       );
@@ -265,7 +265,7 @@ test("syncLinearIssues --atomic skips issues dropped by the --cycle backstop", a
   try {
     await withEnv({ LINEAR_API_KEY: "lin_test" }, async () => {
       const result = await syncLinearIssues(
-        { team: "ENG", limit: 100, atomic: true, cycleFilter: "Sprint" },
+        { team: "ENG", limit: 100, atomic: true, forwardOnly: true, cycleFilter: "Sprint" },
         root,
         {
           fetchIssues: async () => [
@@ -294,9 +294,9 @@ test("syncLinearIssues compatibility flag reports fresh forward results instead 
   try {
     let invoked = false;
     const dependencies = { fetchIssues: async () => [issue("ENG-1")], commitAtomic: async () => { invoked = true; throw new Error("obsolete seam"); } };
-    const first = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true }, root, dependencies);
+    const first = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true, forwardOnly: true }, root, dependencies);
     assert.equal(first.atomic, false); assert.equal(first.importMode, "forward-only"); assert.equal(first.created, 1);
-    const replay = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true }, root, dependencies);
+    const replay = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true, forwardOnly: true }, root, dependencies);
     assert.equal(replay.synced, 0); assert.equal(replay.skipped, 0); assert.equal(replay.importResults?.[0].action, "unchanged"); assert.equal(invoked, false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -342,14 +342,14 @@ test("syncLinearIssues legacy create/update failures skip the issue and continue
 });
 
 // ---------------------------------------------------------------------------
-// importLinearAtomic defensive SDK branches
+// importLinearForwardOnly defensive SDK branches
 // ---------------------------------------------------------------------------
 
-test("importLinearAtomic ignores obsolete rollback seams and returns exact forward results", async () => {
+test("importLinearForwardOnly ignores obsolete rollback seams and returns exact forward results", async () => {
   const root = freshWorkspace();
   try {
     let invoked = false;
-    const result = await importLinearAtomic(root, "ENG", [preparedEntry("ENG-1")], {
+    const result = await importLinearForwardOnly(root, "ENG", [preparedEntry("ENG-1")], {
       commitItemMutations: async () => { invoked = true; throw new Error("obsolete rollback"); },
     });
     assert.equal(invoked, false); assert.equal(result.created, 1); assert.equal(result.recovered, false);
@@ -529,7 +529,7 @@ test("linear sync --atomic commits through the real SDK and returns the atomic r
       async () => {
         const { result } = await harness_runCommand_json(await getHarness(), {
           command: "linear sync",
-          options: { team: "ENG", atomic: true },
+          options: { team: "ENG", atomic: true, forwardOnly: true },
           pmRoot: root,
         });
         const r = result as { atomic: boolean; synced: number; transactionId: string };
@@ -670,7 +670,7 @@ test("linear import --atomic commits through the real SDK", async () => {
       async () => {
         const { result } = await harness.runImporter({
           importer: "linear",
-          options: { team: "ENG", atomic: true },
+          options: { team: "ENG", atomic: true, forwardOnly: true },
           pmRoot: root,
           global: { json: true },
         });
@@ -985,7 +985,7 @@ test("linear-sync import --atomic commits through the real SDK", async () => {
       async () => {
         const { result } = await harness.runImporter({
           importer: "linear-sync",
-          options: { team: "ENG", atomic: true },
+          options: { team: "ENG", atomic: true, forwardOnly: true },
           pmRoot: root,
           global: { json: true },
         });

@@ -18,8 +18,9 @@ const vars = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch
 await mkdir(vars.HOME);
 let lastDiagnostics = "", commandCount = 0;
 /** Commands inherit only explicit noncredential configuration and synthetic provider credentials. */
-async function run(bin: string, args: string[], cwd = scratch, extra: Record<string, string> = {}) {
+async function run(bin: string, args: string[], cwd = scratch, extra: Record<string, string> = {}, expectedExit = 0) {
   commandCount++;
+  if (commandCount % 10 === 0) process.stdout.write(`packed commands: ${commandCount}\n`);
   return new Promise<string>((done, fail) => {
     const child = spawn(bin, args, { cwd, env: { ...vars, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
     let output = "", error = "";
@@ -28,7 +29,7 @@ async function run(bin: string, args: string[], cwd = scratch, extra: Record<str
     child.on("error", fail);
     child.on("exit", (code) => {
       lastDiagnostics = error;
-      if (code === 0) done(output || error);
+      if (code === expectedExit) done(output || error);
       else fail(new Error(`Packed ${args[0]} failed (${code}): ${(output + error).slice(-1600)}`));
     });
   });
@@ -91,10 +92,10 @@ try {
     for (const mode of modes) {
       const commandsBefore = commandCount;
       const tracker = join(hostRoot, "trackers", mode.name); const pm = new PmClient({ pmRoot: tracker, noExtensions: true, author: "fixture" }); await pm.init("packed");
-      const seeded = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true }, tracker, {
+      const seeded = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true, forwardOnly: true }, tracker, {
         fetchIssues: async () => [issue], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Packed observer failure"); },
       });
-      assert.equal(seeded.created, 1); assert.equal(seeded.importResults?.[0].code, "import_observer_failed");
+      assert.equal(seeded.created, 1); assert.equal(seeded.importResults?.[0].code, "import_observer_failed"); assert.equal(seeded.exit_code, 1);
       const prefix = [...mode.args, "--pm-path", tracker]; const extra = { ...mode.vars, ...network };
       await run(mode.bin, [...prefix, "package", "install", source, "--project"], scratch, mode.vars);
       // A real consumer imports this artifact's public entrypoint. SDK acquisition
@@ -108,7 +109,10 @@ try {
       const sdkEntry = pathToFileURL(join(sdkRoot, "extensions", "pm-linear", "dist", "index.js")).href;
       await writeFile(sdkProgram, `import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { syncLinearIssues, importLinearAtomic } from ${JSON.stringify(sdkEntry)};
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { locateItem, PmClient } from ${JSON.stringify(pathToFileURL(join(local, "node_modules/@unbrained/pm-cli/dist/sdk/index.js")).href)};
+import { buildItemPlan, syncLinearIssues, importLinearAtomic, importLinearForwardOnly } from ${JSON.stringify(sdkEntry)};
 const root = process.argv[2], original = JSON.parse(await readFile(process.argv[3], "utf8"));
 let checks = 0; const ids = [];
 for (const scaled of [false, true]) {
@@ -116,12 +120,12 @@ for (const scaled of [false, true]) {
   if (!scaled) delete source.team;
   const corpus = Array.from({ length: 500 }, (_, index) => ({ ...structuredClone(source), id: source.id + index, identifier: source.identifier + index, description: index % 2 ? " Raw\\r\\ncorpus " : " Raw\\ncorpus " }));
   for (const atomic of [false, true]) for (const dryRun of [false, true]) {
-    const result = await syncLinearIssues({ team: "PACK", limit: 500, atomic, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => corpus });
+    const result = await syncLinearIssues({ team: "PACK", limit: 500, atomic, forwardOnly: true, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => corpus });
     assert.deepEqual(result.issues, corpus); assert.equal(result.skipped, 500); checks++;
   }
   const changed = { ...structuredClone(source), title: " SDK raw title\\r\\n " };
   for (const [atomic, remote] of [[false, changed], [false, changed], [true, source]]) {
-    const result = await syncLinearIssues({ team: "PACK", limit: 10, atomic }, root, { fetchIssues: async () => [remote] });
+    const result = await syncLinearIssues({ team: "PACK", limit: 10, atomic, forwardOnly: true }, root, { fetchIssues: async () => [remote] });
     assert.deepEqual(result.issues, [remote]); assert.equal(result.skipped, 0); checks++;
   }
   const assigned = { ...structuredClone(source), assignee: { name: "Provider Agent", email: "provider@example.invalid" } };
@@ -131,11 +135,35 @@ for (const scaled of [false, true]) {
   const result = await syncLinearIssues({ team: "PACK", limit: 10, ...(scaled ? { fieldMap: { assignee: "ignore" } } : {}) }, root, { fetchIssues: async () => [cleared] });
   assert.deepEqual(result.issues, [cleared]); assert.equal(result.skipped, 0); ids.push(result.importResults[0].id); checks++;
 }
-const receipt = await importLinearAtomic(root, "PACK", []); assert.equal(Object.hasOwn(receipt, "issues"), false); checks++;
+const receipt = await importLinearForwardOnly(root, "PACK", []); assert.equal(Object.hasOwn(receipt, "issues"), false); checks++;
+const client = new PmClient({ pmRoot: root, noExtensions: true, author: "fixture" });
+await assert.rejects(importLinearAtomic(root, "PACK", []), { code: "atomic_unavailable" }); checks++;
+await assert.rejects(syncLinearIssues({ team: "PACK", limit: 1, atomic: true }, root, { fetchIssues: async () => { assert.fail("atomic refusal must precede provider access"); } }), { code: "atomic_unavailable" }); checks++;
+for (const scaled of [false, true]) {
+  const remote = structuredClone(original); remote.id += "-fault-" + scaled; remote.identifier += "-fault-" + scaled; if (!scaled) delete remote.team;
+  const seeded = await syncLinearIssues({ team: "PACK", limit: 1 }, root, { fetchIssues: async () => [remote] });
+  const located = await locateItem(root, seeded.importResults[0].id); assert.ok(located);
+  const rename = fs.rename; let faults = 0;
+  fs.rename = async (from, to) => {
+    if (String(to) === located.itemPath && /status: closed/.test(await fs.readFile(from, "utf8"))) { faults++; throw Object.assign(new Error("Synthetic close IO fault"), { code: "EIO" }); }
+    return rename(from, to);
+  }; syncBuiltinESMExports();
+  remote.title = "Partial native update"; remote.state = { name: "Completed", type: "completed" };
+  try {
+    const result = await syncLinearIssues({ team: "PACK", limit: 1 }, root, { fetchIssues: async () => [remote] });
+    assert.ok(faults); assert.equal(result.exit_code, 1); assert.equal(result.unconfirmed, 1); checks++;
+  } finally { fs.rename = rename; syncBuiltinESMExports(); }
+  assert.equal((await syncLinearIssues({ team: "PACK", limit: 1 }, root, { fetchIssues: async () => [remote] })).exit_code ?? 0, 0); checks++;
+  const plan = buildItemPlan(remote, {}), entry = { ...plan, linearId: remote.id, identifier: remote.identifier };
+  await client.create({ title: "Duplicate link", description: plan.description, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const before = (await client.listAllComplete({ includeBody: true })).items;
+  const conflict = await importLinearForwardOnly(root, "PACK", [entry]); assert.equal(conflict.exit_code, 1); assert.equal(conflict.created, 0);
+  assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before); checks++;
+}
 console.log(JSON.stringify({ checks, ids }));
 `);
       const sdkContract = JSON.parse(await run(process.execPath, [sdkProgram, sdkRoot, sdkInput], scratch, extra)) as { checks: number; ids: string[] };
-      assert.equal(sdkContract.checks, 19); assert.equal(sdkContract.ids.length, 2);
+      assert.equal(sdkContract.checks, 27); assert.equal(sdkContract.ids.length, 2);
       const scopeUnset = ["goal", "objective", "sprint", "release"].flatMap((field) => ["--unset", field]);
       const reference = JSON.parse(await run(mode.bin, [...sdkPrefix, "--no-extensions", "create", "--title", "Native unset reference", "--assignee", "Local Agent", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars)) as { id: string };
       await run(mode.bin, [...sdkPrefix, "--no-extensions", "update", reference.id, "--unset", "assignee", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars);
@@ -150,7 +178,7 @@ console.log(JSON.stringify({ checks, ids }));
       assert.equal(native.rows[0].points, 5); assert.equal(native.rows[0].minutes, null);
       const file = join(scratch, "mapping.json");
       await writeFile(file, JSON.stringify({ teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }] }));
-      for (const command of [["linear", "import"], ["linear-sync", "import"]]) await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--estimate-mapping", file, "--atomic", "--json"], scratch, extra);
+      for (const command of [["linear", "import"], ["linear-sync", "import"]]) await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--estimate-mapping", file, "--atomic", "--forward-only", "--json"], scratch, extra);
       const raw = await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra);
       const converted = JSON.parse(raw) as LinearEstimateReport; assert.equal(converted.rows[0].minutes, 240);
       const toon = await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK"], scratch, extra); assert.match(toon, /converted/);
@@ -162,12 +190,17 @@ console.log(JSON.stringify({ checks, ids }));
       const acknowledged = JSON.parse(await run(mode.bin, [...ownershipArgs, "--json"], scratch, extra)) as LinearOwnershipReport;
       assert.ok(acknowledged.fields.every((field) => field.decision === "unchanged"), mode.name);
       const ownershipToon = await run(mode.bin, ownershipArgs, scratch, extra); assert.match(ownershipToon, /unchanged/); assert.doesNotMatch(ownershipToon, /unknown_base/);
+      let boundaryProcessChecks = 0;
+      for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
+        const refused = await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--atomic", ...(json ? ["--json"] : [])], scratch, mode.vars, 2);
+        assert.match(refused, /atomic_unavailable/); boundaryProcessChecks++;
+      }
       const previousTitle = issue.title;
       const beforePreview = JSON.parse(await run(mode.bin, [...prefix, "--no-extensions", "show", converted.rows[0].id, "--json"], scratch, mode.vars)) as unknown;
       try {
         issue.title = "Only a simulated provider edit";
         for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
-          const simulated = await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--atomic", "--dry-run", ...(json ? ["--json"] : [])], scratch, extra);
+          const simulated = await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--atomic", "--forward-only", "--dry-run", ...(json ? ["--json"] : [])], scratch, extra);
           if (json) { const receipt = JSON.parse(simulated) as { dryRun: boolean; updated: number; atomic: boolean }; assert.equal(Object.hasOwn(receipt, "issues"), false); assert.equal(receipt.dryRun, true); assert.equal(receipt.updated, 1); assert.equal(receipt.atomic, false); }
           else { assert.match(simulated, /dryRun: true/); assert.doesNotMatch(simulated, /^issues:/m); }
           assert.match(lastDiagnostics, /Would sync|Would import/);
@@ -208,7 +241,7 @@ console.log(JSON.stringify({ checks, ids }));
         };
         // Provider acquisition occurs after the planning snapshot. An independent
         // ordinary native CLI writer must win, for every alias and renderer.
-        const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : ["--atomic"])], scratch, extra);
+        const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : ["--atomic", "--forward-only"])], scratch, extra, 1);
         assert.ifError(peerError);
         assert.equal(peerWrite, undefined, "the peer update ran at the provider boundary");
         if (json) {
@@ -225,7 +258,7 @@ console.log(JSON.stringify({ checks, ids }));
         const retryClient = new PmClient({ pmRoot: retryRoot, noExtensions: true, author: "fixture" }); await retryClient.init("retry");
         const values = ["a", "z"].map((suffix) => ({ ...structuredClone(issue), id: `remote-retry-${suffix}`, identifier: `PACK-retry-${suffix}` }));
         const conversion = { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }] };
-        const seededBatch = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true, estimateMapping: conversion }, retryRoot, {
+        const seededBatch = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true, forwardOnly: true, estimateMapping: conversion }, retryRoot, {
           fetchIssues: async () => values, onEstimateBoundary: async (stage, id) => { if (stage === "before_update" && id.endsWith("-z")) throw new Error("Packed item failure"); },
         });
         assert.equal(seededBatch.created, 1); assert.equal(seededBatch.skipped, 1);
@@ -234,11 +267,11 @@ console.log(JSON.stringify({ checks, ids }));
         await run(mode.bin, [...retryPrefix, "package", "install", source, "--project"], scratch, mode.vars);
         try {
           recoveryIssues = values.map((value) => ({ ...value, title: " Fresh replay ", description: " Fresh\r\nbody ", ...(value.id.endsWith("-a") ? { state: { name: "Completed", type: "completed" } } : {}) }));
-          const receipt = JSON.parse(await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--estimate-mapping", file, "--atomic", "--json"], scratch, extra)) as { created: number; updated: number; skipped: number; atomic: boolean; importMode: string };
+          const receipt = JSON.parse(await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--estimate-mapping", file, "--atomic", "--forward-only", "--json"], scratch, extra)) as { created: number; updated: number; skipped: number; atomic: boolean; importMode: string };
           assert.equal(receipt.importMode, "forward-only"); assert.equal(receipt.atomic, false); assert.equal(receipt.updated, 1, JSON.stringify(receipt) + lastDiagnostics.slice(-2400)); assert.equal(receipt.created, 1); assert.equal(receipt.skipped, 0);
           const units = JSON.parse(await run(mode.bin, [...retryPrefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra)) as LinearEstimateReport;
           assert.equal(units.counts.matched, 2); assert.ok(units.rows.every((row) => row.points === 5 && row.minutes === 240), "retry retains the earlier explicit mapping");
-          const replay = await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--atomic"], scratch, extra);
+          const replay = await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--atomic", "--forward-only"], scratch, extra);
           assert.match(replay, /skipped: 0/); assert.doesNotMatch(replay, /foreign|superseded/);
           const exported = JSON.parse(await run(mode.bin, [...retryPrefix, "linear", "export", "--json"], scratch, mode.vars)) as { payloads: Array<{ linearId: string; title: string; estimate: number; description: string }> };
           const referenceRoot = join(hostRoot, "reference", mode.name, importer);
@@ -257,10 +290,40 @@ console.log(JSON.stringify({ checks, ids }));
           restoredAliases++;
         } finally { recoveryIssues = undefined; }
       }
-      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, sdkPayloadChecks: sdkContract.checks, assignmentReadbacks: sdkContract.ids.length, simulationChecks: 6, refusedProjectionChecks: 2, commands: commandCount - commandsBefore });
+      const faultProgram = join(scratch, "native-close-io-fault.mjs");
+      await writeFile(faultProgram, `import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+const rename = fs.rename, target = ${JSON.stringify((await pm.get(converted.rows[0].id)).item.id)};
+fs.rename = async (from, to) => {
+  if (String(to).includes(${JSON.stringify(tracker)}) && String(to).endsWith(target + ".toon") && /status: closed/.test(await fs.readFile(from, "utf8"))) throw Object.assign(new Error("Synthetic close IO fault"), { code: "EIO" });
+  return rename(from, to);
+}; syncBuiltinESMExports();`);
+      const faultSavedTitle = issue.title, faultSavedState = issue.state;
+      try {
+        for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
+          await pm.update(converted.rows[0].id, { title: "Before native fault", status: "open" });
+          issue.title = "Partially persisted command"; issue.state = { name: "Completed", type: "completed" };
+          const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : [])], scratch,
+            { ...extra, NODE_OPTIONS: `--import=${faultProgram}` }, 1);
+          assert.match(receipt, /unconfirmed["\s]*:\s*1/); assert.match(receipt, /import_incomplete/);
+          const item = (await pm.get(converted.rows[0].id)).item;
+          assert.match(item.title!, /Partially persisted command/); assert.equal(item.status, "open"); boundaryProcessChecks++;
+        }
+      } finally { issue.title = faultSavedTitle; issue.state = faultSavedState; }
+      await pm.create({ title: "Duplicate provenance", description: buildItemPlan(issue, {}).description, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      const beforeConflict = (await pm.listAllComplete({ includeBody: true })).items;
+      for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
+        const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : [])], scratch, extra, 1);
+        assert.match(receipt, /import_conflict/); assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items, beforeConflict); boundaryProcessChecks++;
+      }
+      for (const json of [true, false]) {
+        const plan = await run(mode.bin, [...prefix, "linear", "export", "--dry-run", ...(json ? ["--json"] : [])], scratch, mode.vars, 1);
+        assert.match(plan, /import_conflict/); boundaryProcessChecks++;
+      }
+      results.push({ hostVersion, mode: mode.name, boundaryProcessChecks, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, sdkPayloadChecks: sdkContract.checks, assignmentReadbacks: sdkContract.ids.length, simulationChecks: 6, refusedProjectionChecks: 2, commands: commandCount - commandsBefore });
       process.stdout.write(`${hostVersion} ${mode.name}: passed\n`);
     }
   }
   const report = { hostVersions, artifactSha256: digest, modes: results, readOnlyProviderRequests: requests, remoteMutations: 0 };
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
-} finally { await new Promise<void>((done) => server.close(() => done())); await rm(scratch, { recursive: true, force: true }); }
+} finally { await new Promise<void>((done) => server.close(() => done())); await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }); }

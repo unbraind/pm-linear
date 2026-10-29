@@ -4,12 +4,14 @@ description: Preserve Linear team estimate scale and declared points-to-effort m
 type: Feature
 status: in_progress
 priority: 2
-tags: []
+tags[2]: "gh:unbraind/pm-linear#189","gh:unbraind/pm-linear#191"
 created_at: "2026-10-29T01:53:20.572Z"
-updated_at: "2026-10-29T17:27:23.176Z"
+updated_at: "2026-10-29T19:19:22.488Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Five points never become five minutes without a declared conversion; changing one team scale affects only its items; unconvertible estimates remain usable as native points.
-comments[61]{created_at,author,text}:
+comments[68]{created_at,author,text}:
   "2026-10-29T01:53:34.597Z",codex-agent,"Overlap checked against the installed CLI SDK public declarations, existing Linear estimate tags and round-trip features, and pm-gantt-chart duration inputs. Core estimated_minutes is numeric effort; Gantt consumes minutes and prior capacity work consumes estimates. Neither knows Linear team identity or scale settings. This feature owns provider unit provenance and an explicit scale-bound lookup conversion, preserving native points when unmapped. Existing atomic replay revision follow-up remains relevant; transactions do not exclude ordinary writers (pm-cli#1620)."
   "2026-10-29T02:03:57.444Z",codex-agent,"Implemented versioned per-item unit contracts with exact discrete conversion lookups and bounded team-scoped inspection. Provenance uses lowercase hexadecimal encoding because SDK tag normalization changes letter case; the real SDK tests caught this and the producer/reader now share one codec. Unit-aware writes use a single native mutation per item, registered status roles, explicit scopes and SDK history revision checks. The ordinary-writer read-to-write window remains and is documented; no lock-isolation claim."
   "2026-10-29T02:25:52.769Z",codex-agent,"Read-only public tracker validation passed against main: 112 items, 232 files, 1644154 bytes, 2 complete inspections, unchanged SHA-256, no git executable. No owned unit contracts exist in that corpus; conversion coverage is explicitly synthetic. Targeted network tests exercised sync and both import aliases in serial and transaction modes; the 500-sequence SDK reference-model test uses independent bounded tracker pairs with random custom lifecycle registries, whitespace, native fields, relationships, ambient focus and older-input replays."
@@ -71,7 +73,14 @@ comments[61]{created_at,author,text}:
   "2026-10-29T16:41:47.705Z",codex-agent,"Round-six final local compatibility: the seven-file targeted command now linked on this item passed 122/122; typecheck, build:test, docstring lint (8 files, 108 declarations), strict no-extension tracker health and diff whitespace checks pass. The revert harness compiler now handles an optional filename explicitly; all 12 contract mutants still fail and fixed tests pass 2/2. Existing forward-import proof rejects 5/5 mutants and fixed tests pass 3/3. Current public read-only non-git validation repeats 112 items, 232 files and 1,644,154 bytes; two inspections produce 275-byte JSON, source digest and exact permissions unchanged. This corpus contains zero owned unit contracts. The declared synthetic ownership overlay checks eight fields, six read requests, one disjoint pair and one same-field conflict, with 2641-byte JSON and unchanged original/derived state. Conversion and invalidation acceptance use synthetic real-SDK models; no live Linear mutation is claimed."
   "2026-10-29T16:56:12.158Z",codex-agent,"Round-six packed acceptance complete: all 10 layouts pass on SDK 2026.10.24 and 2026.10.28 (project-local, npm global, Bun global, npx, bunx). Artifact 1499c6e202448d98851edc8b1eb84d4ce971cb54943c1a783daadf120240744d matches all nine shipped files; isolated ignored-JavaScript mutation rejection and restoration pass. Measured totals: 190 public-SDK response checks, 20 native assignment readbacks, 60 simulations, 20 projection refusals, 60 ordinary-writer interleavings, 50 retained/retried identities, 630 subprocess calls, 970 provider read requests and zero mutations. Estimate JSON is 571 bytes; ownership JSON is 3331 bytes. The incomplete slow-resolution run is excluded; cache preference changes registry lookup behavior only and all assertions remain. The obsolete fixed command tally is replaced by actual subprocess counts. Both round-six findings are addressed by the response/receipt type boundary and consistent assignment documentation. Origin/main is not ahead, so no merge is required. Local tests, models, reversions and public-copy evidence are complete; exact-head npm/Bun CI remains to run after push. Releasing only this author claim; item stays in progress."
   "2026-10-29T17:27:23.175Z",codex-agent,"Fixed thirty-minute CI wait expired after the round-six push. Code head 941f26331c146141f4d679bc2f41fedfaf16186f: https://github.com/unbraind/pm-linear/actions/runs/40916552977 . Final snapshot: Node 22 and Node 26 jobs are in progress; npm and Bun release gates are queued. Zero CI jobs have completed; full test totals and coverage are unavailable, and no full exact-head gate pass is claimed. Node 22 has passed tracked PM health, typecheck, build and docstring steps before coverage began. Local evidence remains 122/122 targeted cases, 500 estimate-model sequences, 12/12 new behavioral mutants rejected with fixed 2/2, forward proof 5/5 rejected with fixed 3/3, and all 10 packed layouts (190 SDK checks and 20 native assignment readbacks). This receipt changes only the item and append-only history; code, tests, docs, changelog and captured artifact remain unchanged. The PR will link fresh exact-head CI after this metadata-only push; the wait cutoff is not restarted. The item remains in progress with this author claim released. Remaining limits are the documented SDK expected-revision and ordinary-writer windows (#1576/#1620), plus previously recorded pinned-CLI test-timeout persistence and extension health skew."
-files[24]{path,scope}:
+  "2026-10-29T17:51:57.433Z",codex-agent,"Round 7: merged current main before changes. GraphQL returned zero review threads; CodeRabbit skipped review and supplied no Outside diff range findings. Auditing the supplied blockers as whole classes: non-unique provenance must never choose/create a target; failed/conflicted/unconfirmed native writes must produce nonzero host exit codes on all routes; explicit atomic requests must refuse before mutations unless callers explicitly migrate to forward-only mode (issue #191). Will preserve existing tests, add adversarial real non-git tracker and packed-consumer coverage, record isolated behavioral reverts, run unchanged npm/Bun release gates and release this claim for orchestrator verification."
+  "2026-10-29T18:04:40.953Z",codex-agent,"Class audit: native and incoming duplicate Linear IDs are quarantined by the shared coordinator before target selection, including explicit prepared matches. A shared status calculation covers SDK sync, prepared imports, sync command and both importer aliases; the audit also found and corrected export/push failure status. Host contract verification found that exit_code accepts only 1..255, so successful receipts omit it. Adversarial tests use real non-git trackers with no git/pm executable on PATH and actual native writes; narrowly injected rename faults prove untouched failure, partial field-save/failed-close, retained audit, readback reconciliation and retry. Explicit atomic requests now refuse before reads/provider access unless callers choose forwardOnly; existing forward-only tests retain all assertions with explicit migration. No thread replies or resolution actions were made."
+  "2026-10-29T18:18:28.259Z",codex-agent,"Round 7 behavioral revert proof: node test/revert-import-boundaries.ts docs/import-boundaries-revert.json passed through pinned pm test --run --match test/revert-import-boundaries.ts --progress --timeout 1800. All 12 isolated production-behavior reverts failed with assertions: ambiguous native provenance, duplicate provider identities, dropped sync conflict receipts, unconfirmed and failed status aggregation, each of the three CLI status paths, both explicit atomic SDK boundaries, export target ambiguity and export failed-row status. Restored production passed 6/6 selected tests. Only disposable copies were mutated. The outcome corpus uses real native SDK persistence and history, including a saved title followed by a failed close, retains partial audit, reconciles complete readback, retries, and distinguishes benign filters. DeepScan head 463f2cc findings 238937406, 238937410 and 238937411 were unused test imports; those and the other unused declarations in touched tests are removed. No coverage threshold or behavioural assertion was weakened."
+  "2026-10-29T18:33:28.646Z",codex-agent,"Final hostile-pass receipt: refreshed node test/revert-import-boundaries.ts docs/import-boundaries-revert.json passed through pinned pm test --run --match test/revert-import-boundaries.ts --progress --timeout 1800. All 13 production-behavior reverts failed independently; restored code passed 7/7 selected tests. The thirteenth case covers observer failure after a confirmed native write: applied counts and receipts are retained, with nonzero overall status. Source SHA-256: f1fa1f349bfcc407bc871a32fc55fcb62957b09e9720e7ef6bf69be142228128. Packed interleaving checks now require exit 1 for observed peer conflicts while retaining every peer-state assertion. Complete packed validation and unchanged npm/Bun release gates remain pending."
+  "2026-10-29T18:58:29.052Z",codex-agent,"CI log audit: all four failed jobs in run 40823998199 (npm release gate, Bun release gate, Node 22 coverage and Node 26 coverage) failed the same 500-sequence ownership projection property with invalid_input/plan; no distinct additional failing test was present. Those older failures are not counted as current passes. Full unchanged release gates remain required on this implementation. Current packed validation has passed minimum-host project-local, npm-global, Bun-global and npx layouts; bunx is running."
+  "2026-10-29T19:03:27.088Z",codex-agent,"Packed acceptance milestone: all five layouts passed on minimum supported host 2026.10.24 (project-local, npm-global, Bun-global, npx, bunx). Each layout retains the original ownership/estimate/retry assertions, passes 27 SDK checks, and adds 20 explicit process-status scenarios across aliases/renderers, including native partial writes and conflict-marked export plans. The same artifact is now being checked on current host 2026.10.28. Full release gates remain pending; this milestone is not a full-gate or CI approval claim."
+  "2026-10-29T19:19:22.485Z",codex-agent,"Final packed/artifact validation passed: 10/10 layouts across hosts 2026.10.24 and 2026.10.28, 830 package-manager/CLI commands, 270 SDK checks and 200 explicit process-status scenarios; synthetic provider observed zero remote mutations. Exact tested artifact SHA-256: 05c29d348dfc56c0eb8bde0f20964c44ce4c70e70c74eac8eb1e57bf4275f957. node test/verify-estimate-artifact.ts docs/estimate-packed-validation.json docs/estimate-artifact-validation.json independently re-captured identical bytes, verified all nine shipped files, rejected an ignored dist-file mutation in an owned extracted copy, and verified restoration. Test compilation and docstring gate passed (112 declarations). All changed history files retain main as an unchanged prefix; tracker additions pass the private-path check. Full unchanged clean-identity npm and Bun release gates are next; no CI approval is claimed yet."
+files[29]{path,scope}:
   index.ts,project
   manifest.json,project
   package-lock.json,project
@@ -84,39 +93,198 @@ files[24]{path,scope}:
   test/estimate-real-validation.ts,project
   test/estimate-units.test.ts,project
   test/forward-import.test.ts,project
+  test/import-boundaries.test.ts,project
   test/native-reference.ts,project
+  test/network.test.ts,project
+  test/ownership-packed-acceptance.ts,project
   test/ownership-validation.ts,project
   test/ownership.test.ts,project
   test/revert-estimate-recovery.ts,project
   test/revert-estimate-snapshot.ts,project
   test/revert-estimate-units.ts,project
   test/revert-forward-import.ts,project
+  test/revert-import-boundaries.ts,project
   test/revert-ownership-import-parity.ts,project
   test/revert-preview-contract.ts,project
   test/revert-sync-result-contract.ts,project
   test/smoke.test.ts,project
   test/sync-result-contract.test.ts,project
-tests[19]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-concurrency=1 test/estimate-units.test.ts,project,codex-agent,"2026-10-29T02:25:33.444Z",local_mutation,feat/estimate-unit-provenance
-  node --test --test-concurrency=1 --test-skip-pattern='seed 1620' test/estimate-units.test.ts,project,codex-agent,"2026-10-29T03:04:41.420Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"ownership shares every import writer\" test/ownership.test.ts",project,codex-agent,"2026-10-29T05:18:14.374Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"ownership retains isolated\" test/ownership.test.ts",project,codex-agent,"2026-10-29T05:51:20.172Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620\" test/estimate-units.test.ts",project,codex-agent,"2026-10-29T07:02:40.187Z",local_mutation,feat/estimate-unit-provenance
-  node test/revert-estimate-snapshot.ts docs/estimate-snapshot-revert.json,project,codex-agent,"2026-10-29T07:25:39.091Z",local_mutation,feat/estimate-unit-provenance
-  node test/estimate-packed-acceptance.ts docs/estimate-packed-validation.json,project,codex-agent,"2026-10-29T07:25:46.206Z",local_mutation,feat/estimate-unit-provenance
-  node test/revert-estimate-recovery.ts docs/estimate-recovery-revert.json,project,codex-agent,"2026-10-29T09:32:34.249Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-skip-pattern=\"seeded 500\" test/forward-import.test.ts",project,codex-agent,"2026-10-29T11:00:28.431Z",local_mutation,feat/estimate-unit-provenance
-  node test/revert-forward-import.ts docs/forward-import-revert.json,project,codex-agent,"2026-10-29T11:00:30.754Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"projection refuses|every simulated|model oracle\" test/ownership.test.ts test/estimate-units.test.ts",project,codex-agent,"2026-10-29T13:15:18.298Z",local_mutation,feat/estimate-unit-provenance
-  node test/revert-preview-contract.ts docs/preview-contract-revert.json,project,codex-agent,"2026-10-29T13:15:20.808Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"projection refuses|every simulated|model oracle|read-only tracker projections\" test/ownership.test.ts test/estimate-units.test.ts",project,codex-agent,"2026-10-29T13:50:50.382Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620|500 seeded|seeded 500\" test/ownership.test.ts test/estimate-units.test.ts test/forward-import.test.ts test/atomic.test.ts test/commands.test.ts test/branch-coverage.test.ts",project,codex-agent,"2026-10-29T15:22:22.139Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"seeded 500\" test/forward-import.test.ts",project,codex-agent,"2026-10-29T15:24:23.625Z",local_mutation,feat/estimate-unit-provenance
-  node --test --test-concurrency=1 test/sync-result-contract.test.ts,project,codex-agent,"2026-10-29T16:29:04.125Z",local_mutation,feat/estimate-unit-provenance
-  node test/revert-sync-result-contract.ts docs/sync-result-contract-revert.json,project,codex-agent,"2026-10-29T16:29:05.498Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620|500 seeded|seeded 500\" test/ownership.test.ts test/estimate-units.test.ts test/forward-import.test.ts test/atomic.test.ts test/commands.test.ts test/branch-coverage.test.ts test/sync-result-contract.test.ts",project,codex-agent,"2026-10-29T16:41:24.206Z",local_mutation,feat/estimate-unit-provenance
-  "node --test --test-concurrency=1 --test-name-pattern=\"seed 1620\" test/estimate-units.test.ts",project,codex-agent,"2026-10-29T16:55:03.726Z",local_mutation,feat/estimate-unit-provenance
-docs[16]{path,scope}:
+  test/verify-estimate-artifact.ts,project
+tests[24]:
+  - command: node --test --test-concurrency=1 test/estimate-units.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T02:25:33.444Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node --test --test-concurrency=1 --test-skip-pattern='seed 1620' test/estimate-units.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T03:04:41.420Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"ownership shares every import writer\" test/ownership.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T05:18:14.374Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"ownership retains isolated\" test/ownership.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T05:51:20.172Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620\" test/estimate-units.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T07:02:40.187Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-estimate-snapshot.ts docs/estimate-snapshot-revert.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T07:25:39.091Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/estimate-packed-acceptance.ts docs/estimate-packed-validation.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T07:25:46.206Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-estimate-recovery.ts docs/estimate-recovery-revert.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T09:32:34.249Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-skip-pattern=\"seeded 500\" test/forward-import.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T11:00:28.431Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-forward-import.ts docs/forward-import-revert.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T11:00:30.754Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"projection refuses|every simulated|model oracle\" test/ownership.test.ts test/estimate-units.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T13:15:18.298Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-preview-contract.ts docs/preview-contract-revert.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T13:15:20.808Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"projection refuses|every simulated|model oracle|read-only tracker projections\" test/ownership.test.ts test/estimate-units.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T13:50:50.382Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620|500 seeded|seeded 500\" test/ownership.test.ts test/estimate-units.test.ts test/forward-import.test.ts test/atomic.test.ts test/commands.test.ts test/branch-coverage.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T15:22:22.139Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"seeded 500\" test/forward-import.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T15:24:23.625Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node --test --test-concurrency=1 test/sync-result-contract.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T16:29:04.125Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-sync-result-contract.ts docs/sync-result-contract-revert.json
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T16:29:05.498Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620|500 seeded|seeded 500\" test/ownership.test.ts test/estimate-units.test.ts test/forward-import.test.ts test/atomic.test.ts test/commands.test.ts test/branch-coverage.test.ts test/sync-result-contract.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T16:41:24.206Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"seed 1620\" test/estimate-units.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T16:55:03.726Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node --test --test-concurrency=1 test/import-boundaries.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:05:05.572Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-import-boundaries.ts docs/import-boundaries-revert.json
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:05:11.980Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:18:57.120Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:19:08.384Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/verify-estimate-artifact.ts docs/estimate-packed-validation.json docs/estimate-artifact-validation.json
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T19:19:20.324Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+docs[17]{path,scope}:
   docs/complete-local-reads.md,project
   docs/estimate-artifact-validation.json,project
   docs/estimate-packed-validation.json,project
@@ -127,6 +295,7 @@ docs[16]{path,scope}:
   docs/estimate-units.md,project
   docs/field-ownership.md,project
   docs/forward-import-revert.json,project
+  docs/import-boundaries-revert.json,project
   docs/ownership-forward-validation.json,project
   docs/ownership-import-parity-revert.json,project
   docs/preview-contract-revert.json,project

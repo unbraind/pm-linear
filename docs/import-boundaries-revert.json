@@ -1,0 +1,74 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "ambiguous native provenance becomes an unmatched create",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "duplicate provider identities create separate native targets",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "sync ambiguity prefilter drops the explicit conflict",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "unconfirmed rows no longer affect process status",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "observer failures incorrectly report successful process status",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "failed native rows no longer affect process status",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 0 omits host exit_code",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 1 omits host exit_code",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 2 omits host exit_code",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "SDK atomic request silently accepts forward-only writes",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "atomic-named entrypoint silently accepts forward-only writes",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "export submits non-unique provider targets",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "export failures omit nonzero host status",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 7,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

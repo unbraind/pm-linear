@@ -4,7 +4,7 @@ import test from "node:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireLock, PmClient, readSettings, readHistoryEntries, getHistoryPath, normalizeItemId, type PmClientFullMutationOptions } from "@unbrained/pm-cli/sdk";
+import { acquireLock, PmClient, readSettings, readHistoryEntries, getHistoryPath, normalizeItemId } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, deriveAtomicItemId, syncLinearIssues, type LinearIssue, type LinearImportOutcome } from "../index.ts";
 
 import { referenceLifecycle } from "./native-reference.ts";
@@ -42,7 +42,7 @@ test("forward-only title plus close survives a later failure and completed title
   const settings = await readSettings(root); const ids = issues.map((issue) => deriveAtomicItemId("ENG", issue.identifier, settings.id_prefix, normalizeItemId));
   issues[0].assignee = { name: "Remote Agent", email: null };
   issues[0].title = "Completed title"; issues[0].state = { name: "Complete", type: "completed" }; issues[1].title = "Later title";
-  const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => issues,
+  const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, { fetchIssues: async () => issues,
     onEstimateBoundary: async (stage, id) => { if (stage === "before_update" && id === ids[1]) throw new Error("Later item fails"); } });
   assert.equal(result.updated, 1); assert.equal(result.skipped, 1); assert.equal(result.atomic, false);
   assert.deepEqual(result.importResults?.map((row) => [row.action, row.code]), [["updated", undefined], ["skipped", "import_failed"]]);
@@ -52,7 +52,7 @@ test("forward-only title plus close survives a later failure and completed title
   const before = await readHistoryEntries(getHistoryPath(root, ids[0]), ids[0]);
   assert.ok(before.some((row) => row.op === "close")); assert.ok(before.every((row) => row.op !== "restore"));
   issues[0].title = "Edit while completed";
-  const edited = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => issues });
+  const edited = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true }, root, { fetchIssues: async () => issues });
   assert.equal(edited.updated, 2); assert.equal(edited.skipped, 0);
   const after = await readHistoryEntries(getHistoryPath(root, ids[0]), ids[0]);
   assert.equal(after.length, before.length + 1); assert.equal(after.at(-1)?.op, "update");
@@ -95,7 +95,7 @@ test("forward-only seeded 500 multi-item failure and peer schedules converge wit
     const peerItem = (sequence + 1) % 3, peerStage = stages[Math.floor(sequence / 21) % stages.length];
     let failed = false, peerWritten = false;
     let peer: typeof before[number] | undefined;
-    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: Boolean(sequence % 2) }, root, { fetchIssues: async () => sequence % 2 ? [...desired].reverse() : desired,
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: Boolean(sequence % 2), forwardOnly: true }, root, { fetchIssues: async () => sequence % 2 ? [...desired].reverse() : desired,
       onEstimateBoundary: async (stage, id) => {
         if (!peerWritten && stage === peerStage && id === ids[peerItem]) {
           peerWritten = true; await pm.update(id, { title: `Peer ${sequence}`, estimatedMinutes: String(500 + sequence) });

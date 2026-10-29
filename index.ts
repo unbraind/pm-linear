@@ -79,6 +79,26 @@ export class LinearSourceRefusal extends CommandError {
   }
 }
 
+/** Explicit requests for unavailable batch guarantees require a deliberate migration. */
+export class LinearAtomicRefusal extends CommandError {
+  /** Stable migration refusal shared by SDK and CLI receipts. */
+  readonly code = "atomic_unavailable";
+  /** The explicitly requested capability that could not be supplied. */
+  readonly field = "atomic";
+  /** Explicit alternatives that accept retained per-item successes before writes. */
+  readonly remedy = "Batch atomicity is unavailable. Choose importLinearForwardOnly, set forwardOnly: true in the SDK, or pass --forward-only to accept per-item writes that retain earlier successes; no import was started.";
+  /** Refuse the stronger contract before provider access, tracker reads or mutations. */
+  constructor() {
+    super("Linear import refused (atomic_unavailable). Explicitly choose forward-only mode before retrying.", EXIT_CODE.USAGE);
+    this.name = "LinearAtomicRefusal";
+  }
+}
+
+/** Never interpret an explicit atomic request as consent to partial application. */
+function assertLinearImportMode(atomic: boolean | undefined, forwardOnly: boolean | undefined): void {
+  if (atomic && forwardOnly !== true) throw new LinearAtomicRefusal();
+}
+
 /** Provider data refused before SDK control-token parsing or any item write. */
 export class LinearImportRefusal extends CommandError {
   /** Stable category for values the installed SDK cannot store literally. */
@@ -118,7 +138,7 @@ function assertLiteralImportValues(plan: Pick<ItemPlan, "title" | "body" | "desc
 /** Standard host error receipt for source-contract and literal-representability failures. */
 export interface LinearSourceErrorReceipt {
   ok: false;
-  code: "source_invalid" | "unrepresentable_value" | LinearEstimateRefusalCode;
+  code: "source_invalid" | "unrepresentable_value" | "atomic_unavailable" | LinearEstimateRefusalCode;
   field: string;
   remedy: string;
   remediation: string;
@@ -130,7 +150,7 @@ export interface LinearSourceErrorReceipt {
 async function withLinearSource<T>(action: () => T | Promise<T>): Promise<T | LinearSourceErrorReceipt> {
   try { return await action(); }
   catch (error: unknown) {
-    if (!(error instanceof CommandError) || !("code" in error) || (error.code !== "source_invalid" && error.code !== "unrepresentable_value" && !(error instanceof LinearEstimateRefusal))) throw error;
+    if (!(error instanceof CommandError) || !("code" in error) || (error.code !== "source_invalid" && error.code !== "unrepresentable_value" && !(error instanceof LinearEstimateRefusal) && !(error instanceof LinearAtomicRefusal))) throw error;
     const field = "field" in error && typeof error.field === "string" ? error.field : "issue";
     const remedy = "remedy" in error && typeof error.remedy === "string" ? error.remedy : `Retry a complete provider response at ${field}.`;
     return { ok: false, code: error.code as LinearSourceErrorReceipt["code"], field, remedy, remediation: remedy, exit_code: EXIT_CODE.USAGE,
@@ -141,12 +161,18 @@ async function withLinearSource<T>(action: () => T | Promise<T>): Promise<T | Li
 /** Apply the shared source-error renderer without changing command metadata or context. */
 function registerLinearCommand(api: ExtensionApi, definition: Parameters<ExtensionApi["registerCommand"]>[0] & { run: (ctx: CommandHandlerContext) => unknown }): void {
   const run = definition.run;
-  api.registerCommand({ ...definition, run: (ctx) => withLinearSource(() => run(ctx)) });
+  api.registerCommand({ ...definition, run: (ctx) => withLinearSource(() => {
+    if (definition.name === "linear sync") assertLinearImportMode(readBooleanOption(ctx.options, "atomic"), readBooleanOption(ctx.options, "forward-only"));
+    return run(ctx);
+  }) });
 }
 
 /** Import aliases share the same typed source-error renderer as commands. */
 function registerLinearImporter(api: ExtensionApi, name: string, handler: Parameters<ExtensionApi["registerImporter"]>[1]): void {
-  api.registerImporter(name, (ctx) => withLinearSource(() => handler(ctx)));
+  api.registerImporter(name, (ctx) => withLinearSource(() => {
+    assertLinearImportMode(readBooleanOption(ctx.options, "atomic"), readBooleanOption(ctx.options, "forward-only"));
+    return handler(ctx);
+  }));
 }
 
 /** Export failures retain source diagnostics even when the host renders JSON or TOON. */
@@ -1884,7 +1910,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
   let projection: ClosureReadView;
   try {
     projection = await readClosureItems(source, [options.item], (copy) => syncLinearIssues({
-      team: issue.team?.key ?? "OWNERSHIP", limit: 1, atomic: true, statusMap: Object.fromEntries(normalizedMap),
+      team: issue.team?.key ?? "OWNERSHIP", limit: 1, forwardOnly: true, statusMap: Object.fromEntries(normalizedMap),
     }, copy, { fetchIssues: async () => [issue], projectionForce: !issue.team }));
   }
   catch (error: unknown) {
@@ -2701,8 +2727,10 @@ export interface SyncOptions {
   estimateMapping?: LinearEstimateMapping;
   limit: number;
   dryRun?: boolean;
-  /** Deprecated compatibility flag; imports are always forward-only per item. */
+  /** Deprecated stronger-guarantee request; refuses unless forwardOnly explicitly accepts migration. */
   atomic?: boolean;
+  /** Explicitly accept per-item application and retained prior successes, including with deprecated atomic requests. */
+  forwardOnly?: boolean;
 }
 
 /** Test seams for {@link syncLinearIssues}; each defaults to the live path. */
@@ -2800,8 +2828,14 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const registry = runtime.resolveRuntimeStatusRegistry(nativeSchema);
   const pm = new runtime.PmClient({ cwd: pmRoot, pmRoot, noExtensions: true, author });
   const results: LinearImportOutcome[] = [];
+  // Quarantine duplicates in both native provenance and the selected provider
+  // batch. Missing unique matches never grant ownership of a fresh identity.
+  const ambiguous = ambiguousLinearIds(await readPmItems(pmRoot));
+  const seen = new Set<string>();
+  for (const entry of entries) { if (seen.has(entry.linearId)) ambiguous.add(entry.linearId); seen.add(entry.linearId); }
   const targets = [];
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
+    if (ambiguous.has(entry.linearId)) { results.push(linearProvenanceConflict(entry.linearId)); continue; }
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
     const before = await observeEstimateCandidate(pmRoot, id);
     const expected = entry.match?.id ? revisions.get(id) : before?.version ? undefined : before?.revision;
@@ -2949,6 +2983,10 @@ export interface LinearImportOutcome {
 
 /** Native write receipt shared by imports; it contains no fetched provider payloads. */
 export interface LinearImportReceipt {
+  /** False when any row failed, conflicted or remains unconfirmed; filtering alone succeeds. */
+  success?: boolean;
+  /** Host process status, shared by SDK receipts and every CLI renderer. */
+  exit_code?: number;
   /** Native-call failures with a changed target whose complete desired state cannot be confirmed. */
   unconfirmed?: number;
   /** All target outcomes, including unchanged items and typed per-item refusals. */
@@ -2966,8 +3004,8 @@ export interface LinearImportReceipt {
   updated: number;
   skipped: number;
   team: string;
-  // Deprecated compatibility fields. Imports report atomic=false; only the old
-  // atomic-named SDK wrapper returns a revision-bound receipt ID, never a journal.
+  // Deprecated compatibility fields. Imports report atomic=false; receipt IDs
+  // describe observations and never identify a durable journal.
   atomic?: boolean;
   dryRun?: boolean;
   transactionId?: string;
@@ -2980,6 +3018,19 @@ export interface SyncResult extends LinearImportReceipt {
   schema?: LinearSchemaReport;
   /** Complete fetched issues in provider order, including filtered/skipped records; CLI receipts omit these payloads. */
   issues: LinearIssue[];
+}
+
+/** A non-unique provider identity selects no native target and authorizes no write. */
+function linearProvenanceConflict(linearId: string): LinearImportOutcome {
+  return { id: null, linearId, action: "skipped", code: "import_conflict", reason: "foreign",
+    remedy: "Repair duplicate native provenance links or duplicate provider rows before choosing a target; no item was written for this row." };
+}
+
+/** One result contract drives SDK, command and importer process status without discarding receipts. */
+function linearImportStatus(result: Pick<LinearImportReceipt, "unconfirmed" | "importResults">): { success: boolean; exit_code?: number } {
+  const failed = (result.unconfirmed ?? 0) > 0 || result.importResults?.some((row) =>
+    row.action === "unconfirmed" || row.code === "import_failed" || row.code === "import_observer_failed" || row.code === "import_conflict");
+  return { success: !failed, ...(failed ? { exit_code: EXIT_CODE.GENERIC_FAILURE } : {}) };
 }
 
 /** Quarantine every non-unique provider identity before any import target is selected. */
@@ -3161,6 +3212,8 @@ type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
  * compatibility and are never invoked by the production writer.
  */
 export interface AtomicImportOptions {
+  /** Explicit consent to forward-only behavior when using the deprecated atomic-named entrypoint. */
+  forwardOnly?: boolean;
   /** Explicit author forwarded to every native item mutation. */
   atomicAuthor?: string;
   /** Boundary observer for forward-only fault/interleaving verification. */
@@ -3177,8 +3230,8 @@ export interface AtomicImportOptions {
 export interface PreparedLinearImport {
   // The STABLE external key: Linear's human-facing issue identifier (e.g.
   // "ENG-123"). Never the fetch order or the positional index. The deterministic
-  // managed item id is derived from this so a reordered retry resumes the same
-  // journal, and a prior interrupted attempt's provenance scan finds the item.
+  // managed item id is derived from this so reordered retries select the same
+  // identity. Current provenance and revisions are always re-read; no journal resumes.
   identifier: string;
   // Linear's internal UUID. Carried for provenance/dedupe parity (the existing
   // indexItemsByLinearId match keys on this), but NOT used as the managed id.
@@ -3225,8 +3278,9 @@ async function loadImportSdk(
 /**
  * Derive a legacy descriptive fingerprint from the desired import state and
  * ordered mutation plan. This is not an executable import idempotency key;
- * production imports compare current SDK revisions rather than replay journals. Content or target changes produce a fresh
- * transaction; a reordered retry of the same plan resumes the durable journal.
+ * production imports compare current SDK revisions rather than replay journals.
+ * Changed content or targets produce a new fingerprint; reordered equivalent
+ * entries produce the same descriptive value. It never resumes recovery.
  * Canonical entries are sorted by the STABLE external key (the Linear issue
  * identifier), never by fetch order.
  */
@@ -3255,9 +3309,8 @@ export function deriveAtomicTransactionId(
     .update("\x1f")
     .update(JSON.stringify(canonical))
     .update("\x1f")
-    // Recovery requires the exact ordered step plan. Include targets and
-    // options so a changed id_prefix or provenance match gets a fresh journal
-    // instead of colliding with an incompatible prior attempt.
+    // Include exact targets and ordered options in the descriptive fingerprint.
+    // This helper neither commits mutations nor resumes a recovery journal.
     .update(JSON.stringify(mutations))
     .digest("hex")
     .slice(0, 16);
@@ -3387,8 +3440,14 @@ export function buildAtomicImportMutations(
   return { itemId, mutations };
 }
 
-/** Deprecated compatibility name: imports now apply forward-only through the shared coordinator. */
-export async function importLinearAtomic(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}): Promise<LinearImportReceipt & {
+/** Deprecated atomic request: requires explicit forward-only consent before any import work. */
+export async function importLinearAtomic(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}) {
+  assertLinearImportMode(true, opts.forwardOnly);
+  return importLinearForwardOnly(pmRoot, team, entries, opts);
+}
+
+/** Apply prepared rows per item, retaining earlier successes and reporting every refused or uncertain row. */
+export async function importLinearForwardOnly(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}): Promise<LinearImportReceipt & {
   imported: number; recovered: boolean; transactionId: string; recoveredItems?: number; itemIds: Map<string, string>;
 }> {
   for (const entry of entries) assertLiteralImportValues(entry);
@@ -3402,11 +3461,12 @@ export async function importLinearAtomic(pmRoot: string, team: string, entries: 
   const revisions = await observeEstimateRevisions(pmRoot, items, opts.onBoundary);
   for (const entry of prepared) if (entry.match?.id && (ambiguous.has(entry.linearId) || ownMappingValue(matches, entry.linearId)?.id !== entry.match.id)) revisions.delete(entry.match.id);
   const result = await importEstimateBatch(pmRoot, { team, limit: entries.length }, prepared, 0, revisions, opts.onBoundary, false, opts.atomicAuthor);
-  const sdk = await importRuntimeSdk();
-  const settings = await sdk.readSettings(pmRoot);
-  return { ...result, imported: result.created, recovered: false,
+  return { ...result, ...linearImportStatus(result), imported: result.created, recovered: false,
     transactionId: `linear-forward-${schemaDigest([team, entries, [...revisions]]).slice(0, 32)}`,
-    itemIds: new Map(prepared.map((entry) => [entry.identifier, entry.match?.id ?? deriveAtomicItemId(team, entry.identifier, settings.id_prefix, sdk.normalizeItemId)])) };
+    itemIds: new Map(prepared.flatMap((entry) => {
+      const target = result.importResults?.find((row) => row.linearId === entry.linearId && row.id !== null)?.id;
+      return target ? [[entry.identifier, target]] : [];
+    })) };
 }
 
 export async function syncLinearIssues(
@@ -3414,6 +3474,7 @@ export async function syncLinearIssues(
   pm_root: string,
   dependencies: SyncRunDependencies = {},
 ): Promise<SyncResult> {
+  assertLinearImportMode(options.atomic, options.forwardOnly);
   if (options.estimateMapping !== undefined) canonicalEstimateMapping(options.estimateMapping);
   const apiKey = process.env["LINEAR_API_KEY"];
   // An injected fetchIssues seam (tests/offline) does not need a real key; only
@@ -3476,7 +3537,7 @@ export async function syncLinearIssues(
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
     return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues,
-      importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
+      success: true, importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
   }
 
   const statusMap = options.statusMap ?? {};
@@ -3488,7 +3549,7 @@ export async function syncLinearIssues(
   // Resolve and validate the entire selected batch before the first write.
   const prepared: PreparedLinearImport[] = [];
   for (const issue of issues) {
-    if (ambiguous.has(issue.id)) { skipped++; filteredResults.push({ id: null, linearId: issue.id, action: "skipped", code: "import_conflict", reason: "foreign", remedy: "Repair duplicate native provenance links before choosing a target; no item was written." }); console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
+    if (ambiguous.has(issue.id)) { skipped++; filteredResults.push(linearProvenanceConflict(issue.id)); console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
     // Reuse the same server-side state/cycle backstop filters as the legacy
     // path so `--atomic` skips the same issues and reports the same counts.
     if (options.stateFilter) {
@@ -3535,7 +3596,8 @@ export async function syncLinearIssues(
   if (prepared.some((entry) => scaleAwareIds.has(entry.linearId)) && prepared.some((entry) => !scaleAwareIds.has(entry.linearId)))
     throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
   const applied = await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary, dependencies.projectionForce);
-  return { ...applied, issues, importResults: [...filteredResults, ...applied.importResults!], ...(schema ? { schema } : {}) };
+  const result = { ...applied, issues, importResults: [...filteredResults, ...applied.importResults!], ...(schema ? { schema } : {}) };
+  return { ...result, ...linearImportStatus(result) };
 }
 
 // ---------------------------------------------------------------------------
@@ -3961,18 +4023,19 @@ const PREFLIGHT_SOURCE_FIELD_OPTION = "__linear_preflight_source_field";
  * - `export --push --dry-run` writes nothing and is documented as making no
  *   network call, yet a mutation-shaped test saw `--push` and demanded an API
  *   key, so the offline preview failed on any host without one.
- * - `sync`/`import` with `--atomic --dry-run` also writes nothing, but it is
- *   *not* offline: it fetches issues to build the atomic plan. A mutation-shaped
+ * - `sync`/`import` with `--forward-only --dry-run` also writes nothing, but it is
+ *   *not* offline: it fetches issues to build the native plan. A mutation-shaped
  *   test saw `--dry-run` and skipped the preflight, so a missing or invalid key
  *   surfaced as a raw fetch failure deep in the sync core instead of the clean
  *   USAGE error the preflight exists to produce.
  *
  * So: `--dry-run` alone is offline for `sync`, `import`, and `export`; combined
- * with `--atomic` it still fetches. Every other command is read-only and skips
+ * with `--forward-only` it fetches and simulates the native apply path. An
+ * explicit `--atomic` request must first opt into that migration or it refuses. Every other command is read-only and skips
  * the key check, so a `list` or `validate` never demands a key it does not need.
  *
  * @param command - The full command string (e.g. `linear sync`).
- * @param options - The raw flag bag, inspected for `--dry-run`, `--atomic`, and `--push`.
+ * @param options - The raw flag bag, inspected for `--dry-run`, `--forward-only`, `--atomic`, and `--push`.
  * @returns True when the invocation needs a valid, reachable Linear API key.
  */
 export function commandNeedsLinearAccess(command: string, options: Record<string, unknown>): boolean {
@@ -3984,9 +4047,9 @@ export function commandNeedsLinearAccess(command: string, options: Record<string
   // load-bearing, where the previously global registration had covered it by
   // accident.
   if (cmd === "linear sync" || cmd === "linear import" || cmd === "linear-sync import") {
-    // `--atomic --dry-run` is a preview, but it builds that preview from issues
+    // `--forward-only --dry-run` is a preview, but it builds that preview from issues
     // it fetches, so it needs the key just as much as a real run.
-    return !dryRun || readBooleanOption(options, "atomic");
+    return !dryRun || readBooleanOption(options, "atomic") || readBooleanOption(options, "forward-only");
   }
   if (cmd === "linear export") {
     return readBooleanOption(options, "push") && !dryRun;
@@ -4301,7 +4364,7 @@ export default defineExtension({
     // -----------------------------------------------------------------------
     // preflight — validate credentials + reachability before any Linear command
     // that REACHES Linear runs. Note "reaches", not "mutates": the gate protects
-    // the network call, so `--atomic --dry-run` needs it (it fetches issues to
+    // the network call, so `--forward-only --dry-run` needs it (it fetches issues to
     // build the plan) while `export --push --dry-run` does not (it writes and
     // fetches nothing). See commandNeedsLinearAccess. Scoped to the command
     // paths pm-linear owns so it
@@ -4314,6 +4377,7 @@ export default defineExtension({
     api.registerPreflight({
       commands: ["linear sync", "linear import", "linear export", "linear-sync import"],
       run: async (ctx: PreflightOverrideContext) => {
+        if (readBooleanOption(ctx.options, "atomic") && !readBooleanOption(ctx.options, "forward-only") && ctx.command !== "linear export") return {};
         if (!commandNeedsLinearAccess(ctx.command, ctx.options)) return {};
         // Reachability uses the network; allow opting out (CI/offline/tests).
         // pm strips a leading `--no-` as boolean negation, so the user-facing flag
@@ -4345,7 +4409,7 @@ export default defineExtension({
         "pm linear sync --team ENG --cycle 'Sprint 7' --limit 50",
         "pm linear sync --team ENG --limit 50",
         "pm linear sync --team ENG --dry-run",
-        "pm linear sync --team ENG --atomic",
+        "pm linear sync --team ENG --forward-only",
       ],
       flags: [
         { long: "--team", value_name: "slug", description: "Linear team slug (e.g. ENG, BACKEND). Optional when LINEAR_DEFAULT_TEAM is set." },
@@ -4361,8 +4425,9 @@ export default defineExtension({
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
         { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-        { long: "--atomic", description: "Deprecated compatibility flag; imports are forward-only per item with conflict receipts, never batch rollback" },
-        { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
+        { long: "--atomic", description: "Deprecated atomic request: refused unless --forward-only explicitly accepts per-item application" },
+        { long: "--forward-only", description: "Accept per-item writes that retain earlier successes; required to migrate an explicit --atomic request" },
+        { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --forward-only it fetches and simulates the apply path, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
 
@@ -4393,15 +4458,15 @@ export default defineExtension({
 
         const syncOpts: SyncOptions = {
           team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
-          statusMap, fieldMap, projectMap, estimateMapping, limit, dryRun, atomic,
+          statusMap, fieldMap, projectMap, estimateMapping, limit, dryRun, atomic, forwardOnly: readBooleanOption(ctx.options, "forward-only"),
           schemaVersion: readStringOption(ctx.options, "schema-version"),
         };
 
         // --dry-run is fully offline: print the literal GraphQL request, no call.
-        // --atomic --dry-run is NOT offline: it fetches issues, shares the atomic
+        // --forward-only --dry-run is NOT offline: it fetches issues, shares the native
         // preparation/matching path, and reports create/update/skip counts
         // WITHOUT committing — handled inside syncLinearIssues.
-        if (dryRun && !atomic) {
+        if (dryRun && !atomic && !readBooleanOption(ctx.options, "forward-only")) {
           return renderImportDryRun(ctx, syncOpts, teamSelection.source);
         }
 
@@ -4422,7 +4487,7 @@ export default defineExtension({
           }
 
           return {
-            success: (result.unconfirmed ?? 0) === 0,
+            ...linearImportStatus(result),
             synced: result.synced,
             created: result.created,
             updated: result.updated,
@@ -4549,8 +4614,9 @@ export default defineExtension({
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
       { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-      { long: "--atomic", description: "Deprecated compatibility flag; imports are forward-only per item with conflict receipts, never batch rollback" },
-      { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
+      { long: "--atomic", description: "Deprecated atomic request: refused unless --forward-only explicitly accepts per-item application" },
+      { long: "--forward-only", description: "Accept per-item writes that retain earlier successes; required to migrate an explicit --atomic request" },
+      { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --forward-only it fetches and simulates the apply path, so it needs LINEAR_API_KEY." },
     ];
     for (const command of ["linear import", "linear-sync import"]) api.registerFlags(command, linearImportFlags);
     api.registerFlags("linear export", [
@@ -4592,14 +4658,14 @@ export default defineExtension({
 
       const syncOpts: SyncOptions = {
         team, project, stateFilter, cycleFilter, assignee, label, updatedSince,
-        statusMap, fieldMap, projectMap, estimateMapping, limit, dryRun, atomic,
+        statusMap, fieldMap, projectMap, estimateMapping, limit, dryRun, atomic, forwardOnly: readBooleanOption(ctx.options, "forward-only"),
         schemaVersion: readStringOption(ctx.options, "schema-version"),
       };
 
       // --dry-run is fully offline: emit the literal GraphQL request, no call.
-      // --atomic --dry-run shares the atomic prep/matching path (fetches issues,
+      // --forward-only --dry-run shares the native prep/matching path (fetches issues,
       // reports counts, no commit) - handled inside syncLinearIssues.
-      if (dryRun && !atomic) {
+      if (dryRun && !atomic && !readBooleanOption(ctx.options, "forward-only")) {
         const plan = await renderImportDryRun(ctx, syncOpts, teamSelection.source);
         return { imported: 0, created: 0, updated: 0, skipped: 0, ...plan };
       }
@@ -4618,6 +4684,7 @@ export default defineExtension({
           );
         }
         return {
+          ...linearImportStatus(result),
           imported: result.synced,
           created: result.created,
           updated: result.updated,
@@ -4657,13 +4724,18 @@ export default defineExtension({
       const fieldMap = parseFieldMap(readStringOption(ctx.options, "map"));
       const items = await readPmItems(ctx.pm_root);
       const payloads = items.map((it) => itemToLinearPayload(it, fieldMap));
+      const ambiguous = ambiguousLinearIds(items);
+      const exportConflicts = payloads.filter((payload) => payload.linearId && ambiguous.has(payload.linearId))
+        .map((payload) => ({ ...linearProvenanceConflict(payload.linearId!), pmId: payload.pmId }));
+      const applicablePayloads = payloads.filter((payload) => !payload.linearId || !ambiguous.has(payload.linearId));
+      const conflictStatus = linearImportStatus({ importResults: exportConflicts });
 
       // --dry-run: build + print the exact would-be Linear GraphQL mutations
       // (issueCreate / issueUpdate with their variables), OFFLINE — no network,
       // no writes — regardless of --push. This is the symmetric counterpart to
       // the import dry-run plan.
       if (dryRun) {
-        const plans = payloads.map((p) =>
+        const plans = applicablePayloads.map((p) =>
           buildExportMutationPlan(p, invertedStatusMap, teamKey)
         );
         const wouldCreate = plans.filter((p) => p.action === "create").length;
@@ -4685,7 +4757,9 @@ export default defineExtension({
           }
         }
         return {
-          exported: plans.length,
+          ...conflictStatus,
+          ...(exportConflicts.length ? { exportConflicts, skipped: exportConflicts.length } : {}),
+          exported: payloads.length,
           pushed: false,
           dryRun: true,
           wouldCreate,
@@ -4698,7 +4772,7 @@ export default defineExtension({
       // Default (no --push, no --dry-run): print the read-only payload preview.
       if (!push) {
         const printable = payloads.map((p) => ({
-          action: p.alreadyInLinear ? "update" : "create",
+          action: p.linearId && ambiguous.has(p.linearId) ? "conflict" : p.alreadyInLinear ? "update" : "create",
           title: p.title,
           description: p.description,
           targetState: resolveLinearStateName(p.pmStatus, invertedStatusMap) ?? null,
@@ -4711,9 +4785,11 @@ export default defineExtension({
           ...(p.linearUrl ? { linearUrl: p.linearUrl } : {}),
         }));
         const wouldCreate = printable.filter((p) => p.action === "create").length;
-        const wouldUpdate = printable.length - wouldCreate;
+        const wouldUpdate = printable.filter((p) => p.action === "update").length;
         if (isJsonMode(ctx)) {
           return {
+            ...conflictStatus,
+            ...(exportConflicts.length ? { exportConflicts, skipped: exportConflicts.length } : {}),
             exported: printable.length,
             pushed: false,
             dryRun: false,
@@ -4731,6 +4807,8 @@ export default defineExtension({
         }
         console.log(JSON.stringify(printable, null, 2));
         return {
+          ...conflictStatus,
+          ...(exportConflicts.length ? { exportConflicts, skipped: exportConflicts.length } : {}),
           exported: printable.length,
           pushed: false,
           dryRun: false,
@@ -4766,12 +4844,12 @@ export default defineExtension({
       resetCycleWarning();
       let created = 0;
       let updated = 0;
-      let skipped = 0;
+      let skipped = exportConflicts.length;
       // Per-item failure isolation: a single issueCreate/issueUpdate failure
       // (API error, transient network, etc.) is caught, counted into `skipped`,
       // and the batch CONTINUES — mirroring the import path's per-item `continue`
       // — instead of aborting every remaining item. Errors are logged to stderr.
-      for (const payload of payloads) {
+      for (const payload of applicablePayloads) {
         const label = payload.linearId ?? payload.pmId ?? payload.title;
         try {
           // Map pm status -> a concrete Linear workflow-state id for this team,
@@ -4844,6 +4922,9 @@ export default defineExtension({
           (skipped > 0 ? ` — ${skipped} skipped (see errors above)` : "")
       );
       return {
+        success: skipped === 0,
+        ...(skipped > 0 ? { exit_code: EXIT_CODE.GENERIC_FAILURE } : {}),
+        ...(exportConflicts.length ? { exportConflicts } : {}),
         exported: payloads.length,
         pushed: true,
         created,
@@ -4889,18 +4970,18 @@ export default defineExtension({
 
       const syncOpts: SyncOptions = {
         team, project, stateFilter, cycleFilter, assignee, label,
-        statusMap, fieldMap: parseFieldMap(readStringOption(ctx.options, "map")), projectMap, estimateMapping, limit, dryRun, atomic,
+        statusMap, fieldMap: parseFieldMap(readStringOption(ctx.options, "map")), projectMap, estimateMapping, limit, dryRun, atomic, forwardOnly: readBooleanOption(ctx.options, "forward-only"),
         updatedSince: readStringOption(ctx.options, "updated-since"),
         schemaVersion: readStringOption(ctx.options, "schema-version"),
       };
 
       // --dry-run is fully offline: emit the literal GraphQL request, no call
-      // and no writes. --atomic --dry-run shares the atomic prep/matching path
+      // and no writes. --forward-only --dry-run shares the native prep/matching path
       // (fetches issues, reports counts, no commit) handled inside
       // syncLinearIssues, so dryRun is forwarded below. Without this guard,
       // syncLinearIssues would see dryRun=false and turn a requested preview
       // into a real workspace write.
-      if (dryRun && !atomic) {
+      if (dryRun && !atomic && !readBooleanOption(ctx.options, "forward-only")) {
         const plan = await renderImportDryRun(ctx, syncOpts, teamSelection.source);
         return {
           synced: 0,
@@ -4922,6 +5003,7 @@ export default defineExtension({
       }
 
       return {
+        ...linearImportStatus(result),
         synced: result.synced,
         created: result.created,
         updated: result.updated,

@@ -11,7 +11,7 @@ import extension, {
   buildAtomicImportMutations,
   deriveAtomicItemId,
   deriveAtomicTransactionId,
-  importLinearAtomic,
+  importLinearForwardOnly,
   syncLinearIssues,
 } from "../index.ts";
 import type { PreparedLinearImport, LinearIssue } from "../index.ts";
@@ -139,13 +139,13 @@ test("a failed forward batch retains applied creates and retries without duplica
   const root = freshTracker();
   try {
     const entries = [entry("ENG-20", "Keep one"), entry("ENG-21", "Retry two")];
-    const result = await importLinearAtomic(root, "ENG", entries, { onBoundary: async (stage, id) => {
+    const result = await importLinearForwardOnly(root, "ENG", entries, { onBoundary: async (stage, id) => {
       if (stage === "before_update" && id.endsWith("-21")) throw new Error("Injected item failure");
     } });
     assert.equal(result.imported, 1); assert.equal(result.skipped, 1); assert.equal(result.atomic, false);
     assert.equal(itemCount(root), 1); assert.equal(listItems(root)[0].title, "Keep one");
     assert.equal(result.importResults?.find((row) => row.action === "skipped")?.code, "import_failed");
-    const retry = await importLinearAtomic(root, "ENG", entries); assert.equal(retry.imported, 1); assert.equal(retry.updated, 0);
+    const retry = await importLinearForwardOnly(root, "ENG", entries); assert.equal(retry.imported, 1); assert.equal(retry.updated, 0);
     assert.equal(itemCount(root), 2); assert.ok(validateOk(root));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -153,9 +153,9 @@ test("a failed forward batch retains applied creates and retries without duplica
 test("a failed mixed batch retains completed updates and closes while skipping a failed item", async () => {
   const root = freshTracker();
   try {
-    const initial = await importLinearAtomic(root, "ENG", [entry("ENG-30", "Original update target"), entry("ENG-31", "Original close target"), entry("ENG-32", "Last")]);
+    const initial = await importLinearForwardOnly(root, "ENG", [entry("ENG-30", "Original update target"), entry("ENG-31", "Original close target"), entry("ENG-32", "Last")]);
     const updateId = initial.itemIds.get("ENG-30")!, closeId = initial.itemIds.get("ENG-31")!;
-    const result = await importLinearAtomic(root, "ENG", [entry("ENG-30", "Mutated title", { body: "Mutated body" }),
+    const result = await importLinearForwardOnly(root, "ENG", [entry("ENG-30", "Mutated title", { body: "Mutated body" }),
       entry("ENG-31", "Completed title", { status: "closed" }), entry("ENG-32", "Failed last")], {
       onBoundary: async (stage, id) => { if (stage === "before_update" && id.endsWith("-32")) throw new Error("Last item fails"); },
     });
@@ -174,7 +174,7 @@ test("forward import retries reordered input from live state without duplicates"
   const root = freshTracker();
   try {
     const entries = [entry("ENG-1", "First"), entry("ENG-2", "Second")];
-    const first = await importLinearAtomic(root, "ENG", entries);
+    const first = await importLinearForwardOnly(root, "ENG", entries);
     assert.strictEqual(first.imported, 2);
     assert.strictEqual(first.updated, 0);
     assert.strictEqual(first.recovered, false);
@@ -191,7 +191,7 @@ test("forward import retries reordered input from live state without duplicates"
         status: "open",
       },
     }));
-    const resumed = await importLinearAtomic(root, "ENG", resumedEntries);
+    const resumed = await importLinearForwardOnly(root, "ENG", resumedEntries);
     assert.notStrictEqual(resumed.transactionId, first.transactionId, "the compatibility receipt is bound to the observed target revisions");
     assert.strictEqual(resumed.recovered, false);
     assert.strictEqual(resumed.imported, 0, "a recovered journal is not misreported as new work");
@@ -340,7 +340,7 @@ test("create ids are stable external-key ids and mutation planning handles trans
 // ---------------------------------------------------------------------------
 test("atomic dry-run shares the prep path, reports counts, and never commits", async () => {
   const root = freshTracker();
-  await importLinearAtomic(root, "ENG", [entry("ENG-2", "Original")]);
+  await importLinearForwardOnly(root, "ENG", [entry("ENG-2", "Original")]);
   const messages: string[] = [];
   const originalError = console.error;
   console.error = (...values: unknown[]) => messages.push(values.join(" "));
@@ -349,7 +349,7 @@ test("atomic dry-run shares the prep path, reports counts, and never commits", a
     // stateFilter "progress" matches the In Progress issues but excludes the
     // completed one, so ENG-3 is dropped by the state backstop (skipped=1).
     const result = await syncLinearIssues(
-      { team: "ENG", limit: 100, atomic: true, dryRun: true, stateFilter: "progress" },
+      { team: "ENG", limit: 100, atomic: true, forwardOnly: true, dryRun: true, stateFilter: "progress" },
       root,
       {
         fetchIssues: async () => [
@@ -391,7 +391,7 @@ test("atomic all-skipped imports succeed with a zero-sync result before commit",
   // successful zero-sync result — matching the legacy non-atomic path, which
   // never errors on an all-filtered batch — WITHOUT touching the SDK commit.
   const result = await syncLinearIssues(
-    { team: "ENG", limit: 100, atomic: true, stateFilter: "nonexistent-state" },
+    { team: "ENG", limit: 100, atomic: true, forwardOnly: true, stateFilter: "nonexistent-state" },
     "/unused-all-skipped-workspace",
     {
       fetchIssues: async () => [
@@ -473,7 +473,7 @@ test("forward import isolates a native failure without invoking a rollback seam"
   const root = freshTracker();
   try {
     let invoked = false;
-    const result = await importLinearAtomic(root, "ENG", [entry("ENG-50", "Invalid", { status: "invalid-status" }), entry("ENG-51", "Independent")], {
+    const result = await importLinearForwardOnly(root, "ENG", [entry("ENG-50", "Invalid", { status: "invalid-status" }), entry("ENG-51", "Independent")], {
       commitItemMutations: async () => { invoked = true; throw new AggregateError([], "Rollback must never run"); },
     });
     assert.equal(invoked, false); assert.equal(result.imported, 1); assert.equal(result.skipped, 1);
@@ -485,7 +485,7 @@ test("atomic update and close commit together", async () => {
   const root = freshTracker();
   try {
     const initial = entry("ENG-7", "Initial");
-    const created = await importLinearAtomic(root, "ENG", [initial]);
+    const created = await importLinearForwardOnly(root, "ENG", [initial]);
     const itemId = created.itemIds.get("ENG-7");
     assert.ok(itemId);
 
@@ -494,7 +494,7 @@ test("atomic update and close commit together", async () => {
       body: "Final body",
       match: { id: itemId, status: "open" },
     });
-    const result = await importLinearAtomic(root, "ENG", [changed]);
+    const result = await importLinearForwardOnly(root, "ENG", [changed]);
     assert.strictEqual(result.imported, 0);
     assert.strictEqual(result.updated, 1);
     const item = listItems(root).find((candidate) => candidate.id === itemId);
@@ -519,7 +519,7 @@ test("a settings read fault aborts before commit rather than forking identity", 
   // path must abort loudly BEFORE any SDK commit instead.
   await assert.rejects(
     () =>
-      importLinearAtomic(
+      importLinearForwardOnly(
         "/unused-settings-fault-workspace",
         "ENG",
         [entry("ENG-60", "Needs prefix")],

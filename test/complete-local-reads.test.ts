@@ -78,7 +78,7 @@ test("complete local corpus exports and matches beyond 10,000 real SDK items", a
   assert.equal(exported.exported, 10_002);
   assert.ok(exported.payloads.some((item) => item.description.includes("Unabridged local body 10000")));
   const sync = await syncLinearIssues(
-    { team: "FIXTURE", limit: 1, atomic: true, dryRun: true }, root,
+    { team: "FIXTURE", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root,
     { fetchIssues: async () => [issue("10000")] },
   );
   assert.equal(sync.created, 0);
@@ -97,7 +97,7 @@ for (const atomic of [false, true]) {
         createMode: "progressive", allowDuplicate: true,
       });
     }
-    const options = { team: "FIXTURE", limit: 3, atomic };
+    const options = { team: "FIXTURE", limit: 3, atomic, forwardOnly: true };
     const first = await syncLinearIssues(options, root, { fetchIssues: async () => issues });
     assert.equal(first.created, 1);
     assert.equal(first.updated, 2);
@@ -173,7 +173,7 @@ test("every degraded real complete-read envelope refuses before reconciliation w
     await t.test(degradation.name, async () => {
       const envelope = structuredClone(corpus) as unknown as Record<string, unknown>;
       await assert.rejects(() => syncLinearIssues(
-        { team: "FIXTURE", limit: 1, atomic: true }, root,
+        { team: "FIXTURE", limit: 1, atomic: true, forwardOnly: true }, root,
         {
           readItems: () => certifyPmItems(degradation.change(envelope)),
           fetchIssues: async () => { providerReads++; return [issue("new")]; },

@@ -12,15 +12,15 @@ try {
   await writeFile(join(scratch, "package.json"), '{"type":"module"}\n');
   await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");
   const original = await readFile(join(source, "index.ts"), "utf8"), readme = await readFile(join(source, "README.md"), "utf8");
-  const boundary = 'return { ...applied, issues, importResults:';
+  const boundary = 'const result = { ...applied, issues, importResults:';
   const mutants = [
-    { name: "sync discards all fetched issues", before: boundary, after: 'return { ...applied, issues: [], importResults:', pattern: "sync fetched" },
-    { name: "atomic flag discards fetched issues", before: boundary, after: 'return { ...applied, issues: options.atomic ? [] : issues, importResults:', pattern: "sync fetched" },
-    { name: "dry-run discards fetched issues", before: boundary, after: 'return { ...applied, issues: options.dryRun ? [] : issues, importResults:', pattern: "sync fetched" },
-    { name: "local filters redefine fetched membership", before: boundary, after: 'return { ...applied, issues: issues.filter((issue) => prepared.some((entry) => entry.linearId === issue.id)), importResults:', pattern: "sync fetched" },
-    { name: "failed targets disappear from fetched data", before: boundary, after: 'return { ...applied, issues: applied.importResults?.some((row) => row.code === "import_failed") ? [] : issues, importResults:', pattern: "sync fetched" },
-    { name: "native normalization leaks into fetched payloads", before: boundary, after: 'return { ...applied, issues: issues.map((issue) => ({ ...issue, title: issue.title.trim() })), importResults:', pattern: "sync fetched" },
-    { name: "execution sorting replaces provider ordering", before: boundary, after: 'return { ...applied, issues: [...issues].sort((a, b) => a.id.localeCompare(b.id)), importResults:', pattern: "sync fetched" },
+    { name: "sync discards all fetched issues", before: boundary, after: 'const result = { ...applied, issues: [], importResults:', pattern: "sync fetched" },
+    { name: "atomic flag discards fetched issues", before: boundary, after: 'const result = { ...applied, issues: options.atomic ? [] : issues, importResults:', pattern: "sync fetched" },
+    { name: "dry-run discards fetched issues", before: boundary, after: 'const result = { ...applied, issues: options.dryRun ? [] : issues, importResults:', pattern: "sync fetched" },
+    { name: "local filters redefine fetched membership", before: boundary, after: 'const result = { ...applied, issues: issues.filter((issue) => prepared.some((entry) => entry.linearId === issue.id)), importResults:', pattern: "sync fetched" },
+    { name: "failed targets disappear from fetched data", before: boundary, after: 'const result = { ...applied, issues: applied.importResults?.some((row) => row.code === "import_failed") ? [] : issues, importResults:', pattern: "sync fetched" },
+    { name: "native normalization leaks into fetched payloads", before: boundary, after: 'const result = { ...applied, issues: issues.map((issue) => ({ ...issue, title: issue.title.trim() })), importResults:', pattern: "sync fetched" },
+    { name: "execution sorting replaces provider ordering", before: boundary, after: 'const result = { ...applied, issues: [...issues].sort((a, b) => a.id.localeCompare(b.id)), importResults:', pattern: "sync fetched" },
     ...[0, 1, 2].map((occurrence) => ({ name: `CLI route ${occurrence} leaks fetched payloads`, before: 'dryRun: Boolean(result.dryRun)', after: 'issues: result.issues, dryRun: Boolean(result.dryRun)', occurrence, pattern: "assignment clearing" })),
     { name: "legacy omitted assignees incorrectly retain local values", before: 'if (observed) unset.push(key);', after: 'if (observed && (key !== "assignee" || readLinearEstimate(entry.tags).contract)) unset.push(key);', pattern: "assignment clearing" },
     { name: "README promises legacy assignment preservation", file: "README.md", before: 'Every payload family clears absent mapped', after: 'Omitted optional assignments retain the current local value for legacy payloads; scale-aware imports clear absent mapped', pattern: "assignment clearing" },

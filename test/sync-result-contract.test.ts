@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { syncLinearIssues, importLinearAtomic, parseProvenance, type LinearIssue, type SyncResult } from "../index.ts";
+import extension, { syncLinearIssues, importLinearForwardOnly, parseProvenance, type LinearIssue, type SyncResult } from "../index.ts";
 
 const team = { id: "contract-team", key: "ENG", issueEstimationType: "fibonacci", issueEstimationAllowZero: true, issueEstimationExtended: false };
 /** Every selected provider field deliberately retains raw whitespace, casing and CRLF. */
@@ -34,7 +34,7 @@ test("sync fetched issue contract survives every mode, filter, replay and failed
     for (const atomic of [false, true]) for (const mode of ["apply", "replay", "dry", "filtered", "failed"] as const) {
       if (mode !== "replay") for (const issue of fetched) issue.title = ` ${atomic} ${mode} ${issue.id}\r\n `;
       const before = structuredClone(fetched), state = (await pm.listAllComplete({ includeBody: true })).items;
-      const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic, dryRun: mode === "dry", ...(mode === "filtered" ? { stateFilter: "missing" } : {}) }, root, {
+      const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic, forwardOnly: true, dryRun: mode === "dry", ...(mode === "filtered" ? { stateFilter: "missing" } : {}) }, root, {
         fetchIssues: async () => fetched,
         onEstimateBoundary: async (stage, id) => { if (mode === "failed" && stage === "before_update" && id.endsWith("eng-b")) throw new Error("Native target refused"); },
       });
@@ -53,11 +53,11 @@ test("sync fetched issue contract survives every mode, filter, replay and failed
       issue.description = seed % 2 ? " Whitespace\r\nvariant " : " Whitespace\nvariant "; return issue;
     });
     for (const atomic of [false, true]) for (const dryRun of [false, true]) {
-      const result = await syncLinearIssues({ team: "ENG", limit: 500, atomic, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => generated });
+      const result = await syncLinearIssues({ team: "ENG", limit: 500, atomic, forwardOnly: true, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => generated });
       assert.deepEqual(result.issues, generated); assert.equal(result.skipped, 500); assert.equal(result.synced, 0);
     }
     const empty = await syncLinearIssues({ team: "ENG", limit: 1 }, root, { fetchIssues: async () => [] }); assert.deepEqual(empty.issues, []);
-    const receipt = await importLinearAtomic(root, "ENG", []); assert.equal(Object.hasOwn(receipt, "issues"), false, "prepared-row receipts never fabricate provider payloads");
+    const receipt = await importLinearForwardOnly(root, "ENG", []); assert.equal(Object.hasOwn(receipt, "issues"), false, "prepared-row receipts never fabricate provider payloads");
   }
 });
 
@@ -89,10 +89,10 @@ test("assignment clearing and compact receipts agree across payload families, SD
     const ignored = route === "linear-sync" || route === "sdk" && atomic;
     if (!ignored) { if (route === "sync") wire.issue.assignee = null; else if (route === "linear") wire.issue.assignee = { name: null, email: null }; else delete wire.issue.assignee; }
     if (route === "sdk") {
-      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, ...(ignored ? { fieldMap: { assignee: "ignore" } } : {}) }, root, { fetchIssues: async () => [wire.issue] });
+      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true, ...(ignored ? { fieldMap: { assignee: "ignore" } } : {}) }, root, { fetchIssues: async () => [wire.issue] });
       assert.deepEqual(result.issues, [wire.issue]);
     } else {
-      const options = { team: "ENG", atomic, skipPreflightNetwork: true, ...(ignored ? { map: "assignee=ignore" } : {}) };
+      const options = { team: "ENG", atomic, forwardOnly: true, skipPreflightNetwork: true, ...(ignored ? { map: "assignee=ignore" } : {}) };
       const output = route === "sync" ? await harness.runCommand({ command: "linear sync", pmRoot: root, options, global: { json } }) : await harness.runImporter({ importer: route, pmRoot: root, options, global: { json } });
       assert.equal(output.exitCode ?? 0, 0); assert.equal(Object.hasOwn(output.result as object, "issues"), false, "CLI receipts omit fetched payloads");
       assert.ok((output.result as SyncResult).importResults?.length);

@@ -86,7 +86,7 @@ try {
       });
       const schema = await mod.negotiateLinearSchema({ team: "AUDIT" }, root);
       const planned = await mod.syncLinearIssues(
-        { team: "AUDIT", limit: 1, atomic: true, dryRun: true }, root,
+        { team: "AUDIT", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root,
         { fetchIssues: async () => [{
           id: "audit-issue", identifier: "AUDIT-1", title: "Synthetic provider issue",
           description: "Synthetic", priority: 2,

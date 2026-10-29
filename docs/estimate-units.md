@@ -100,7 +100,7 @@ or `superseded` targets, with an explicit omission count. A stored success from 
 current SDK state instead of reported as a new write.
 
 All imports use the same forward-only per-item coordinator, including provider-less
-inputs and the deprecated `--atomic` flag. No live-tracker import uses workspace or item batch transactions, restores,
+inputs. Explicit `--atomic` requests refuse before import work unless `--forward-only` accepts migration. No live-tracker import uses workspace or item batch transactions, restores,
 deletes, compensations or history ownership proofs. Native SDK preview executes
 only in an owned guarded mirror; runtime-only host SDK links are omitted without
 following them before the SDK regular-data preview runs. Each target's complete `importResults` receipt names its action and any
@@ -159,8 +159,7 @@ no reviewed checkout was mutated.
 The former provider-less atomic path has also migrated to this coordinator. The
 existing `pm-linear-atomic-replay-revision` item retains its audit context; production
 imports no longer resume those journals. Old pure atomic-named SDK helpers remain
-source-compatible descriptive helpers only; `importLinearAtomic` delegates to the
-forward-only writer and ignores the obsolete batch-commit seam.
+source-compatible descriptive helpers only. `importLinearForwardOnly` is the prepared-row writer. Deprecated `importLinearAtomic` refuses with typed `atomic_unavailable` before reads or writes unless `forwardOnly: true` explicitly accepts per-item application. `SyncOptions.atomic: true` requires the same consent. Receipt IDs never resume a journal; the obsolete batch-commit seam remains inert.
 
 A native-call exception triggers SDK readback. Complete current desired fields
 are reconciled as unchanged without attributing a new write (`import_reconciled`);
@@ -176,3 +175,5 @@ order and before local filters. Native write outcomes remain separate in
 receipts deliberately omit raw payloads. All payload families clear missing,
 null or suppressed assignment inputs through SDK unset; legacy inputs have no
 assignment-preservation exception.
+
+The shared native writer quarantines duplicate provider IDs in both stored provenance and incoming batches before selecting targets. Every failed, conflicted or unconfirmed row produces nonzero `exit_code` across SDK, sync and both importer aliases; ordinary filters and complete readback reconciliation remain successful.
