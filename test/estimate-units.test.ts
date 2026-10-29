@@ -1,11 +1,11 @@
 /** Unit provenance, real SDK persistence, replay and revision interleavings in non-git trackers. */
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
-import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, canonicalDocument, type ItemMetadata } from "@unbrained/pm-cli/sdk";
+import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScaleRevision, inspectLinearEstimates, syncLinearIssues, buildItemPlan, itemToLinearPayload, buildProvenance, deriveAtomicItemId, LinearEstimateRefusal,
   type LinearEstimateTeam, type LinearEstimateMapping, type LinearEstimateReport, type LinearIssue, type SyncResult } from "../index.ts";
@@ -128,7 +128,7 @@ test("CLI JSON and TOON share the SDK verdict; strict guards and offline files p
 
 test("revision checks refuse peer transitions and ABA at every import boundary on one tracker", async (t) => {
   const { root, pm } = await fixture(t);
-  for (const atomic of [false, true]) for (const boundary of ["observed", "inspect", ...(atomic ? ["compensation_prepared"] : []), "before_write", "after_write"]) {
+  for (const atomic of [false, true]) for (const boundary of ["observed", "inspect", ...(atomic ? ["compensation_prepared"] : []), "before_write", "written", "after_write"]) {
     const value = issue(`${atomic}-${boundary}`);
     await sync(root, value, atomic);
     // Resolve through provider identity instead of assuming item ID punctuation normalization.
@@ -140,11 +140,11 @@ test("revision checks refuse peer transitions and ABA at every import boundary o
       if (stage !== boundary || injected) return;
       assert.equal(current, target); injected = true;
       await pm.update(target, { title: "Peer owns this revision" });
-      if (stage !== "after_write") { await pm.update(target, { title: selected.title }); }
+      if (stage !== "after_write" && stage !== "written") { await pm.update(target, { title: selected.title }); }
     });
     assert.equal(injected, true, boundary);
     const read = (await pm.get(target, { depth: "deep" })).item;
-    if (boundary === "after_write") assert.equal(read.title, "Peer owns this revision");
+    if (boundary === "after_write" || boundary === "written") assert.equal(read.title, "Peer owns this revision");
     else { assert.equal(read.title, selected.title); assert.equal(result.skipped, 1); }
   }
 });
@@ -184,7 +184,8 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     const actual = { root: actualRoot, pm: new PmClient({ cwd: actualRoot, pmRoot: actualRoot, noExtensions: true, author: "fixture" }) };
     await actual.pm.init("units");
     const modelRoot = await mkdtemp(join(tmpdir(), "linear-unit-model-"));
-    const model = new PmClient({ cwd: modelRoot, pmRoot: modelRoot, noExtensions: true, author: "fixture" }); await model.init("units");
+    await new PmClient({ cwd: modelRoot, pmRoot: modelRoot, noExtensions: true, author: "fixture" }).init("units");
+    const model = new PmClient({ cwd: modelRoot, pmRoot: modelRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
     t.after(() => rm(modelRoot, { recursive: true, force: true }));
     const aParent = await actual.pm.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
     await model.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
@@ -252,7 +253,7 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         if (known) await model.update(aId, desired); else { await model.create({ ...desired, id: aId }); known = true; }
         const actualItem = (await actual.pm.get(aId, { depth: "deep" })).item;
         const modelItem = (await model.get(aId, { depth: "deep" })).item;
-        for (const field of ["title", "body", "status", "priority", "tags", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const) assert.deepEqual(actualItem[field], modelItem[field], `sequence ${sequence} field ${field}`);
+        for (const field of ["title", "body", "status", "priority", "tags", "type", "author", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const) assert.deepEqual(actualItem[field], modelItem[field], `sequence ${sequence} field ${field}`);
         const exported = itemToLinearPayload(actualItem);
         assert.equal(exported.estimate, points ?? undefined);
         assert.ok(exported.labels!.every((label) => !label.startsWith("linear-estimate:")));
@@ -379,4 +380,15 @@ test("custom terminal roles and retry reasons agree with the target SDK registry
       assert.equal(actual.status, expected.status);
     }
   }
+});
+
+test("post-write peer state never becomes a compensation ownership proof", async (t) => {
+  const { root, pm } = await fixture(t);
+  const value = issue("producer-proof");
+  await assert.rejects(sync(root, value, true, undefined, async (stage, id) => {
+    if (stage === "written") await pm.update(id, { title: "Peer edit before ownership observation" });
+    if (stage === "after_write") throw new Error("deliberate post-write failure");
+  }), /deliberate post-write failure/);
+  const item = (await pm.listAllComplete()).items.find((row) => row.description?.includes(value.id));
+  assert.equal(item?.title, "Peer edit before ownership observation");
 });

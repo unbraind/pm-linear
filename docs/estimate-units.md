@@ -102,10 +102,11 @@ Current target state decides unchanged outcomes. Preview uses the same entry
 producer and step inspection as apply, without committing.
 
 Compensation re-reads before restoring an existing item's native history version.
-It deletes a newly created item only when this invocation retained its entire
-SDK read-back birth document and exact history coordinate, and no later write
+It deletes a newly created item only when this invocation verified its complete SDK producer receipt and planned body
+against native history and retained the exact history coordinate, and no later write
 exists. It never constructs that proof from a subsequently observed record.
-After process recovery, unavailable ownership proof means leaving the target in
+Per-invocation write nonces distinguish a peer's identical success from this
+invocation's ownership. After process recovery, unavailable ownership proof means leaving the target in
 place; audit and successful writes remain intact. Restore/delete operations also
 have the SDK read-to-write window. Retry always builds a fresh revision-bound plan.
 

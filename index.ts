@@ -2265,7 +2265,7 @@ export function encodeLinearEstimate(team: LinearEstimateTeam, points: number | 
     format: "pm-linear/estimate/1", team: { id: team.id, key: team.key, issueEstimationType: team.issueEstimationType,
       issueEstimationAllowZero: team.issueEstimationAllowZero, issueEstimationExtended: team.issueEstimationExtended },
     scaleRevision, points,
-    ...(mapping ? { mapping: canonicalEstimateMapping(mapping) } : {}),
+    ...(mapping !== undefined ? { mapping: canonicalEstimateMapping(mapping) } : {}),
   };
   assertEstimateShape(contract, estimateContractShape);
   if (contract.mapping && contract.mapping.teamId !== team.id) throw new LinearEstimateRefusal("estimate_scope_mismatch", "Use a mapping for this issue's immutable team ID; never apply a different team's conversion.");
@@ -2747,11 +2747,11 @@ async function observeEstimateRevisions(pmRoot: string, items: PmItem[]): Promis
 
 /** Apply unit-aware imports as single native mutations with revision checks and conservative compensation. */
 async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries: PreparedLinearImport[], skipped: number,
-  boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<SyncResult> {
+  revisions: ReadonlyMap<string, string>, boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<SyncResult> {
   const runtime = await importRuntimeSdk();
   if (options.dryRun) {
     const root = await realpath(runtime.resolvePmRoot(process.cwd(), pmRoot));
-    const staged = await readClosureItems(root, [], undefined, (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped));
+    const staged = await readClosureItems(root, [], undefined, (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions));
     return { ...staged.estimateResult!, dryRun: true, prepared: entries };
   }
   const sdk = await loadAtomicSdk();
@@ -2765,7 +2765,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
     const before = await observeEstimateTarget(pmRoot, id);
-    const expected = entry.expectedRevision ?? before.revision;
+    const expected = revisions.get(entry.match?.id ?? "") ?? before.revision;
     // A deterministic ID alone is not an ownership proof for a create.
     const foreign = !entry.match && (before.document !== null || before.version !== 0);
     targets.push({ entry, id, before, expected, foreign });
@@ -2775,7 +2775,8 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const transactionId = `linear-estimate-${identity.slice(0, 32)}`;
   const outcomes = new Map<string, "created" | "updated" | "unchanged" | "superseded" | "foreign">();
   const steps: PublicSdk.WorkspaceTransactionStep[] = targets.map(({ entry, id, before, expected, foreign }) => {
-    const marker = `${transactionId}:${id}`;
+    const markerBase = `${transactionId}:${id}:`;
+    const marker = markerBase + crypto.randomUUID();
     let owned: EstimateTarget | undefined;
     /** Re-read at every inspect/recovery boundary; skipped items have no dependent mutations. */
     const inspect = async (): Promise<PublicSdk.WorkspaceTransactionStepInspection> => {
@@ -2783,7 +2784,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
       const current = await observeEstimateTarget(pmRoot, id);
       if (foreign) { outcomes.set(id, "foreign"); return { state: "applied", result: "foreign" }; }
       if (current.revision === expected) return { state: "pending" };
-      if (current.marker === marker) { outcomes.set(id, "unchanged"); return { state: "applied", result: "peer_applied" }; }
+      if (current.marker?.startsWith(markerBase)) { outcomes.set(id, "unchanged"); return { state: "applied", result: "peer_applied" }; }
       outcomes.set(id, "superseded"); return { state: "applied", result: "superseded" };
     };
     /** Compensate only an exact post-write snapshot positively retained by this invocation. */
@@ -2808,7 +2809,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
       apply: async () => {
         await boundary?.("before_write", id);
         const current = await observeEstimateTarget(pmRoot, id);
-        if (current.revision !== expected) { outcomes.set(id, current.marker === marker ? "unchanged" : "superseded"); return outcomes.get(id)!; }
+        if (current.revision !== expected) { outcomes.set(id, current.marker?.startsWith(markerBase) ? "unchanged" : "superseded"); return outcomes.get(id)!; }
         const source = current.document?.metadata;
         const scopes = ["parent", "goal", "objective", "sprint", "release"] as const;
         const unset = scopes.filter((name) => !source?.[name]);
@@ -2826,7 +2827,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
         };
         if (current.document) {
           const metadata = { ...current.document.metadata, title, description: entry.description,
-            status, priority: entry.priority as ItemMetadata["priority"], tags: entry.tags, ...(deadline ? { deadline } : {}),
+            status, priority: entry.priority as ItemMetadata["priority"], tags: runtime.parseTags(mapped.tags), ...(deadline ? { deadline } : {}),
             ...(entry.assignee ? { assignee: entry.assignee } : {}),
             ...(values.closeReason ? { close_reason: values.closeReason } : {}) };
           if (!entry.deadline) delete metadata.deadline;
@@ -2836,11 +2837,20 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
           if (schemaDigest(desired) === schemaDigest(observed)) { outcomes.set(id, "unchanged"); return "unchanged"; }
         }
         // The remaining read-to-write window is explicit: the SDK has no expected-history revision option.
+        let produced: ItemMetadata;
         if (current.document) {
           const result = await pm.update(id, values);
+          produced = result.item as unknown as ItemMetadata;
           outcomes.set(id, result.changed_fields.length ? "updated" : "unchanged");
-        } else { await pm.create({ ...values, id }); outcomes.set(id, "created"); }
-        owned = await observeEstimateTarget(pmRoot, id);
+        } else { const result = await pm.create({ ...values, id }); produced = result.item; outcomes.set(id, "created"); }
+        // Expected values come from the SDK producer receipt and the planned body,
+        // never from a later observed item that a peer might already have edited.
+        const expectedDocument = runtime.canonicalDocument({ metadata: produced, body: entry.body }, { schema: nativeSchema });
+        await boundary?.("written", id);
+        const observed = await observeEstimateTarget(pmRoot, id);
+        const history = await assertSdkFunction(sdk.readHistoryEntries, "readHistoryEntries")(runtime.getHistoryPath(pmRoot, id), id);
+        const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
+        if (observed.marker === marker && verify(history, expectedDocument).current_matches_latest === true && observed.document && verify(history, observed.document).current_matches_latest === true) owned = observed;
         try { await boundary?.("after_write", id); } catch (error: unknown) { await compensate(); throw error; }
         return outcomes.get(id)!;
       },
@@ -2855,7 +2865,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
     // A fully committed peer journal bypasses inspect; reconcile from current SDK state rather than claim new writes.
     if (!outcomes.size) for (const target of targets) {
       const current = await observeEstimateTarget(pmRoot, target.id);
-      outcomes.set(target.id, current.revision === target.expected || current.marker === `${transactionId}:${target.id}` ? "unchanged" : "superseded");
+      outcomes.set(target.id, current.revision === target.expected || current.marker?.startsWith(`${transactionId}:${target.id}:`) ? "unchanged" : "superseded");
     }
   } else for (const step of steps) { if ((await step.inspect()).state === "pending") await step.apply(); }
   const created = [...outcomes.values()].filter((outcome) => outcome === "created").length;
@@ -3110,8 +3120,6 @@ export interface PreparedLinearImport {
   deadline?: string;
   assignee?: string;
   match?: PmItem;
-  /** Observed SDK history coordinate, including a monotonically growing entry count. */
-  expectedRevision?: string;
 }
 
 function assertSdkFunction<F extends (...args: never[]) => unknown>(
@@ -3432,7 +3440,7 @@ export async function syncLinearIssues(
   pm_root: string,
   dependencies: SyncRunDependencies = {},
 ): Promise<SyncResult> {
-  if (options.estimateMapping) canonicalEstimateMapping(options.estimateMapping);
+  if (options.estimateMapping !== undefined) canonicalEstimateMapping(options.estimateMapping);
   const apiKey = process.env["LINEAR_API_KEY"];
   // An injected fetchIssues seam (tests/offline) does not need a real key; only
   // the live fetchAllLinearIssues path requires one. Skip the check when the
@@ -3545,13 +3553,12 @@ export async function syncLinearIssues(
       ...(plan.deadline ? { deadline: plan.deadline } : {}),
       ...(plan.assignee ? { assignee: plan.assignee } : {}),
       match: ownMappingValue(existingByLinearId, issue.id),
-      expectedRevision: revisions.get(ownMappingValue(existingByLinearId, issue.id)?.id ?? ""),
     });
   }
 
   if (prepared.some((entry) => readLinearEstimate(entry.tags).contract)) {
     if (prepared.some((entry) => !readLinearEstimate(entry.tags).contract)) throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
-    return { ...await importEstimateBatch(pm_root, options, prepared, skipped, dependencies.onEstimateBoundary), ...(schema ? { schema } : {}) };
+    return { ...await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary), ...(schema ? { schema } : {}) };
   }
 
   if (options.atomic) {
