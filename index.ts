@@ -2734,7 +2734,7 @@ interface EstimateTarget {
 }
 
 /** Read history around the native document; disagreement refuses a mixed snapshot. */
-async function observeEstimateTarget(pmRoot: string, id: string): Promise<EstimateTarget> {
+async function observeEstimateTarget(pmRoot: string, id: string, boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<EstimateTarget> {
   const runtime = await importRuntimeSdk();
   const sdk = await loadAtomicSdk();
   const readHistory = assertSdkFunction(sdk.readHistoryEntries, "readHistoryEntries");
@@ -2742,18 +2742,36 @@ async function observeEstimateTarget(pmRoot: string, id: string): Promise<Estima
   const registry = runtime.resolveItemTypeRegistry(settings);
   const historyPath = runtime.getHistoryPath(pmRoot, id);
   const before = await readHistory(historyPath, id);
+  await boundary?.("revision_history_read", id);
   const located = await runtime.locateItem(pmRoot, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
   const document = located ? (await runtime.readLocatedItem(located, { schema: settings.schema })).document : null;
+  await boundary?.("revision_document_read", id);
   const after = await readHistory(historyPath, id);
   if (schemaDigest(before) !== schemaDigest(after)) throw new LinearEstimateRefusal("estimate_target_changed", "The target changed during its SDK read. Read current state and retry; no frozen import plan is authoritative.");
   return { revision: `${after.length}:${schemaDigest([after, document])}`, document, version: after.length,
     marker: after.at(-1)?.message?.split(" | explicit_unset=")[0] ?? null, timestamp: after.at(-1)?.ts ?? null };
 }
 
-/** Observe linked item revisions before provider reads, without assuming a transaction excludes ordinary writers. */
-async function observeEstimateRevisions(pmRoot: string, items: PmItem[]): Promise<Map<string, string>> {
+/** Pair each planning image with the same SDK-canonical document and bracketed history revision. */
+async function observeEstimateRevisions(pmRoot: string, items: PmItem[], boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<Map<string, string>> {
+  const runtime = await importRuntimeSdk();
+  const settings = await runtime.readSettings(pmRoot);
   const revisions = new Map<string, string>();
-  for (const item of items) if (item.id && parseProvenance(item.description)?.linear_id) revisions.set(item.id, (await observeEstimateTarget(pmRoot, item.id)).revision);
+  for (const item of items) if (item.id && parseProvenance(item.description)?.linear_id) {
+    await boundary?.("before_revision", item.id);
+    let target: EstimateTarget;
+    try { target = await observeEstimateTarget(pmRoot, item.id, boundary); }
+    catch (error: unknown) {
+      if (error instanceof LinearEstimateRefusal && error.code === "estimate_target_changed") continue;
+      throw error;
+    }
+    await boundary?.("revision_captured", item.id);
+    if (!target.document) continue;
+    const { body, ...metadata } = item;
+    const planned = runtime.canonicalDocument({ metadata: metadata as ItemMetadata, body: body ?? "" }, { schema: settings.schema });
+    const observed = runtime.canonicalDocument(target.document, { schema: settings.schema });
+    if (schemaDigest(planned) === schemaDigest(observed)) revisions.set(item.id, target.revision);
+  }
   return revisions;
 }
 
@@ -2777,7 +2795,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
     const before = await observeEstimateTarget(pmRoot, id);
-    const expected = revisions.get(entry.match?.id ?? "") ?? before.revision;
+    const expected = entry.match?.id ? revisions.get(entry.match.id) : before.revision;
     // A deterministic ID alone is not an ownership proof for a create.
     const foreign = !entry.match && (before.document !== null || before.version !== 0);
     targets.push({ entry, id, before, expected, foreign });
@@ -2795,6 +2813,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
       await boundary?.("inspect", id);
       const current = await observeEstimateTarget(pmRoot, id);
       if (foreign) { outcomes.set(id, "foreign"); return { state: "applied", result: "foreign" }; }
+      if (expected === undefined) { outcomes.set(id, "superseded"); return { state: "applied", result: "superseded" }; }
       if (current.revision === expected) return { state: "pending" };
       if (current.marker?.startsWith(markerBase)) { outcomes.set(id, "unchanged"); return { state: "applied", result: "peer_applied" }; }
       outcomes.set(id, "superseded"); return { state: "applied", result: "superseded" };
@@ -2821,7 +2840,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
       apply: async () => {
         await boundary?.("before_write", id);
         const current = await observeEstimateTarget(pmRoot, id);
-        if (current.revision !== expected) { outcomes.set(id, current.marker?.startsWith(markerBase) ? "unchanged" : "superseded"); return outcomes.get(id)!; }
+        if (current.revision !== expected) { outcomes.set(id, expected !== undefined && current.marker?.startsWith(markerBase) ? "unchanged" : "superseded"); return outcomes.get(id)!; }
         const source = current.document?.metadata;
         const scopes = ["parent", "goal", "objective", "sprint", "release"] as const;
         const unset = scopes.filter((name) => !source?.[name]);
@@ -2877,7 +2896,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
     // A fully committed peer journal bypasses inspect; reconcile from current SDK state rather than claim new writes.
     if (!outcomes.size) for (const target of targets) {
       const current = await observeEstimateTarget(pmRoot, target.id);
-      outcomes.set(target.id, current.revision === target.expected || current.marker?.startsWith(`${transactionId}:${target.id}:`) ? "unchanged" : "superseded");
+      outcomes.set(target.id, target.expected !== undefined && (current.revision === target.expected || current.marker?.startsWith(`${transactionId}:${target.id}:`)) ? "unchanged" : "superseded");
     }
   } else for (const step of steps) { if ((await step.inspect()).state === "pending") await step.apply(); }
   const created = [...outcomes.values()].filter((outcome) => outcome === "created").length;
@@ -3492,7 +3511,7 @@ export async function syncLinearIssues(
   const existingByLinearId = indexItemsByLinearId(existingItems);
   const ambiguous = ambiguousLinearIds(existingItems);
   const negotiate = dependencies.negotiateSchema ?? (dependencies.fetchIssues && options.schemaVersion === undefined ? undefined : negotiateLinearSchema);
-  const revisions = dependencies.readItems ? new Map<string, string>() : await observeEstimateRevisions(pm_root, existingItems);
+  const revisions = dependencies.readItems ? new Map<string, string>() : await observeEstimateRevisions(pm_root, existingItems, dependencies.onEstimateBoundary);
   const schema = await negotiate?.(options, pm_root);
   const issues = await (dependencies.fetchIssues ?? fetchAllLinearIssues)(apiKey ?? "", options.team, options.limit, filters);
 

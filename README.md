@@ -697,6 +697,9 @@ row sample defaults to 20 (maximum 100). `scale_changed` and `mapping_stale` ide
 invalidated conversions; unrelated teams remain unaffected. Missing conversions
 return `minutes: null` and retain usable native points. JSON and default TOON
 share the same typed result. See [the schema, SDK example and retry guarantees](docs/estimate-units.md).
+Imports skip an item if its planning snapshot disagrees with the SDK revision
+observation, preserving peer conversions and native edits. `estimateSkips` names
+the affected items; retry reads their current state while independent items proceed.
 
 ### Without git
 

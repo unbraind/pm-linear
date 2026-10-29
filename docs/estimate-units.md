@@ -90,6 +90,10 @@ Before reading provider input, the importer observes linked item history through
 the SDK. A revision includes the monotonically growing history length and document
 snapshot. Each inspect/retry/recovery and immediately-before-write check re-reads
 that revision; a changed target is skipped, including content-restoring ABA edits.
+The planning image must match the revision's document through the SDK's own
+canonicalizer. A peer edit during corpus or revision acquisition leaves that
+target unpaired and skipped; missing observations never adopt a newer revision.
+Independent targets continue, and a fresh retry reads the peer's conversion.
 No second dependent mutation can run for a skipped item. Deterministic IDs occupied
 by foreign items are skipped. Bounded `estimateSkips` receipts identify `foreign`
 or `superseded` targets, with an explicit omission count. A stored success from a peer is reconciled with the

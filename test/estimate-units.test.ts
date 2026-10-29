@@ -150,6 +150,70 @@ test("revision checks refuse peer transitions and ABA at every import boundary o
   }
 });
 
+test("planning images and revisions form one SDK observation at every acquisition boundary", async (t) => {
+  const { root, pm } = await fixture(t);
+  const anchor = await pm.create({ title: "Peer relationship", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  for (const atomic of [false, true]) for (const boundary of ["before_revision", "revision_history_read", "revision_document_read", "revision_captured"]) {
+    for (const aba of [false, true]) {
+      const value = issue(`snapshot-${atomic}-${boundary}-${aba}`);
+      const independent = issue(`independent-${value.id}`);
+      await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, { fetchIssues: async () => [value, independent] });
+      const rows = (await pm.listAllComplete({ includeBody: true })).items;
+      const original = rows.find((row) => row.description?.includes(`linear_id=${value.id} `)); assert.ok(original);
+      const independentItem = rows.find((row) => row.description?.includes(`linear_id=${independent.id} `)); assert.ok(independentItem);
+      let injected = false;
+      let peer: (typeof rows)[number] | undefined;
+      value.title = "Provider must not replace peer"; independent.title = "Independent target progresses";
+      const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, {
+        fetchIssues: async () => [value, independent],
+        onEstimateBoundary: async (stage, id) => {
+          if (injected || id !== original.id || stage !== boundary) return;
+          injected = true;
+          await pm.update(id, { title: "Peer title", body: "Peer\r\nbody", priority: 1, status: "in_progress",
+            tags: JSON.stringify(["peer", "estimate:5", encodeLinearEstimate(team, 5, mapping)]), assignee: "Peer", deadline: "2027-01-01",
+            parent: anchor.item.id, unset: ["goal", "objective", "sprint", "release"], estimatedMinutes: "777", dep: [`id=${anchor.item.id},kind=related_to`] });
+          if (aba) await pm.update(id, { title: original.title, body: String(original.body ?? ""), priority: original.priority, status: original.status,
+            tags: JSON.stringify(original.tags), assignee: original.assignee, deadline: original.deadline,
+            parent: "none", unset: ["goal", "objective", "sprint", "release", "estimated_minutes"], clearDeps: true });
+          peer = (await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === id);
+        },
+      });
+      assert.equal(injected, true, boundary);
+      assert.equal(result.skipped, 1, "a mixed planning image must be skipped");
+      assert.deepEqual(result.estimateSkips, [{ id: original.id, reason: "superseded" }]);
+      const after = (await pm.listAllComplete({ includeBody: true })).items;
+      assert.deepEqual(after.find((row) => row.id === original.id), peer, "every SDK-read peer field and relationship survives");
+      assert.equal(after.find((row) => row.id === independentItem.id)?.title, `[${independent.identifier}] ${independent.title}`);
+      if (!aba) assert.equal((await inspectLinearEstimates({ team, limit: 100 }, root)).rows.find((row) => row.id === original.id)?.minutes, 240);
+    }
+  }
+});
+
+test("missing planning revisions never fall back to newer native state; stable mappings remain usable", async (t) => {
+  const { root, pm } = await fixture(t);
+  for (const atomic of [false, true]) {
+    const value = issue(`unpaired-${atomic}`);
+    await sync(root, value, atomic, mapping);
+    const rows = (await pm.listAllComplete({ includeBody: true })).items;
+    const original = rows.find((row) => row.description?.includes(`linear_id=${value.id} `)); assert.ok(original);
+    value.title = "Stale unpaired plan";
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, { readItems: async () => rows, fetchIssues: async () => [value] });
+    assert.equal(result.skipped, 1, "an existing target requires a paired revision");
+    assert.deepEqual(result.estimateSkips, [{ id: original.id, reason: "superseded" }]);
+    assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === original.id), original);
+    const allowed = await sync(root, value, atomic);
+    assert.equal(allowed.updated, 1);
+    assert.equal((await inspectLinearEstimates({ team }, root)).rows.find((row) => row.id === original.id)?.minutes, 240);
+    const deletion = await sync(root, value, atomic, undefined, async (stage, id) => {
+      if (stage === "before_revision" && id === original.id) await pm.run("delete", { id, options: { force: true } });
+    });
+    assert.equal(deletion.skipped, 1);
+    assert.ok(!(await pm.listAllComplete({ includeBody: true })).items.some((row) => row.id === original.id));
+  }
+  const another = issue("read-failure"); await sync(root, another);
+  await assert.rejects(sync(root, another, false, undefined, async (stage) => { if (stage === "revision_history_read") throw new Error("Native read unavailable"); }), /Native read unavailable/);
+});
+
 /** Deterministic PRNG keeps 500 generated state-machine sequences reproducible. */
 function random(seed: number) { let state = seed; return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state; }; }
 

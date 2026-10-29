@@ -7,7 +7,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk";
-import { buildItemPlan, linearEstimateScaleRevision, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
+import { buildItemPlan, encodeLinearEstimate, linearEstimateScaleRevision, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const hostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
@@ -29,11 +29,17 @@ const team = { id: "team-packed", key: "PACK", issueEstimationType: "fibonacci",
 const issue: LinearIssue = { id: "remote-packed", identifier: "PACK-1", title: "Five native points", description: "Synthetic\r\nbody", priority: 2, estimate: 5, team,
   state: { name: "Queue", type: "unstarted" }, labels: { nodes: [], pageInfo: { hasNextPage: false } } as LinearIssue["labels"], dueDate: null };
 let requests = 0;
+let peerWrite: (() => Promise<void>) | undefined;
+let peerError: unknown;
 const server = http.createServer((req, res) => {
   let raw = ""; req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
-  req.on("end", () => {
+  req.on("end", async () => {
     const { query } = JSON.parse(raw) as { query: string };
     assert.ok(!query.trimStart().startsWith("mutation")); requests++;
+    if (query.includes("issues(") && peerWrite) {
+      const write = peerWrite; peerWrite = undefined;
+      try { await write(); } catch (error: unknown) { peerError = error; res.writeHead(500); res.end(); return; }
+    }
     const pageInfo = { hasNextPage: false, endCursor: null };
     const selected = { ...issue, updatedAt: "2026-10-29T00:00:00Z" };
     if (!/\bteam\s*\{/.test(query)) delete selected.team;
@@ -106,7 +112,29 @@ try {
       assert.notEqual(status.local, status.provider, "custom terminal role projects the default provider completion through the native SDK");
     } finally { issue.team = savedTeam; issue.state = savedState; }
     const exported = await run(mode.bin, [...prefix, "linear", "export", "--json"], scratch, mode.vars); assert.match(exported, /"estimate":\s*5/); assert.doesNotMatch(exported, /linear-estimate:/);
-    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, commands: 11 });
+    let interleavings = 0;
+    for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
+      const minutes = 300 + interleavings;
+      const peerTags = ["estimate:5", encodeLinearEstimate(team, 5, { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes }] })];
+      peerWrite = async () => {
+        const mutation = JSON.parse(await run(mode.bin, [...prefix, "--no-extensions", "update", converted.rows[0].id,
+          "--tags", JSON.stringify(peerTags), "--parent", "none", ...["goal", "objective", "sprint", "release"].flatMap((field) => ["--unset", field]), "--author", "peer", "--json"], scratch, mode.vars)) as { changed_field_count: number };
+        assert.ok(mutation.changed_field_count > 0, "the ordinary peer writer actually changed its target");
+      };
+      // Provider acquisition occurs after the planning snapshot. An independent
+      // ordinary native CLI writer must win, for every alias and renderer.
+      const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : ["--atomic"])], scratch, extra);
+      assert.ifError(peerError);
+      assert.equal(peerWrite, undefined, "the peer update ran at the provider boundary");
+      if (json) {
+        const parsed = JSON.parse(receipt) as { skipped: number; estimateSkips: Array<{ reason: string }> };
+        assert.equal(parsed.skipped, 1, `${mode.name} ${command.join(" ")} interleaving ${interleavings}: ${receipt}`); assert.equal(parsed.estimateSkips[0].reason, "superseded");
+      } else assert.match(receipt, /superseded/);
+      const retained = JSON.parse(await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra)) as LinearEstimateReport;
+      assert.equal(retained.rows[0].minutes, minutes, `${mode.name} ${command.join(" ")} preserves the peer conversion`);
+      interleavings++;
+    }
+    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, commands: 23 });
     process.stdout.write(`${mode.name}: passed\n`);
   }
   const report = { hostVersion, artifactSha256: digest, modes: results, readOnlyProviderRequests: requests, remoteMutations: 0 };
