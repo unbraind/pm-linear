@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.29 - 2026-10-29
+
+### Added
+
+- Preview Linear field ownership and same-field conflicts ([pm-linear-field-ownership](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-field-ownership.toon))
+
 ## 2026.10.27 - 2026-10-27
 
 ### Other
