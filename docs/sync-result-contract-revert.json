@@ -1,0 +1,69 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "sync discards all fetched issues",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "atomic flag discards fetched issues",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "dry-run discards fetched issues",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "local filters redefine fetched membership",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "failed targets disappear from fetched data",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "native normalization leaks into fetched payloads",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "execution sorting replaces provider ordering",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 0 leaks fetched payloads",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 1 leaks fetched payloads",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "CLI route 2 leaks fetched payloads",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "legacy omitted assignees incorrectly retain local values",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "README promises legacy assignment preservation",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 2,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

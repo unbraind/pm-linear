@@ -307,6 +307,9 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
           const receipt = dispatched.result as SyncResult & { imported?: number };
           applied = { ...receipt, synced: receipt.synced ?? receipt.imported ?? receipt.created + receipt.updated };
         }
+        if (route === "sdk") assert.deepEqual(applied.issues, [remote], `fetched issue payload ${sequence}`);
+        else assert.equal(Object.hasOwn(applied, "issues"), false, `compact CLI receipt ${sequence}`);
+        if (preview) assert.deepEqual(preview.issues, [remote]);
         if (preview) for (const key of ["created", "updated", "skipped", "synced"] as const) assert.equal(preview[key], applied[key], `preview ${sequence} ${key}`);
         const points = remote.estimate ?? null;
         const previousContract = readLinearEstimate(previous?.tags ?? []).contract;

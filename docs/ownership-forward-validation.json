@@ -17,7 +17,7 @@
   "sameFieldConflicts": 1,
   "requests": 6,
   "jsonBytes": 2641,
-  "elapsedMs": 6118,
+  "elapsedMs": 2871,
   "originalSha256": "f4b7ff9fe0a2696caf903ac92a7a052dddc673f5cdcc1d3b6ab84a548d63d94d",
   "originalUnchanged": true,
   "derivedUnchangedDuringPreviews": true,

@@ -29,7 +29,7 @@ try {
           await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot: copy,
             transactionId: \`linear-preview-\${schemaDigest([id, expected, values])}\`, author,
             mutations: [{ op: "update", id, options: values }] });
-          return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
+          return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team };
         });`,
       after: `await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot,
           transactionId: \`linear-preview-\${schemaDigest([id, expected, values])}\`, author,

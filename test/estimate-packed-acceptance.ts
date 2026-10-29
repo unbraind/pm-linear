@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { acquireLock, PmClient } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, encodeLinearEstimate, linearEstimateScaleRevision, syncLinearIssues, itemToLinearPayload, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
 
@@ -13,11 +14,12 @@ import { referenceLifecycle } from "./native-reference.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const requestedHostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
-const vars = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_CACHE: join(tmpdir(), "linear-estimate-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
+const vars = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_PREFER_OFFLINE: "true", npm_config_prefer_offline: "true", NPM_CONFIG_CACHE: join(tmpdir(), "linear-estimate-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
 await mkdir(vars.HOME);
-let lastDiagnostics = "";
+let lastDiagnostics = "", commandCount = 0;
 /** Commands inherit only explicit noncredential configuration and synthetic provider credentials. */
 async function run(bin: string, args: string[], cwd = scratch, extra: Record<string, string> = {}) {
+  commandCount++;
   return new Promise<string>((done, fail) => {
     const child = spawn(bin, args, { cwd, env: { ...vars, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
     let output = "", error = "";
@@ -87,6 +89,7 @@ try {
       { name: "bunx", bin: "bun", args: ["x", "--package", host, "pm"], vars: bunVars },
     ];
     for (const mode of modes) {
+      const commandsBefore = commandCount;
       const tracker = join(hostRoot, "trackers", mode.name); const pm = new PmClient({ pmRoot: tracker, noExtensions: true, author: "fixture" }); await pm.init("packed");
       const seeded = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true }, tracker, {
         fetchIssues: async () => [issue], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Packed observer failure"); },
@@ -94,6 +97,53 @@ try {
       assert.equal(seeded.created, 1); assert.equal(seeded.importResults?.[0].code, "import_observer_failed");
       const prefix = [...mode.args, "--pm-path", tracker]; const extra = { ...mode.vars, ...network };
       await run(mode.bin, [...prefix, "package", "install", source, "--project"], scratch, mode.vars);
+      // A real consumer imports this artifact's public entrypoint. SDK acquisition
+      // stays inside its supported loader and the host-installed peer context.
+      const sdkRoot = join(hostRoot, "sdk-contract", mode.name);
+      await new PmClient({ pmRoot: sdkRoot, noExtensions: true, author: "fixture" }).init("sdk-contract");
+      const sdkPrefix = [...mode.args, "--pm-path", sdkRoot];
+      await run(mode.bin, [...sdkPrefix, "package", "install", source, "--project"], scratch, mode.vars);
+      const sdkInput = join(scratch, "sdk-input.json"), sdkProgram = join(scratch, "sdk-consumer.mjs");
+      await writeFile(sdkInput, JSON.stringify(issue));
+      const sdkEntry = pathToFileURL(join(sdkRoot, "extensions", "pm-linear", "dist", "index.js")).href;
+      await writeFile(sdkProgram, `import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { syncLinearIssues, importLinearAtomic } from ${JSON.stringify(sdkEntry)};
+const root = process.argv[2], original = JSON.parse(await readFile(process.argv[3], "utf8"));
+let checks = 0; const ids = [];
+for (const scaled of [false, true]) {
+  const source = structuredClone(original); source.id += scaled ? "-scaled" : "-legacy"; source.identifier += scaled ? "-scaled" : "-legacy";
+  if (!scaled) delete source.team;
+  const corpus = Array.from({ length: 500 }, (_, index) => ({ ...structuredClone(source), id: source.id + index, identifier: source.identifier + index, description: index % 2 ? " Raw\\r\\ncorpus " : " Raw\\ncorpus " }));
+  for (const atomic of [false, true]) for (const dryRun of [false, true]) {
+    const result = await syncLinearIssues({ team: "PACK", limit: 500, atomic, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => corpus });
+    assert.deepEqual(result.issues, corpus); assert.equal(result.skipped, 500); checks++;
+  }
+  const changed = { ...structuredClone(source), title: " SDK raw title\\r\\n " };
+  for (const [atomic, remote] of [[false, changed], [false, changed], [true, source]]) {
+    const result = await syncLinearIssues({ team: "PACK", limit: 10, atomic }, root, { fetchIssues: async () => [remote] });
+    assert.deepEqual(result.issues, [remote]); assert.equal(result.skipped, 0); checks++;
+  }
+  const assigned = { ...structuredClone(source), assignee: { name: "Provider Agent", email: "provider@example.invalid" } };
+  const seeded = await syncLinearIssues({ team: "PACK", limit: 10 }, root, { fetchIssues: async () => [assigned] });
+  assert.deepEqual(seeded.issues, [assigned]); checks++;
+  const cleared = structuredClone(assigned); if (!scaled) delete cleared.assignee;
+  const result = await syncLinearIssues({ team: "PACK", limit: 10, ...(scaled ? { fieldMap: { assignee: "ignore" } } : {}) }, root, { fetchIssues: async () => [cleared] });
+  assert.deepEqual(result.issues, [cleared]); assert.equal(result.skipped, 0); ids.push(result.importResults[0].id); checks++;
+}
+const receipt = await importLinearAtomic(root, "PACK", []); assert.equal(Object.hasOwn(receipt, "issues"), false); checks++;
+console.log(JSON.stringify({ checks, ids }));
+`);
+      const sdkContract = JSON.parse(await run(process.execPath, [sdkProgram, sdkRoot, sdkInput], scratch, extra)) as { checks: number; ids: string[] };
+      assert.equal(sdkContract.checks, 19); assert.equal(sdkContract.ids.length, 2);
+      const scopeUnset = ["goal", "objective", "sprint", "release"].flatMap((field) => ["--unset", field]);
+      const reference = JSON.parse(await run(mode.bin, [...sdkPrefix, "--no-extensions", "create", "--title", "Native unset reference", "--assignee", "Local Agent", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars)) as { id: string };
+      await run(mode.bin, [...sdkPrefix, "--no-extensions", "update", reference.id, "--unset", "assignee", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars);
+      const nativeUnset = JSON.parse(await run(mode.bin, [...sdkPrefix, "--no-extensions", "show", reference.id, "--json"], scratch, mode.vars)) as { item: { assignee?: string } };
+      for (const id of sdkContract.ids) {
+        const current = JSON.parse(await run(mode.bin, [...sdkPrefix, "--no-extensions", "show", id, "--json"], scratch, mode.vars)) as { item: { assignee?: string } };
+        assert.deepEqual(current.item.assignee, nativeUnset.item.assignee, "packed legacy/scaled clearing equals native SDK unset");
+      }
       const restored = JSON.parse(await run(mode.bin, [...prefix, "linear", "sync", "--team", "PACK", "--json"], scratch, extra)) as { created: number; skipped: number };
       assert.equal(restored.created, 0); assert.equal(restored.skipped, 0, "the packed sync re-reads and recognizes the earlier success");
       const native = JSON.parse(await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra)) as LinearEstimateReport;
@@ -118,8 +168,8 @@ try {
         issue.title = "Only a simulated provider edit";
         for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
           const simulated = await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--atomic", "--dry-run", ...(json ? ["--json"] : [])], scratch, extra);
-          if (json) { const receipt = JSON.parse(simulated) as { dryRun: boolean; updated: number; atomic: boolean }; assert.equal(receipt.dryRun, true); assert.equal(receipt.updated, 1); assert.equal(receipt.atomic, false); }
-          else assert.match(simulated, /dryRun: true/);
+          if (json) { const receipt = JSON.parse(simulated) as { dryRun: boolean; updated: number; atomic: boolean }; assert.equal(Object.hasOwn(receipt, "issues"), false); assert.equal(receipt.dryRun, true); assert.equal(receipt.updated, 1); assert.equal(receipt.atomic, false); }
+          else { assert.match(simulated, /dryRun: true/); assert.doesNotMatch(simulated, /^issues:/m); }
           assert.match(lastDiagnostics, /Would sync|Would import/);
           const afterPreview = JSON.parse(await run(mode.bin, [...prefix, "--no-extensions", "show", converted.rows[0].id, "--json"], scratch, mode.vars)) as unknown;
           assert.deepEqual(afterPreview, beforePreview, "every packed dry-run preserves SDK-read native state");
@@ -207,7 +257,7 @@ try {
           restoredAliases++;
         } finally { recoveryIssues = undefined; }
       }
-      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, simulationChecks: 6, refusedProjectionChecks: 2, commands: 39 });
+      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, sdkPayloadChecks: sdkContract.checks, assignmentReadbacks: sdkContract.ids.length, simulationChecks: 6, refusedProjectionChecks: 2, commands: commandCount - commandsBefore });
       process.stdout.write(`${hostVersion} ${mode.name}: passed\n`);
     }
   }

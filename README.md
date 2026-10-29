@@ -133,7 +133,7 @@ import time. The special value `ignore` suppresses a field:
 | `priority=ignore` | Skip priority (pm item gets the default) |
 | `labels=ignore` | Skip label→tag import (also drops the `cycle:<name>` tag) |
 | `status=ignore` | Skip status mapping (pm item stays `open`) |
-| `assignee=ignore` | Skip assignee import (pm item left unassigned) |
+| `assignee=ignore` | Suppress the provider value and clear any existing pm assignee |
 | `estimate=ignore` | Skip the `estimate:<points>` context tag |
 | `customer=ignore` | Skip the `customer:<name>` context tag |
 
@@ -337,6 +337,14 @@ permissions or gate export/push. Linear exposes no cross-request metadata snapsh
 transaction: a provider change after the final check remains a race. Run schema
 review and apply close together; `--atomic` is a deprecated compatibility flag; imports are forward-only per item.
 
+`syncLinearIssues` returns `SyncResult.issues`: the complete fetched provider
+array in provider order, including records filtered or skipped by local apply.
+This applies to normal, replay, dry-run and deprecated atomic-flag modes. The
+provider-free `LinearImportReceipt` reports native write outcomes;
+`importLinearAtomic` returns that receipt because it accepts prepared rows and
+fetches no issues. CLI JSON/TOON retain compact counts and `importResults` without
+embedding the fetched issue payloads.
+
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
 Live `--atomic --dry-run` receipts retain `dryRun: true` on sync and both import aliases, including empty or filtered results. Counts describe simulated changes; summaries say “Would sync/import”, and no item/history mutation is applied.
@@ -372,9 +380,10 @@ canonicalization; due dates use the existing export date mapping. The preview
 calls the same `buildItemPlan`/`resolveStatus` mapping as import, including
 configured `--status-map` overrides and the importer's provider-name fallback.
 Resulting local statuses use the SDK registry's alias normalization. There is no
-separate preview lifecycle policy. Omitted optional assignments retain the
-current local value for legacy payloads; scale-aware imports clear absent
-assignments through their native writer. Ownership acquires the same issue fields
+separate preview lifecycle policy. Every payload family clears absent mapped
+assignees and deadlines through SDK unset, including legacy inputs and ignored
+assignment mappings. A missing or null provider assignee does not preserve a
+local assignment; review the ownership difference before importing. Ownership acquires the same issue fields
 and runs the production import coordinator in an isolated copy, preserving saved
 estimate conversions. An unchanged imported issue's acknowledged observation
 replays as `unchanged`. Custom import field/project mappings are not
@@ -547,7 +556,7 @@ so imported issues map onto pm's first-class fields (there are **no**
 | `tags` (`cycle:<name>`) | `cycle.name` — the issue's Linear cycle, encoded as a namespaced tag |
 | `tags` (project) | `project.name` — only when `--project-map` is supplied (see above) |
 | `deadline` | `dueDate` (if set) |
-| `assignee` | `assignee.email` (or `assignee.name` when no email); suppress with `--map assignee=ignore` |
+| `assignee` | `assignee.email` (or `assignee.name` when no email); absent/null or `--map assignee=ignore` clears the local assignee |
 | `description` marker | `[linear] linear_id=… linear_url=…` provenance (see below) |
 
 > **Cycle encoding.** pm has no first-class cycle/sprint field reachable from a

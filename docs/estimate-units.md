@@ -81,7 +81,7 @@ before mutations, and operator file names are not included in diagnostics.
 
 ## Replay, ownership and concurrency
 
-Unit-aware imports use one native create/update mutation per item. They preserve
+All payload families use one native create/update mutation per item. They preserve
 unmapped native effort, annotations and relationships, explicitly state all five
 scope fields, clear absent assignees/deadlines, and use the SDK status registry to
 determine terminal status. Native SDK persistence owns whitespace normalization.
@@ -168,3 +168,11 @@ unchanged targets are skipped. A changed target whose
 complete desired fields cannot be confirmed is `unconfirmed`/`import_incomplete`,
 with an explicit count and inspection remedy; dependent writes skip. This avoids
 misreporting partial native calls or peer changes as untouched targets.
+
+
+SDK sync responses preserve the complete fetched `issues` array, in provider
+order and before local filters. Native write outcomes remain separate in
+`LinearImportReceipt`; prepared-row imports fetch no provider issues. CLI
+receipts deliberately omit raw payloads. All payload families clear missing,
+null or suppressed assignment inputs through SDK unset; legacy inputs have no
+assignment-preservation exception.

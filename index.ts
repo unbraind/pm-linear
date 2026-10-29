@@ -2441,7 +2441,7 @@ interface ClosureReadView {
   /** SDK-applied import projection read from an owned disposable copy only. */
   projected?: PmItem;
   /** Exact unit-aware apply result produced only in the owned bootstrap copy. */
-  estimateResult?: SyncResult;
+  estimateResult?: LinearImportReceipt;
 }
 
 /**
@@ -2451,7 +2451,7 @@ interface ClosureReadView {
  * the final read view. Only owned copies ever reach repairing SDK entry points.
  * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(source: string, selections: string[], projection?: (root: string) => Promise<SyncResult>): Promise<ClosureReadView> {
+async function readClosureItems(source: string, selections: string[], projection?: (root: string) => Promise<LinearImportReceipt>): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
   const bootstrap = join(scratch, "bootstrap");
   const reader = join(scratch, "reader");
@@ -2510,7 +2510,7 @@ async function readClosureItems(source: string, selections: string[], projection
     }
     const sourceView = { items: structuredClone(items), selectedIds, configuration: schemaDigest(settings), settings: structuredClone(settings) };
     let projected: PmItem | undefined;
-    let estimateResult: SyncResult | undefined;
+    let estimateResult: LinearImportReceipt | undefined;
     if (projection) {
       const transactionSdk = await loadImportSdk();
       const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
@@ -2783,8 +2783,8 @@ async function observeEstimateRevisions(pmRoot: string, items: PmItem[], boundar
 
 /** Apply each item once, retaining completed writes when another target fails. */
 async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries: PreparedLinearImport[], skipped: number,
-  revisions: ReadonlyMap<string, string>, boundary?: SyncRunDependencies["onEstimateBoundary"], projectionForce = false, explicitAuthor?: string): Promise<SyncResult> {
-  if (!entries.length) return { synced: 0, created: 0, updated: 0, skipped, team: options.team, issues: [],
+  revisions: ReadonlyMap<string, string>, boundary?: SyncRunDependencies["onEstimateBoundary"], projectionForce = false, explicitAuthor?: string): Promise<LinearImportReceipt> {
+  if (!entries.length) return { synced: 0, created: 0, updated: 0, skipped, team: options.team,
     importMode: "forward-only", importResults: [], atomic: false, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
   const runtime = await importRuntimeSdk();
   if (options.dryRun) {
@@ -2885,7 +2885,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
           await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot: copy,
             transactionId: `linear-preview-${schemaDigest([id, expected, values])}`, author,
             mutations: [{ op: "update", id, options: values }] });
-          return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
+          return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team };
         });
       }
       await boundary?.("validated", id);
@@ -2930,7 +2930,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const updated = results.filter((row) => row.action === "updated").length;
   const rejected = results.filter((row) => row.action === "skipped");
   const estimateSkips = rejected.slice(0, 20).map((row) => ({ id: row.id!, reason: row.reason ?? "superseded" as const }));
-  return { synced: created + updated, created, updated, skipped: skipped + rejected.length, team: options.team, issues: [],
+  return { synced: created + updated, created, updated, skipped: skipped + rejected.length, team: options.team,
     importMode: "forward-only", importResults: results, unconfirmed: results.filter((row) => row.action === "unconfirmed").length, estimateSkips, omittedEstimateSkips: rejected.length - estimateSkips.length,
     atomic: false };
 }
@@ -2947,8 +2947,8 @@ export interface LinearImportOutcome {
   remedy?: string;
 }
 
-/** Counts and schema evidence returned by either supported writer path. */
-export interface SyncResult {
+/** Native write receipt shared by imports; it contains no fetched provider payloads. */
+export interface LinearImportReceipt {
   /** Native-call failures with a changed target whose complete desired state cannot be confirmed. */
   unconfirmed?: number;
   /** All target outcomes, including unchanged items and typed per-item refusals. */
@@ -2961,13 +2961,11 @@ export interface SyncResult {
   omittedEstimateSkips?: number;
   /** SDK-only desired plans from the same forward-only dry-run preparation used by writes. */
   prepared?: PreparedLinearImport[];
-  schema?: LinearSchemaReport;
   synced: number;
   created: number;
   updated: number;
   skipped: number;
   team: string;
-  issues: LinearIssue[];
   // Deprecated compatibility fields. Imports report atomic=false; only the old
   // atomic-named SDK wrapper returns a revision-bound receipt ID, never a journal.
   atomic?: boolean;
@@ -2975,6 +2973,13 @@ export interface SyncResult {
   transactionId?: string;
   recovered?: boolean;
   recoveredItems?: number;
+}
+
+/** Fetched provider data and its native write receipt, returned by every sync mode. */
+export interface SyncResult extends LinearImportReceipt {
+  schema?: LinearSchemaReport;
+  /** Complete fetched issues in provider order, including filtered/skipped records; CLI receipts omit these payloads. */
+  issues: LinearIssue[];
 }
 
 /** Quarantine every non-unique provider identity before any import target is selected. */
@@ -3017,8 +3022,8 @@ export interface ItemPlan {
   deadline?: string;
   description: string; // provenance marker
   // Linear assignee.email (preferred) or .name, written to the pm item via
-  // `pm create/update --assignee`. Omitted when the issue is unassigned or the
-  // `assignee` field is suppressed via --map assignee=ignore.
+  // `pm create/update --assignee`. An absent mapped value (including ignore)
+  // clears the current assignment through SDK unset on every payload family.
   assignee?: string;
 }
 
@@ -3383,7 +3388,7 @@ export function buildAtomicImportMutations(
 }
 
 /** Deprecated compatibility name: imports now apply forward-only through the shared coordinator. */
-export async function importLinearAtomic(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}): Promise<SyncResult & {
+export async function importLinearAtomic(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}): Promise<LinearImportReceipt & {
   imported: number; recovered: boolean; transactionId: string; recoveredItems?: number; itemIds: Map<string, string>;
 }> {
   for (const entry of entries) assertLiteralImportValues(entry);
@@ -3470,15 +3475,13 @@ export async function syncLinearIssues(
 
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
-    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues: [],
+    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues,
       importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
   }
 
   const statusMap = options.statusMap ?? {};
 
-  // `skipped` is shared by both the atomic and legacy paths; `created`/`updated`
-  // are declared with the legacy loop below (the atomic path returns before it
-  // and reports its own counts, so hoisting them here would be a dead store).
+  // Filtering contributes refusal receipts independently of native item writes.
   let skipped = 0;
   const filteredResults: LinearImportOutcome[] = [];
 
@@ -3532,7 +3535,7 @@ export async function syncLinearIssues(
   if (prepared.some((entry) => scaleAwareIds.has(entry.linearId)) && prepared.some((entry) => !scaleAwareIds.has(entry.linearId)))
     throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
   const applied = await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary, dependencies.projectionForce);
-  return { ...applied, importResults: [...filteredResults, ...applied.importResults!], ...(schema ? { schema } : {}) };
+  return { ...applied, issues, importResults: [...filteredResults, ...applied.importResults!], ...(schema ? { schema } : {}) };
 }
 
 // ---------------------------------------------------------------------------
