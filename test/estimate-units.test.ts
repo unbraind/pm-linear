@@ -392,3 +392,30 @@ test("post-write peer state never becomes a compensation ownership proof", async
   const item = (await pm.listAllComplete()).items.find((row) => row.description?.includes(value.id));
   assert.equal(item?.title, "Peer edit before ownership observation");
 });
+
+test("multi-item imports sort targets, replay without duplicates and isolate a superseded item", async (t) => {
+  const { root, pm } = await fixture(t);
+  const a = issue("batch-a"), z = issue("batch-z");
+  const observed: string[] = [];
+  const initial = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, {
+    fetchIssues: async () => [z, a], onEstimateBoundary: async (stage, id) => { if (stage === "observed") observed.push(id); },
+  });
+  assert.equal(initial.created, 2);
+  const items = (await pm.listAllComplete()).items;
+  const aId = items.find((item) => item.description?.includes(a.id))!.id;
+  const zId = items.find((item) => item.description?.includes(z.id))!.id;
+  assert.deepEqual(observed, [aId, zId]);
+  const replay = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => [a, z] });
+  assert.equal(replay.synced, 0); assert.equal(replay.skipped, 0); assert.equal((await pm.listAllComplete()).items.length, 2);
+  a.title = "Changed A"; z.title = "Changed Z";
+  let injected = false;
+  const changed = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, {
+    fetchIssues: async () => [z, a], onEstimateBoundary: async (stage, id) => {
+      if (stage === "before_write" && id === aId && !injected) { injected = true; await pm.update(aId, { title: "Peer preserved" }); }
+    },
+  });
+  assert.equal(changed.updated, 1); assert.equal(changed.skipped, 1);
+  assert.deepEqual(changed.estimateSkips, [{ id: aId, reason: "superseded" }]);
+  assert.equal((await pm.get(aId)).item.title, "Peer preserved");
+  assert.equal((await pm.get(zId)).item.title, `[${z.identifier}] Changed Z`);
+});
