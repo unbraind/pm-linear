@@ -364,7 +364,11 @@ calls the same `buildItemPlan`/`resolveStatus` mapping as import, including
 configured `--status-map` overrides and the importer's provider-name fallback.
 Resulting local statuses use the SDK registry's alias normalization. There is no
 separate preview lifecycle policy. Omitted optional assignments retain the
-current local value, matching an SDK upsert. Custom import field/project mappings are not
+current local value for legacy payloads; scale-aware imports clear absent
+assignments through their native writer. Ownership acquires the same issue fields
+and runs the production import coordinator in an isolated copy, preserving saved
+estimate conversions. An unchanged imported issue's acknowledged observation
+replays as `unchanged`. Custom import field/project mappings are not
 inferred; use this command for the documented default import projection.
 
 This is an observation for review with **no atomic cross-system guarantees**.

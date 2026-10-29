@@ -104,6 +104,20 @@ older replay after a later import cannot reuse a completed content-only journal.
 Current target state decides unchanged outcomes. Preview uses the same entry
 producer and step inspection as apply, without committing.
 
+`linear ownership` acquires the same complete issue fields as import, then runs
+the production import coordinator in an isolated copy. It retains the item's
+declared conversion table and chooses the same unit-aware writer. After importing
+an unchanged issue, its acknowledged ownership observation replays as
+`unchanged`, including the provenance tags. Both JSON and TOON use this SDK path;
+old ownership mapping revisions require a fresh acknowledgement.
+
+The [packed receipt](estimate-packed-validation.json) records all five install
+layouts on host 2026.10.28: 50 command assertions, 105 read-only provider requests,
+zero provider mutations, 571-byte estimate receipts and 3331-byte ownership JSON
+receipts. Both acquisition and writer-selection behavioral reverts fail the
+cross-path regression; the fixed implementation passes, as recorded in the
+[disposable revert receipt](ownership-import-parity-revert.json).
+
 Compensation re-reads before restoring an existing item's native history version.
 It deletes a newly created item only when this invocation verified its complete SDK producer receipt and planned body
 against native history and retained the exact history coordinate, and no later write

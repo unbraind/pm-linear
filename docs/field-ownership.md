@@ -131,15 +131,23 @@ atomic mutation options and the non-atomic typed SDK writer now use the same
 `buildItemPlan` and its representability guard. The non-atomic path no longer
 launches a CLI subprocess or places provider strings in argv.
 
-Ownership now executes the shared atomic update/close rows through a
-SDK mutation coordinator in an owned disposable copy, scoped through
+Ownership executes the actual `syncLinearIssues` import coordinator in an
+owned disposable copy, scoped through
 `runWithActiveExtensions({ path: ownedCopy, noExtensions: true }, ...)`,
 then reads that copy back through the SDK. It does not estimate SDK parsing from raw
 options. This also observes lifecycle effects such as cancellation clearing
-assignments. Copied ownership/closure permissions are bypassed only in the
-throwaway projection; the result never authorizes a real write. The source
+assignments. A copied SDK policy refusal stops the projection; a successful
+projection never authorizes a real write. The source
 view is compared again before it contributes any hashes, and no staged
 metadata, history or hooks reach the source tracker or provider.
+
+Import and ownership queries share one selection of every consumed issue field,
+including immutable team identity and all estimate-scale flags. The coordinator
+selects the same unit-aware or legacy writer as apply, preserving the existing
+same-team conversion table, including stale tables. An unchanged imported issue
+therefore has equal local/provider hashes, and acknowledging that observation
+then replaying it reports every field as `unchanged`. The projection mapping
+revision changed; older observations must be reviewed and acknowledged again.
 
 The pinned SDK still interprets body/description `-` as stdin and assignment
 `none`/`null` as clear controls. Its bulk row options have no public literal

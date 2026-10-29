@@ -8,6 +8,7 @@ import http from "node:http";
 import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScaleRevision, inspectLinearEstimates, syncLinearIssues, buildItemPlan, itemToLinearPayload, buildProvenance, deriveAtomicItemId, LinearEstimateRefusal,
+  previewLinearOwnership,
   type LinearEstimateTeam, type LinearEstimateMapping, type LinearEstimateReport, type LinearIssue, type SyncResult } from "../index.ts";
 
 const team: LinearEstimateTeam = { id: "team-a", key: "ENG", issueEstimationType: "fibonacci", issueEstimationAllowZero: false, issueEstimationExtended: false };
@@ -162,10 +163,12 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     let raw = ""; req.on("data", (chunk: Buffer) => { raw += chunk.toString(); }); req.on("end", () => {
       const { query } = JSON.parse(raw) as { query: string }; assert.ok(!query.trimStart().startsWith("mutation"));
       const pageInfo = { hasNextPage: false, endCursor: null };
+      const selected = { ...structuredClone(wire.current), updatedAt: "2026-10-29T00:00:00Z" };
+      if (!/\bteam\s*\{/.test(query)) delete selected.team;
       const data = query.includes("LinearSchema") ? {
         teams: { nodes: [{ ...team, cyclesEnabled: false, triageEnabled: false, defaultIssueState: null, states: { nodes: wire.statuses, pageInfo } }] },
         issueLabels: { nodes: [], pageInfo },
-      } : { issues: { nodes: [wire.current], pageInfo } };
+      } : query.includes("LinearOwnership") ? { issue: selected } : { issues: { nodes: [selected], pageInfo } };
       res.writeHead(200, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ data }));
     });
   });
@@ -254,6 +257,12 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         const actualItem = (await actual.pm.get(aId, { depth: "deep" })).item;
         const modelItem = (await model.get(aId, { depth: "deep" })).item;
         for (const field of ["title", "body", "status", "priority", "tags", "type", "author", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const) assert.deepEqual(actualItem[field], modelItem[field], `sequence ${sequence} field ${field}`);
+        const ownership = await previewLinearOwnership({ item: aId, statusMap }, actual.root);
+        assert.ok(ownership.observation.fields.every((field) => field.local === field.provider), `sequence ${sequence}: every projected field must equal SDK-read applied state`);
+        if (sequence % 25 === 0) {
+          const acknowledged = await previewLinearOwnership({ item: aId, statusMap, base: ownership.observation }, actual.root);
+          assert.ok(acknowledged.fields.every((field) => field.decision === "unchanged"), `sequence ${sequence}: acknowledged projection must replay unchanged`);
+        }
         const exported = itemToLinearPayload(actualItem);
         assert.equal(exported.estimate, points ?? undefined);
         assert.ok(exported.labels!.every((label) => !label.startsWith("linear-estimate:")));

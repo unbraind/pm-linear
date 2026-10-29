@@ -250,6 +250,14 @@ interface LinearViewerData {
 const LINEAR_MAX_PAGE_SIZE = 250;
 /** Shared issue-label read bound for import and ownership acquisition. */
 const LINEAR_ISSUE_LABEL_CAP = 128;
+/** Every field consumed by import planning, shared by sync and ownership acquisition. */
+const LINEAR_IMPORT_FIELDS = `
+  id identifier title description priority estimate updatedAt
+  team { id key issueEstimationType issueEstimationAllowZero issueEstimationExtended }
+  state { name type }
+  labels(first: ${LINEAR_ISSUE_LABEL_CAP}) { nodes { name } pageInfo { hasNextPage } }
+  assignee { name email } dueDate cycle { name } project { name } customer { name } url
+`;
 
 // ---------------------------------------------------------------------------
 // Option readers — tolerate both kebab-case and camelCase keys.
@@ -803,23 +811,7 @@ ${filterBody}
     }
     orderBy: updatedAt
   ) {
-    nodes {
-      id
-      identifier
-      title
-      description
-      priority
-      estimate
-      team { id key issueEstimationType issueEstimationAllowZero issueEstimationExtended }
-      state { name type }
-      labels(first: ${LINEAR_ISSUE_LABEL_CAP}) { nodes { name } pageInfo { hasNextPage } }
-      assignee { name email }
-      dueDate
-      cycle { name }
-      project { name }
-      customer { name }
-      url
-    }
+    nodes { ${LINEAR_IMPORT_FIELDS} }
     pageInfo { hasNextPage endCursor }
   }
 }
@@ -1879,8 +1871,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
     if (!key || !target || normalizedMap.has(key)) throw new LinearOwnershipRefusal("invalid_input", "Use unambiguous state mappings to statuses in the configured SDK registry.");
     normalizedMap.set(key, target);
   }
-  const mapping = schemaDigest({ projection: "linear-import-v3-sdk-projection", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
-  const plan = buildItemPlan(issue, Object.fromEntries(normalizedMap));
+  const mapping = schemaDigest({ projection: "linear-import-v4-shared-writer", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
   /** The same SDK canonicalizer used by persistence handles status aliases and metadata. */
   function project(item: PmItem): Map<LinearOwnershipField, string> {
     const document = sdk.canonicalDocument({ metadata: { id: local!.id!, type: "Task", title: "", status: "open", created_at: "", updated_at: "", description: "", ...item } as ItemMetadata, body: item.body ?? "" }, { schema: view.settings.schema });
@@ -1891,7 +1882,11 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
   // Persistence canonicalization alone does not cover SDK option parsing or
   // lifecycle effects (for example, canceled-role assignment clearing).
   let projection: ClosureReadView;
-  try { projection = await readClosureItems(source, [options.item], { ...plan, identifier: issue.identifier, linearId, match: local }); }
+  try {
+    projection = await readClosureItems(source, [options.item], (copy) => syncLinearIssues({
+      team: issue.team?.key ?? "OWNERSHIP", limit: 1, atomic: true, statusMap: Object.fromEntries(normalizedMap),
+    }, copy, { fetchIssues: async () => [issue] }));
+  }
   catch (error: unknown) {
     if (error instanceof LinearImportRefusal) throw error;
     throw new LinearOwnershipRefusal("invalid_input", "The SDK could not project this import against an isolated copy. Review native values and tracker schema/policy before retrying; no source writes or hooks ran.", "plan");
@@ -2425,10 +2420,7 @@ const linearIssuesDataShape: ClosureShape = { kind: "nullable", inner: { kind: "
   }, optional: ["nodes", "pageInfo"], additional: true } },
 }, optional: ["issues"], additional: true } };
 const OWNERSHIP_QUERY = `query LinearOwnership($id: String!) {
-  issue(id: $id) { id identifier title description priority estimate updatedAt
-    state { name type } labels(first: ${LINEAR_ISSUE_LABEL_CAP}) { nodes { name } pageInfo { hasNextPage } }
-    dueDate cycle { name } assignee { name email } project { name } customer { name } url
-  }
+  issue(id: $id) { ${LINEAR_IMPORT_FIELDS} }
 }`;
 
 const CLOSURE_QUERY = `query LinearPrerequisites($id: String!, $after: String) {
@@ -2459,7 +2451,7 @@ interface ClosureReadView {
  * the final read view. Only owned copies ever reach repairing SDK entry points.
  * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(source: string, selections: string[], projection?: PreparedLinearImport, unitProjection?: (root: string) => Promise<SyncResult>): Promise<ClosureReadView> {
+async function readClosureItems(source: string, selections: string[], projection?: (root: string) => Promise<SyncResult>): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
   const bootstrap = join(scratch, "bootstrap");
   const reader = join(scratch, "reader");
@@ -2517,20 +2509,16 @@ async function readClosureItems(source: string, selections: string[], projection
     }
     const sourceView = { items: structuredClone(items), selectedIds, configuration: schemaDigest(settings), settings: structuredClone(settings) };
     let projected: PmItem | undefined;
+    let estimateResult: SyncResult | undefined;
     if (projection) {
       const transactionSdk = await loadAtomicSdk();
-      const commit = assertSdkFunction(transactionSdk.commitItemMutations, "commitItemMutations");
       const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
-      const planned = buildAtomicImportMutations("ownership", projection, settings.id_prefix, sdk.normalizeItemId);
-      // Use the actual coordinator, including its inspection/skip semantics.
-      // Permissions are bypassed only on owned copies, never on source state.
-      const mutations: BulkItemMutation[] = planned.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
-      const revision = schemaDigest({ target: projection.match, mutations });
-      await withoutHooks({ path: reader, noExtensions: true }, () => commit({ pmRoot: reader, transactionId: `projection-${revision}`, author: "pm-linear", mutations }));
-      projected = (await readPmItems(reader)).find((item) => item.id === projection.match?.id);
-      if (!projected) throw new Error("SDK projection target disappeared");
+      const result = await withoutHooks({ path: bootstrap, noExtensions: true }, () => projection(bootstrap));
+      if (selections.length) {
+        projected = (await readPmItems(bootstrap)).find((item) => item.id === selectedIds[0]);
+        if (!projected) throw new Error("SDK projection target disappeared");
+      } else estimateResult = result;
     }
-    const estimateResult = unitProjection ? await unitProjection(bootstrap) : undefined;
     return { ...sourceView, ...(projected ? { projected } : {}), ...(estimateResult ? { estimateResult } : {}) };
   } finally {
     await writableMirror();
@@ -2765,7 +2753,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const runtime = await importRuntimeSdk();
   if (options.dryRun) {
     const root = await realpath(runtime.resolvePmRoot(process.cwd(), pmRoot));
-    const staged = await readClosureItems(root, [], undefined, (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions));
+    const staged = await readClosureItems(root, [], (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions));
     return { ...staged.estimateResult!, dryRun: true, prepared: entries };
   }
   const sdk = await loadAtomicSdk();

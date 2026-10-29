@@ -7,7 +7,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk";
-import { linearEstimateScaleRevision, type LinearEstimateReport, type LinearIssue } from "../index.ts";
+import { linearEstimateScaleRevision, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const hostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
@@ -35,9 +35,11 @@ const server = http.createServer((req, res) => {
     const { query } = JSON.parse(raw) as { query: string };
     assert.ok(!query.trimStart().startsWith("mutation")); requests++;
     const pageInfo = { hasNextPage: false, endCursor: null };
+    const selected = { ...issue, updatedAt: "2026-10-29T00:00:00Z" };
+    if (!/\bteam\s*\{/.test(query)) delete selected.team;
     const data = query.includes("LinearEstimateScale") ? { teams: { nodes: [team] } } : query.includes("LinearSchema") ? {
       teams: { nodes: [{ ...team, cyclesEnabled: false, triageEnabled: false, defaultIssueState: null, states: { nodes: [{ id: "queue", ...issue.state }], pageInfo } }] }, issueLabels: { nodes: [], pageInfo },
-    } : query.includes("viewer") ? { viewer: { id: "reader" } } : { issues: { nodes: [issue], pageInfo } };
+    } : query.includes("viewer") ? { viewer: { id: "reader" } } : query.includes("LinearOwnership") ? { issue: selected } : { issues: { nodes: [selected], pageInfo } };
     res.writeHead(200, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ data }));
   });
 });
@@ -78,8 +80,16 @@ try {
     const raw = await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra);
     const converted = JSON.parse(raw) as LinearEstimateReport; assert.equal(converted.rows[0].minutes, 240);
     const toon = await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK"], scratch, extra); assert.match(toon, /converted/);
+    const ownershipRaw = await run(mode.bin, [...prefix, "linear", "ownership", "--item", converted.rows[0].id, "--json"], scratch, extra);
+    const ownership = JSON.parse(ownershipRaw) as LinearOwnershipReport;
+    assert.ok(ownership.observation.fields.every((field) => field.local === field.provider), mode.name);
+    const base = join(scratch, `${mode.name}-ownership.json`); await writeFile(base, JSON.stringify(ownership.observation));
+    const ownershipArgs = [...prefix, "linear", "ownership", "--item", converted.rows[0].id, "--base", base];
+    const acknowledged = JSON.parse(await run(mode.bin, [...ownershipArgs, "--json"], scratch, extra)) as LinearOwnershipReport;
+    assert.ok(acknowledged.fields.every((field) => field.decision === "unchanged"), mode.name);
+    const ownershipToon = await run(mode.bin, ownershipArgs, scratch, extra); assert.match(ownershipToon, /unchanged/); assert.doesNotMatch(ownershipToon, /unknown_base/);
     const exported = await run(mode.bin, [...prefix, "linear", "export", "--json"], scratch, mode.vars); assert.match(exported, /"estimate":\s*5/); assert.doesNotMatch(exported, /linear-estimate:/);
-    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), commands: 7 });
+    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, commands: 10 });
     process.stdout.write(`${mode.name}: passed\n`);
   }
   const report = { hostVersion, artifactSha256: digest, modes: results, readOnlyProviderRequests: requests, remoteMutations: 0 };

@@ -1,0 +1,39 @@
+/** Prove acquisition and writer-selection regressions fail in disposable copies. */
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+const source = resolve(import.meta.dirname, "..");
+const scratch = await mkdtemp(join(tmpdir(), "linear-ownership-parity-revert-"));
+try {
+  await mkdir(join(scratch, "test"));
+  await cp(join(source, "test/ownership.test.ts"), join(scratch, "test/ownership.test.ts"));
+  await writeFile(join(scratch, "package.json"), '{"type":"module"}\n');
+  await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");
+  const original = await readFile(join(source, "index.ts"), "utf8");
+  const mutants = [
+    { name: "ownership acquisition omits team metadata", before: "issue(id: $id) { ${LINEAR_IMPORT_FIELDS} }",
+      after: "issue(id: $id) { id identifier title description priority estimate updatedAt state { name type } labels(first: 128) { nodes { name } pageInfo { hasNextPage } } dueDate cycle { name } assignee { name email } project { name } customer { name } url }" },
+    { name: "previewLinearOwnership selects the legacy writer for a scale-aware issue",
+      before: "copy, { fetchIssues: async () => [issue] }));",
+      after: "copy, { fetchIssues: async () => [{ ...issue, team: undefined }] }));" },
+  ];
+  const args = ["--test", "--test-concurrency=1", "--test-name-pattern=ownership shares every import writer", "test/ownership.test.ts"];
+  const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };
+  const results = [];
+  for (const mutant of mutants) {
+    assert.ok(original.includes(mutant.before), mutant.name);
+    await writeFile(join(scratch, "index.ts"), original.replace(mutant.before, mutant.after));
+    const run = spawnSync(process.execPath, args, { cwd: scratch, encoding: "utf8", env: variables, timeout: 600000 });
+    assert.equal(run.status, 1, `${mutant.name}: behavioral revert must fail`);
+    assert.match(run.stdout + run.stderr, /projection must equal SDK-read imported state/);
+    results.push({ revertedBehavior: mutant.name, passed: 0, failed: 1 });
+  }
+  const fixed = spawnSync(process.execPath, args, { cwd: source, encoding: "utf8", env: variables, timeout: 600000 });
+  assert.equal(fixed.status, 0, "Unmodified production implementation must pass");
+  const report = { reverted: results, fixed: { passed: 1, failed: 0 }, reviewedCheckoutMutated: false };
+  if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
+  process.stdout.write(JSON.stringify(report) + "\n");
+} finally { await rm(scratch, { recursive: true, force: true }); }

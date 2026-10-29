@@ -8,7 +8,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { canonicalDocument, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -43,13 +43,16 @@ async function fixture(t: TestContext) {
       await state.onRead?.();
       res.writeHead(state.status, { "Content-Type": "application/json", Connection: "close" });
       const provider = state.issue as ReturnType<typeof issue>;
+      // A GraphQL server cannot return team fields that the caller omitted.
+      const selected = structuredClone(state.issue) as LinearIssue;
+      if (selected && typeof selected === "object" && !/\bteam\s*\{/.test(request.query)) delete selected.team;
       const pageInfo = { hasNextPage: false, endCursor: null };
       const data = request.query.includes("LinearSchema") ? {
         teams: { nodes: [{ id: "team", key: "ENG", cyclesEnabled: false, triageEnabled: false,
           issueEstimationType: "notUsed", defaultIssueState: null,
           states: { nodes: [{ id: "state", ...provider.state }], pageInfo } }] },
         issueLabels: { nodes: provider.labels.nodes.map((label, index) => ({ id: `label-${index}`, name: label.name })), pageInfo },
-      } : request.query.includes("issues(") ? { issues: { nodes: [state.issue], pageInfo } } : { issue: state.issue };
+      } : request.query.includes("issues(") ? { issues: { nodes: [selected], pageInfo } } : { issue: selected };
       res.end((request.query.includes("issues(") ? state.rawIssuesBody : undefined) ?? state.rawBody ?? JSON.stringify({ data, errors: state.errors }));
     })(); });
   });
@@ -127,6 +130,40 @@ test("CLI agrees with SDK in JSON and native TOON dispatch, including baseline f
   const invalid = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: {}, global: {} });
   assert.equal(invalid.exitCode, 2);
   assert.equal(invalid.errorCode, "invalid_input");
+});
+
+test("ownership shares every import writer and preserves team provenance and saved mappings", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const team = { id: "team", key: "ENG", issueEstimationType: "fibonacci", issueEstimationAllowZero: false, issueEstimationExtended: false };
+  const conversion = { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }] };
+  const file = join(root, "estimate-mapping.json"); await writeFile(file, JSON.stringify(conversion));
+  for (const units of [true, false]) for (const atomic of [false, true]) for (const route of ["sdk", "sync", "linear", "linear-sync"]) {
+    const provider = issue(); provider.estimate = 5;
+    if (units) provider.team = { ...team, issueEstimationExtended: atomic };
+    state.issue = provider;
+    // Only the initial unit import supplies a mapping. Every later projection
+    // must preserve the saved map, including a map made stale by a scale change.
+    const declare = units && !atomic && route === "sdk";
+    if (route === "sdk") await syncLinearIssues({ team: "ENG", limit: 1, atomic, ...(declare ? { estimateMapping: conversion } : {}) }, root);
+    else {
+      const args = { team: "ENG", atomic, skipPreflightNetwork: true, ...(declare ? { estimateMapping: file } : {}) };
+      const imported = route === "sync" ? await harness.runCommand({ command: "linear sync", pmRoot: root, options: args, global: { json: true } }) : await harness.runImporter({ importer: route, pmRoot: root, options: args, global: { json: true } });
+      assert.equal(imported.exitCode ?? 0, 0, `${units}/${atomic}/${route}`);
+    }
+    const before = await durable(root);
+    const observation = (await previewLinearOwnership(options, root)).observation;
+    assert.ok(observation.fields.every((field) => field.local === field.provider), `${units}/${atomic}/${route}: projection must equal SDK-read imported state`);
+    const base = join(root, "ownership-base.json"); await writeFile(base, JSON.stringify(observation));
+    for (const global of [{ json: true }, {}]) {
+      const replay = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { ...options, base }, global });
+      assert.equal(replay.exitCode ?? 0, 0);
+      assert.ok((replay.result as { fields: Array<{ decision: string }> }).fields.every((field) => field.decision === "unchanged"), `${units}/${atomic}/${route}`);
+    }
+    await rm(base);
+    assert.deepEqual(await durable(root), before, "ownership projection must not modify source bytes");
+    if (units) assert.deepEqual(readLinearEstimate((await pm.get(options.item)).item.tags ?? []).contract?.mapping, conversion);
+  }
 });
 
 test("strict dense schemas reject extreme inputs before side effects; old content is allowed", async (t) => {

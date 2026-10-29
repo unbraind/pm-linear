@@ -1,6 +1,6 @@
 {
   "hostVersion": "2026.10.28",
-  "artifactSha256": "b59013a97a408a46641611dc7722d1f575bd42cd0ccd7e8325a1aa51e1e03cb9",
+  "artifactSha256": "8046e3952531dd890507330338ef1bfc9b80de0cff0057b8567e1cd831bd0925",
   "modes": [
     {
       "mode": "project-local",
@@ -8,7 +8,9 @@
       "nativePoints": 5,
       "declaredMinutes": 240,
       "jsonBytes": 571,
-      "commands": 7
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "commands": 10
     },
     {
       "mode": "npm-global",
@@ -16,7 +18,9 @@
       "nativePoints": 5,
       "declaredMinutes": 240,
       "jsonBytes": 571,
-      "commands": 7
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "commands": 10
     },
     {
       "mode": "bun-global",
@@ -24,7 +28,9 @@
       "nativePoints": 5,
       "declaredMinutes": 240,
       "jsonBytes": 571,
-      "commands": 7
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "commands": 10
     },
     {
       "mode": "npx",
@@ -32,7 +38,9 @@
       "nativePoints": 5,
       "declaredMinutes": 240,
       "jsonBytes": 571,
-      "commands": 7
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "commands": 10
     },
     {
       "mode": "bunx",
@@ -40,9 +48,11 @@
       "nativePoints": 5,
       "declaredMinutes": 240,
       "jsonBytes": 571,
-      "commands": 7
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "commands": 10
     }
   ],
-  "readOnlyProviderRequests": 75,
+  "readOnlyProviderRequests": 105,
   "remoteMutations": 0
 }
