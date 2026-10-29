@@ -1885,7 +1885,17 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
   try {
     projection = await readClosureItems(source, [options.item], (copy) => syncLinearIssues({
       team: issue.team?.key ?? "OWNERSHIP", limit: 1, atomic: true, statusMap: Object.fromEntries(normalizedMap),
-    }, copy, { fetchIssues: async () => [issue] }));
+    }, copy, { fetchIssues: async () => [issue], commitAtomic: async (root, team, entries) => {
+      // Preserve legacy field-effect projections without certifying authorization.
+      // Only this owned copy receives forced rows and a fresh revision-bound journal.
+      const transactionSdk = await loadAtomicSdk();
+      const commit = assertSdkFunction(transactionSdk.commitItemMutations, "commitItemMutations");
+      const revisions = await observeEstimateRevisions(root, await readPmItems(root));
+      return importLinearAtomic(root, team, entries, { commitItemMutations: (options) => commit({ ...options,
+        transactionId: `projection-${schemaDigest([options.transactionId, [...revisions]])}`,
+        mutations: options.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } })),
+      }) });
+    } }));
   }
   catch (error: unknown) {
     if (error instanceof LinearImportRefusal) throw error;

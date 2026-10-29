@@ -9,10 +9,15 @@
       "revertedBehavior": "previewLinearOwnership selects the legacy writer for a scale-aware issue",
       "passed": 0,
       "failed": 1
+    },
+    {
+      "revertedBehavior": "legacy projection loses isolated repeat-closure compatibility",
+      "passed": 0,
+      "failed": 1
     }
   ],
   "fixed": {
-    "passed": 1,
+    "passed": 2,
     "failed": 0
   },
   "reviewedCheckoutMutated": false

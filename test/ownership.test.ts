@@ -166,6 +166,39 @@ test("ownership shares every import writer and preserves team provenance and sav
   }
 });
 
+test("ownership retains isolated legacy projection for every custom terminal role", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  await syncLinearIssues({ team: "OWNERSHIP", limit: 1, atomic: true }, root, { fetchIssues: async () => [issue()] });
+  const original = hashes(await stateFromSdk(root, options.item));
+  for (const [name, role] of [["retired-custom", "terminal_done"], ["abandoned-custom", "terminal_canceled"]]) {
+    await pm.schemaAddStatus(name, { role: [role] });
+    await pm.update(options.item, { status: name, closeReason: "Synthetic native terminal state" });
+    const provider = issue(); provider.state = { name: "Provider finished", type: "completed" }; state.issue = provider;
+    const match = (await pm.get(options.item, { depth: "deep" })).item;
+    const before = await durable(root);
+    const reference = await mkdtemp(join(tmpdir(), "linear-terminal-reference-"));
+    try {
+      await cp(root, reference, { recursive: true });
+      const settings = await readSettings(reference);
+      const entry = { ...buildItemPlan(provider, {}), identifier: provider.identifier, linearId: provider.id, match };
+      const mutations = buildAtomicImportMutations("ENG", entry, settings.id_prefix, normalizeItemId).mutations
+        .map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
+      await commitItemMutations({ pmRoot: reference, transactionId: `terminal-${name}`, author: "fixture", mutations });
+      const expected = hashes(await stateFromSdk(reference, options.item));
+      const report = await previewLinearOwnership(options, root);
+      for (const field of report.observation.fields) assert.equal(field.provider, expected.get(field.field), `${role}/${field.field}`);
+      assert.deepEqual(await durable(root), before, "copied repeat closure must never touch source state");
+    } finally { await rm(reference, { recursive: true, force: true }); }
+  }
+  // A copied committed journal for an older input must not replay blindly or
+  // collide with the projection-only permission adapter after native edits.
+  state.issue = issue();
+  const before = await durable(root);
+  const replay = await previewLinearOwnership(options, root);
+  for (const field of replay.observation.fields) assert.equal(field.provider, original.get(field.field), `historical replay/${field.field}`);
+  assert.deepEqual(await durable(root), before);
+});
+
 test("strict dense schemas reject extreme inputs before side effects; old content is allowed", async (t) => {
   const { root, state, options } = await fixture(t);
   const before = await durable(root);

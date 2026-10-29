@@ -136,8 +136,12 @@ owned disposable copy, scoped through
 `runWithActiveExtensions({ path: ownedCopy, noExtensions: true }, ...)`,
 then reads that copy back through the SDK. It does not estimate SDK parsing from raw
 options. This also observes lifecycle effects such as cancellation clearing
-assignments. A copied SDK policy refusal stops the projection; a successful
-projection never authorizes a real write. The source
+assignments. The legacy coordinator retains its forced mutation adapter only in
+the throwaway copy, including repeat closure from custom terminal statuses.
+Its projection journal identity includes SDK target revisions so copied committed
+journals cannot override a fresh observation or conflict with the copy-only adapter.
+Unit-aware imports use their native coordinator; a copied SDK policy refusal
+stops that projection. A successful projection never authorizes a real write. The source
 view is compared again before it contributes any hashes, and no staged
 metadata, history or hooks reach the source tracker or provider.
 

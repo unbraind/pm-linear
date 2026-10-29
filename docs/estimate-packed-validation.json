@@ -1,6 +1,6 @@
 {
   "hostVersion": "2026.10.28",
-  "artifactSha256": "8046e3952531dd890507330338ef1bfc9b80de0cff0057b8567e1cd831bd0925",
+  "artifactSha256": "72d2ba9bf55b35e5c8fd9b0439103fb66242a5e3a90bd5606b3c65ef12511ae2",
   "modes": [
     {
       "mode": "project-local",
@@ -10,7 +10,8 @@
       "jsonBytes": 571,
       "ownershipJsonBytes": 3331,
       "ownershipUnchanged": true,
-      "commands": 10
+      "legacyTerminalProjection": true,
+      "commands": 11
     },
     {
       "mode": "npm-global",
@@ -20,7 +21,8 @@
       "jsonBytes": 571,
       "ownershipJsonBytes": 3331,
       "ownershipUnchanged": true,
-      "commands": 10
+      "legacyTerminalProjection": true,
+      "commands": 11
     },
     {
       "mode": "bun-global",
@@ -30,7 +32,8 @@
       "jsonBytes": 571,
       "ownershipJsonBytes": 3331,
       "ownershipUnchanged": true,
-      "commands": 10
+      "legacyTerminalProjection": true,
+      "commands": 11
     },
     {
       "mode": "npx",
@@ -40,7 +43,8 @@
       "jsonBytes": 571,
       "ownershipJsonBytes": 3331,
       "ownershipUnchanged": true,
-      "commands": 10
+      "legacyTerminalProjection": true,
+      "commands": 11
     },
     {
       "mode": "bunx",
@@ -50,9 +54,10 @@
       "jsonBytes": 571,
       "ownershipJsonBytes": 3331,
       "ownershipUnchanged": true,
-      "commands": 10
+      "legacyTerminalProjection": true,
+      "commands": 11
     }
   ],
-  "readOnlyProviderRequests": 105,
+  "readOnlyProviderRequests": 115,
   "remoteMutations": 0
 }

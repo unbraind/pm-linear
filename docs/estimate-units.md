@@ -112,9 +112,9 @@ an unchanged issue, its acknowledged ownership observation replays as
 old ownership mapping revisions require a fresh acknowledgement.
 
 The [packed receipt](estimate-packed-validation.json) records all five install
-layouts on host 2026.10.28: 50 command assertions, 105 read-only provider requests,
+layouts on host 2026.10.28: 55 command assertions, 115 read-only provider requests,
 zero provider mutations, 571-byte estimate receipts and 3331-byte ownership JSON
-receipts. Both acquisition and writer-selection behavioral reverts fail the
+receipts. Acquisition, writer-selection and legacy projection compatibility reverts fail the
 cross-path regression; the fixed implementation passes, as recorded in the
 [disposable revert receipt](ownership-import-parity-revert.json).
 

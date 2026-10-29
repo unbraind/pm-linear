@@ -7,7 +7,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk";
-import { linearEstimateScaleRevision, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
+import { buildItemPlan, linearEstimateScaleRevision, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const hostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
@@ -88,8 +88,25 @@ try {
     const acknowledged = JSON.parse(await run(mode.bin, [...ownershipArgs, "--json"], scratch, extra)) as LinearOwnershipReport;
     assert.ok(acknowledged.fields.every((field) => field.decision === "unchanged"), mode.name);
     const ownershipToon = await run(mode.bin, ownershipArgs, scratch, extra); assert.match(ownershipToon, /unchanged/); assert.doesNotMatch(ownershipToon, /unknown_base/);
+    const legacyRoot = join(scratch, "legacy", mode.name);
+    const legacy = new PmClient({ pmRoot: legacyRoot, noExtensions: true, author: "fixture" }); await legacy.init("legacy");
+    await legacy.schemaAddStatus("finished-custom", { role: ["terminal_done"] });
+    const legacyIssue = { ...issue, team: undefined, state: { name: "Provider finished", type: "completed" } };
+    const legacyPlan = buildItemPlan(legacyIssue, {});
+    const legacyItem = await legacy.create({ ...legacyPlan, tags: JSON.stringify(legacyPlan.tags), status: "finished-custom", closeReason: "Synthetic terminal state",
+      parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+    const legacyPrefix = [...mode.args, "--pm-path", legacyRoot];
+    await run(mode.bin, [...legacyPrefix, "package", "install", source, "--project"], scratch, mode.vars);
+    const savedTeam = issue.team, savedState = issue.state;
+    try {
+      delete issue.team; issue.state = legacyIssue.state;
+      const legacyReport = JSON.parse(await run(mode.bin, [...legacyPrefix, "linear", "ownership", "--item", legacyItem.item.id, "--json"], scratch, extra)) as LinearOwnershipReport;
+      assert.equal(legacyReport.ok, true, mode.name);
+      const status = legacyReport.observation.fields.find((field) => field.field === "status")!;
+      assert.notEqual(status.local, status.provider, "custom terminal role projects the default provider completion through the native SDK");
+    } finally { issue.team = savedTeam; issue.state = savedState; }
     const exported = await run(mode.bin, [...prefix, "linear", "export", "--json"], scratch, mode.vars); assert.match(exported, /"estimate":\s*5/); assert.doesNotMatch(exported, /linear-estimate:/);
-    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, commands: 10 });
+    results.push({ mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, commands: 11 });
     process.stdout.write(`${mode.name}: passed\n`);
   }
   const report = { hostVersion, artifactSha256: digest, modes: results, readOnlyProviderRequests: requests, remoteMutations: 0 };

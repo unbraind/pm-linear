@@ -17,8 +17,11 @@ try {
     { name: "ownership acquisition omits team metadata", before: "issue(id: $id) { ${LINEAR_IMPORT_FIELDS} }",
       after: "issue(id: $id) { id identifier title description priority estimate updatedAt state { name type } labels(first: 128) { nodes { name } pageInfo { hasNextPage } } dueDate cycle { name } assignee { name email } project { name } customer { name } url }" },
     { name: "previewLinearOwnership selects the legacy writer for a scale-aware issue",
-      before: "copy, { fetchIssues: async () => [issue] }));",
-      after: "copy, { fetchIssues: async () => [{ ...issue, team: undefined }] }));" },
+      before: "fetchIssues: async () => [issue]",
+      after: "fetchIssues: async () => [{ ...issue, team: undefined }]" },
+    { name: "legacy projection loses isolated repeat-closure compatibility",
+      before: "mutations: options.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } })),",
+      after: "mutations: options.mutations,", pattern: "ownership retains isolated", failure: "Linear ownership refused" },
   ];
   const args = ["--test", "--test-concurrency=1", "--test-name-pattern=ownership shares every import writer", "test/ownership.test.ts"];
   const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };
@@ -26,14 +29,17 @@ try {
   for (const mutant of mutants) {
     assert.ok(original.includes(mutant.before), mutant.name);
     await writeFile(join(scratch, "index.ts"), original.replace(mutant.before, mutant.after));
-    const run = spawnSync(process.execPath, args, { cwd: scratch, encoding: "utf8", env: variables, timeout: 600000 });
+    const command = mutant.pattern ? args.map((arg) => arg.startsWith("--test-name-pattern=") ? `--test-name-pattern=${mutant.pattern}` : arg) : args;
+    const run = spawnSync(process.execPath, command, { cwd: scratch, encoding: "utf8", env: variables, timeout: 600000 });
     assert.equal(run.status, 1, `${mutant.name}: behavioral revert must fail`);
-    assert.match(run.stdout + run.stderr, /projection must equal SDK-read imported state/);
+    assert.ok((run.stdout + run.stderr).includes(mutant.failure ?? "projection must equal SDK-read imported state"), mutant.name);
     results.push({ revertedBehavior: mutant.name, passed: 0, failed: 1 });
   }
-  const fixed = spawnSync(process.execPath, args, { cwd: source, encoding: "utf8", env: variables, timeout: 600000 });
+  const fixedArgs = args.map((arg) => arg.startsWith("--test-name-pattern=") ? "--test-name-pattern=ownership shares every import writer|ownership retains isolated" : arg);
+  const fixed = spawnSync(process.execPath, fixedArgs, { cwd: source, encoding: "utf8", env: variables, timeout: 600000 });
   assert.equal(fixed.status, 0, "Unmodified production implementation must pass");
-  const report = { reverted: results, fixed: { passed: 1, failed: 0 }, reviewedCheckoutMutated: false };
+  assert.match(fixed.stdout, /tests 2/);
+  const report = { reverted: results, fixed: { passed: 2, failed: 0 }, reviewedCheckoutMutated: false };
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
   process.stdout.write(JSON.stringify(report) + "\n");
 } finally { await rm(scratch, { recursive: true, force: true }); }
