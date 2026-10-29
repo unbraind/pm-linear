@@ -230,7 +230,7 @@ test("syncLinearIssues --atomic --dry-run reports a plan without committing", as
         root,
         { fetchIssues: async () => [issue("ENG-1")] },
       );
-      assert.equal(result.atomic, true);
+      assert.equal(result.atomic, false);
       assert.equal(result.dryRun, true);
       assert.equal(result.created, 1);
       assert.equal(result.updated, 0);
@@ -250,7 +250,7 @@ test("syncLinearIssues --atomic returns a zero result when every issue is filter
         root,
         { fetchIssues: async () => [issue("ENG-1", { state: { name: "In Progress", type: "started" } })] },
       );
-      assert.equal(result.atomic, true);
+      assert.equal(result.atomic, false);
       assert.equal(result.synced, 0);
       assert.equal(result.skipped, 1);
       assert.equal(itemCount(root), 0);
@@ -289,33 +289,16 @@ test("syncLinearIssues --atomic skips issues dropped by the --cycle backstop", a
   }
 });
 
-test("syncLinearIssues --atomic reports a recovered transaction separately", async () => {
+test("syncLinearIssues compatibility flag reports fresh forward results instead of journal recovery", async () => {
   const root = freshWorkspace();
   try {
-    await withEnv({ LINEAR_API_KEY: "lin_test" }, async () => {
-      const result = await syncLinearIssues(
-        { team: "ENG", limit: 100, atomic: true },
-        root,
-        {
-          fetchIssues: async () => [issue("ENG-1")],
-          commitAtomic: async () => ({
-            transactionId: "t-rec",
-            recovered: true,
-            imported: 0,
-            updated: 0,
-            recoveredItems: 1,
-            itemIds: new Map([["ENG-1", "pm-1"]]),
-          }),
-        },
-      );
-      assert.equal(result.atomic, true);
-      assert.equal(result.recovered, true);
-      assert.equal(result.recoveredItems, 1);
-      assert.equal(result.transactionId, "t-rec");
-    });
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+    let invoked = false;
+    const dependencies = { fetchIssues: async () => [issue("ENG-1")], commitAtomic: async () => { invoked = true; throw new Error("obsolete seam"); } };
+    const first = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true }, root, dependencies);
+    assert.equal(first.atomic, false); assert.equal(first.importMode, "forward-only"); assert.equal(first.created, 1);
+    const replay = await syncLinearIssues({ team: "ENG", limit: 100, atomic: true }, root, dependencies);
+    assert.equal(replay.synced, 0); assert.equal(replay.skipped, 0); assert.equal(replay.importResults?.[0].action, "unchanged"); assert.equal(invoked, false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test("syncLinearIssues legacy create/update failures skip the issue and continue", async () => {
@@ -362,33 +345,18 @@ test("syncLinearIssues legacy create/update failures skip the issue and continue
 // importLinearAtomic defensive SDK branches
 // ---------------------------------------------------------------------------
 
-test("importLinearAtomic surfaces a WorkspaceTransactionInterruptedError as resumable", async () => {
+test("importLinearAtomic ignores obsolete rollback seams and returns exact forward results", async () => {
   const root = freshWorkspace();
   try {
-    const interrupted = new Error("journal paused");
-    interrupted.name = "WorkspaceTransactionInterruptedError";
-    await assert.rejects(
-      () =>
-        importLinearAtomic(root, "ENG", [preparedEntry("ENG-1")], {
-          commitItemMutations: async () => Promise.reject(interrupted),
-          normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
-          readSettings: async () => ({ id_prefix: "pm-" }),
-        }),
-      (err: unknown) => {
-        assert.ok(err instanceof CommandError);
-        assert.match((err as Error).message, /Atomic Linear import was interrupted/);
-        assert.match((err as Error).message, /resumable/);
-        return true;
-      },
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+    let invoked = false;
+    const result = await importLinearAtomic(root, "ENG", [preparedEntry("ENG-1")], {
+      commitItemMutations: async () => { invoked = true; throw new Error("obsolete rollback"); },
+    });
+    assert.equal(invoked, false); assert.equal(result.created, 1); assert.equal(result.recovered, false);
+    assert.equal(result.importMode, "forward-only"); assert.equal(result.importResults?.[0].action, "created");
+    assert.equal(itemCount(root), 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
-
-// ---------------------------------------------------------------------------
-// Certified in-process read failures and PATH independence
-// ---------------------------------------------------------------------------
 
 test("readPmItems surfaces a missing tracker as a CommandError (export preview)", async () => {
   const harness = await getHarness();
@@ -565,9 +533,9 @@ test("linear sync --atomic commits through the real SDK and returns the atomic r
           pmRoot: root,
         });
         const r = result as { atomic: boolean; synced: number; transactionId: string };
-        assert.equal(r.atomic, true);
+        assert.equal(r.atomic, false);
         assert.equal(r.synced, 2);
-        assert.match(r.transactionId, /^linear-import-/);
+        assert.equal((r as unknown as { importMode: string }).importMode, "forward-only");
       },
     );
     assert.equal(itemCount(root), 2, "atomic commit wrote the items");
@@ -707,9 +675,9 @@ test("linear import --atomic commits through the real SDK", async () => {
           global: { json: true },
         });
         const r = result as { atomic: boolean; imported: number; transactionId: string };
-        assert.equal(r.atomic, true);
+        assert.equal(r.atomic, false);
         assert.equal(r.imported, 2);
-        assert.match(r.transactionId, /^linear-import-/);
+        assert.equal((r as unknown as { importMode: string }).importMode, "forward-only");
       },
     );
     assert.equal(itemCount(root), 2);
@@ -1022,9 +990,9 @@ test("linear-sync import --atomic commits through the real SDK", async () => {
           global: { json: true },
         });
         const r = result as { atomic: boolean; synced: number; transactionId: string };
-        assert.equal(r.atomic, true);
+        assert.equal(r.atomic, false);
         assert.equal(r.synced, 2);
-        assert.match(r.transactionId, /^linear-import-/);
+        assert.equal((r as unknown as { importMode: string }).importMode, "forward-only");
       },
     );
     assert.equal(itemCount(root), 2);

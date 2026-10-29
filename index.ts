@@ -1871,7 +1871,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
     if (!key || !target || normalizedMap.has(key)) throw new LinearOwnershipRefusal("invalid_input", "Use unambiguous state mappings to statuses in the configured SDK registry.");
     normalizedMap.set(key, target);
   }
-  const mapping = schemaDigest({ projection: "linear-import-v4-shared-writer", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
+  const mapping = schemaDigest({ projection: "linear-import-v5-forward-only", configuration: view.configuration, statusMap: [...normalizedMap].sort(([a], [b]) => compareSchemaKeys(a, b)) });
   /** The same SDK canonicalizer used by persistence handles status aliases and metadata. */
   function project(item: PmItem): Map<LinearOwnershipField, string> {
     const document = sdk.canonicalDocument({ metadata: { id: local!.id!, type: "Task", title: "", status: "open", created_at: "", updated_at: "", description: "", ...item } as ItemMetadata, body: item.body ?? "" }, { schema: view.settings.schema });
@@ -1885,17 +1885,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
   try {
     projection = await readClosureItems(source, [options.item], (copy) => syncLinearIssues({
       team: issue.team?.key ?? "OWNERSHIP", limit: 1, atomic: true, statusMap: Object.fromEntries(normalizedMap),
-    }, copy, { fetchIssues: async () => [issue], commitAtomic: async (root, team, entries) => {
-      // Preserve legacy field-effect projections without certifying authorization.
-      // Only this owned copy receives forced rows and a fresh revision-bound journal.
-      const transactionSdk = await loadAtomicSdk();
-      const commit = assertSdkFunction(transactionSdk.commitItemMutations, "commitItemMutations");
-      const revisions = await observeEstimateRevisions(root, await readPmItems(root));
-      return importLinearAtomic(root, team, entries, { commitItemMutations: (options) => commit({ ...options,
-        transactionId: `projection-${schemaDigest([options.transactionId, [...revisions]])}`,
-        mutations: options.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } })),
-      }) });
-    } }));
+    }, copy, { fetchIssues: async () => [issue], projectionForce: !issue.team }));
   }
   catch (error: unknown) {
     if (error instanceof LinearImportRefusal) throw error;
@@ -2521,7 +2511,7 @@ async function readClosureItems(source: string, selections: string[], projection
     let projected: PmItem | undefined;
     let estimateResult: SyncResult | undefined;
     if (projection) {
-      const transactionSdk = await loadAtomicSdk();
+      const transactionSdk = await loadImportSdk();
       const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
       const result = await withoutHooks({ path: bootstrap, noExtensions: true }, () => projection(bootstrap));
       if (selections.length) {
@@ -2701,7 +2691,7 @@ export interface SyncOptions {
   estimateMapping?: LinearEstimateMapping;
   limit: number;
   dryRun?: boolean;
-  /** Commit the whole batch as one crash-resumable transaction (pm-cli >=2026.10.24). */
+  /** Deprecated compatibility flag; imports are always forward-only per item. */
   atomic?: boolean;
 }
 
@@ -2718,8 +2708,12 @@ export interface SyncRunDependencies {
   ) => Promise<LinearIssue[]>;
   /** Inject the local pm item read. */
   readItems?: (pmRoot: string) => PmItem[] | Promise<PmItem[]>;
-  /** Inject the atomic commit (offline/dry-run tests). */
-  commitAtomic?: typeof importLinearAtomic;
+  /** Deprecated inert seam; live and preview imports use the shared forward-only coordinator. */
+  commitAtomic?: (pmRoot: string, team: string, entries: readonly PreparedLinearImport[]) => Promise<{
+    transactionId: string; recovered: boolean; imported: number; updated: number; recoveredItems?: number; itemIds: Map<string, string>;
+  }>;
+  /** Owned-copy ownership projections may bypass copied permissions; no live CLI sets this. */
+  projectionForce?: boolean;
   /** Deterministic interleaving observer; all reads and writes still use the real SDK. */
   onEstimateBoundary?: (stage: string, id: string) => Promise<void>;
 }
@@ -2729,94 +2723,12 @@ interface EstimateTarget {
   revision: string;
   document: PublicSdk.ItemDocument | null;
   version: number;
-  marker: string | null;
-  timestamp: string | null;
-  history: Awaited<ReturnType<typeof PublicSdk.readHistoryEntries>>;
-}
-
-/** Append-only proof emitted only after compensation verifies this invocation's complete SDK write. */
-interface EstimateRollback {
-  format: "pm-linear/estimate-rollback/1";
-  id: string;
-  linearId: string;
-  version: number;
-  historyDigest: string;
-  documentDigest: string;
-  marker: string;
-}
-const estimateMutationMarkerPattern = /^linear-estimate-[a-f0-9]{32}:(.+):[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/s;
-const ESTIMATE_ROLLBACK_HEX_LIMIT = 16384;
-const estimateRollbackShape: ClosureShape = { kind: "object", fields: {
-  format: { kind: "literal", value: "pm-linear/estimate-rollback/1" }, id: { kind: "string", max: 1024 }, linearId: closureId,
-  version: { kind: "number", min: 1, max: Number.MAX_SAFE_INTEGER }, historyDigest: ownershipDigest,
-  documentDigest: ownershipDigest, marker: { kind: "string", max: 2048, pattern: estimateMutationMarkerPattern },
-} };
-const ESTIMATE_ROLLBACK_SEPARATOR = " | linear-estimate-rollback:";
-
-/** Producer and consumer share one bounded schema and exact serialization. */
-function estimateRollbackMessage(record: EstimateRollback): string {
-  assertEstimateShape(record, estimateRollbackShape);
-  const token = Buffer.from(JSON.stringify(record)).toString("hex");
-  if (token.length > ESTIMATE_ROLLBACK_HEX_LIMIT) throw new LinearEstimateRefusal("estimate_input_invalid", "Use a rollback record within the documented 8192-byte JSON bound; retain the current native history and inspect the item before retrying.", "estimate.rollback");
-  return `Compensate ${record.marker}${ESTIMATE_ROLLBACK_SEPARATOR}${token}`;
-}
-
-/** Foreign, legacy and malformed history messages remain ordinary non-owned records. */
-function readEstimateRollback(message: string | undefined): EstimateRollback | undefined {
-  const token = message?.split(ESTIMATE_ROLLBACK_SEPARATOR)[1];
-  if (!token || token.length > ESTIMATE_ROLLBACK_HEX_LIMIT || token.length % 2 || !/^[a-f0-9]+$/.test(token)) return undefined;
-  try {
-    const record: unknown = JSON.parse(Buffer.from(token, "hex").toString("utf8"));
-    if (!closureMatches(record, estimateRollbackShape)) return undefined;
-    return estimateRollbackMessage(record as EstimateRollback) === message ? record as EstimateRollback : undefined;
-  } catch { return undefined; }
-}
-
-/** Reuse a deleted identity only when the SDK verifies the exact prefix and document we compensated. */
-async function estimateRestoreVersion(pmRoot: string, id: string, linearId: string, target: EstimateTarget): Promise<number | undefined> {
-  const deletion = target.history.at(-1);
-  const receipt = readEstimateRollback(deletion?.message);
-  const birthMarker = target.history[0]?.message?.split(" | explicit_unset=")[0];
-  // Earlier unit-aware writers could only compensate their first creation.
-  // The SDK's complete create/delete chain supplies their original birth proof.
-  const legacy = target.version === 2 && target.history[0].op === "create" && birthMarker?.match(estimateMutationMarkerPattern)?.[1] === id && deletion?.message === `Compensate ${birthMarker}`;
-  if (target.document || deletion?.op !== "delete" || !receipt && !legacy) return undefined;
-  if (receipt && (receipt.id !== id || receipt.linearId !== linearId || receipt.marker.match(estimateMutationMarkerPattern)?.[1] !== id ||
-    receipt.version !== target.version - 1 || receipt.historyDigest !== schemaDigest(target.history.slice(0, -1)) ||
-    receipt.marker !== target.history.at(-2)?.message?.split(" | explicit_unset=")[0])) return undefined;
-  const sdk = await loadAtomicSdk();
-  const runtime = await importRuntimeSdk();
-  const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
-  try {
-    if (!verify(target.history, runtime.emptyImportedDocument()).ok) return undefined;
-    const version = receipt?.version ?? 1;
-    const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(version), { pmRoot });
-    if (historical.as_of_version !== version || receipt && schemaDigest(historical.document) !== receipt.documentDigest ||
-      !verify(target.history.slice(0, -1), historical.document).ok ||
-      historical.document.metadata.id !== id || parseProvenance(historical.document.metadata.description)?.linear_id !== linearId ||
-      !receipt && !readLinearEstimate(historical.document.metadata.tags).contract) return undefined;
-    return version;
-  } catch { return undefined; }
-}
-
-/** Retain ownership only for one exact SDK-produced append after the checked pre-write history. */
-async function observeEstimateMutation(pmRoot: string, id: string, marker: string, before: EstimateTarget,
-  produced: ItemMetadata, body: string, schema: PublicSdk.PmSettings["schema"]): Promise<EstimateTarget | undefined> {
-  const runtime = await importRuntimeSdk();
-  const sdk = await loadAtomicSdk();
-  const expected = runtime.canonicalDocument({ metadata: produced, body }, { schema });
-  const observed = await observeEstimateTarget(pmRoot, id);
-  const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
-  return observed.version === before.version + 1 && observed.marker === marker &&
-    schemaDigest(observed.history.slice(0, -1)) === schemaDigest(before.history) &&
-    verify(observed.history, expected).current_matches_latest === true && observed.document !== null &&
-    verify(observed.history, observed.document).current_matches_latest === true ? observed : undefined;
 }
 
 /** Read history around the native document; disagreement refuses a mixed snapshot. */
 async function observeEstimateTarget(pmRoot: string, id: string, boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<EstimateTarget> {
   const runtime = await importRuntimeSdk();
-  const sdk = await loadAtomicSdk();
+  const sdk = await loadImportSdk();
   const readHistory = assertSdkFunction(sdk.readHistoryEntries, "readHistoryEntries");
   const settings = await runtime.readSettings(pmRoot);
   const registry = runtime.resolveItemTypeRegistry(settings);
@@ -2828,8 +2740,7 @@ async function observeEstimateTarget(pmRoot: string, id: string, boundary?: Sync
   await boundary?.("revision_document_read", id);
   const after = await readHistory(historyPath, id);
   if (schemaDigest(before) !== schemaDigest(after)) throw new LinearEstimateRefusal("estimate_target_changed", "The target changed during its SDK read. Read current state and retry; no frozen import plan is authoritative.");
-  return { revision: `${after.length}:${schemaDigest([after, document])}`, document, version: after.length,
-    marker: after.at(-1)?.message?.split(" | explicit_unset=")[0] ?? null, timestamp: after.at(-1)?.ts ?? null, history: after };
+  return { revision: `${after.length}:${schemaDigest([after, document])}`, document, version: after.length };
 }
 
 /** An unlinked identity with unreadable native history is foreign, never an owned mutation target. */
@@ -2860,182 +2771,185 @@ async function observeEstimateRevisions(pmRoot: string, items: PmItem[], boundar
   return revisions;
 }
 
-/** Apply unit-aware imports as single native mutations with revision checks and conservative compensation. */
+/** Apply each item once, retaining completed writes when another target fails. */
 async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries: PreparedLinearImport[], skipped: number,
-  revisions: ReadonlyMap<string, string>, boundary?: SyncRunDependencies["onEstimateBoundary"]): Promise<SyncResult> {
+  revisions: ReadonlyMap<string, string>, boundary?: SyncRunDependencies["onEstimateBoundary"], projectionForce = false, explicitAuthor?: string): Promise<SyncResult> {
+  if (!entries.length) return { synced: 0, created: 0, updated: 0, skipped, team: options.team, issues: [],
+    importMode: "forward-only", importResults: [], atomic: false, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
   const runtime = await importRuntimeSdk();
   if (options.dryRun) {
     const root = await realpath(runtime.resolvePmRoot(process.cwd(), pmRoot));
-    const staged = await readClosureItems(root, [], (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions));
+    const staged = await readClosureItems(root, [], (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions, undefined, projectionForce, explicitAuthor));
+    console.error(`[dry-run] Forward-only plan: ${staged.estimateResult!.created} creates, ${staged.estimateResult!.updated} updates, ${staged.estimateResult!.skipped} skipped.`);
     return { ...staged.estimateResult!, dryRun: true, prepared: entries };
   }
-  const sdk = await loadAtomicSdk();
+  const sdk = await loadImportSdk();
   const settings = await runtime.readSettings(pmRoot);
-  if (!sdk.loadGuardedRuntimeSchema) throw new LinearEstimateRefusal("estimate_local_unavailable", "Use host SDK 2026.10.24 or newer with loadGuardedRuntimeSchema to read team imports against the target tracker's configured status roles.");
-  const nativeSchema = (await sdk.loadGuardedRuntimeSchema(pmRoot, settings.schema)).schema;
+  const author = runtime.selectImportAuthor(explicitAuthor, process.env.PM_AUTHOR ?? "pm-linear");
+  const nativeSchema = (await assertSdkFunction(sdk.loadGuardedRuntimeSchema, "loadGuardedRuntimeSchema")(pmRoot, settings.schema)).schema;
   const registry = runtime.resolveRuntimeStatusRegistry(nativeSchema);
-  if (!sdk.PmClient) throw new LinearEstimateRefusal("estimate_local_unavailable", "Install a compatible public SDK PmClient; unit-aware imports require the full native mutation contract.");
-  const pm = new sdk.PmClient({ cwd: pmRoot, pmRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
+  const pm = new runtime.PmClient({ cwd: pmRoot, pmRoot, noExtensions: true, author });
+  const results: LinearImportOutcome[] = [];
   const targets = [];
-  const outcomes = new Map<string, "created" | "updated" | "unchanged" | "superseded" | "foreign">();
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
-    const before = entry.match ? await observeEstimateTarget(pmRoot, id) : await observeEstimateCandidate(pmRoot, id);
-    if (!before) { outcomes.set(id, "foreign"); continue; }
-    const expected = entry.match?.id ? revisions.get(entry.match.id) : before.version ? revisions.get(id) : before.revision;
-    const restoreVersion = !entry.match && before.document === null && before.version !== 0
-      ? await estimateRestoreVersion(pmRoot, id, entry.linearId, before) : undefined;
-    // A deterministic ID alone is not an ownership proof for a create.
-    const foreign = !entry.match && (before.document !== null || before.version !== 0 && restoreVersion === undefined);
-    targets.push({ entry, id, before, expected, foreign, restoreVersion });
-    await boundary?.("observed", id);
+    const before = await observeEstimateCandidate(pmRoot, id);
+    const expected = entry.match?.id ? revisions.get(id) : before?.version ? undefined : before?.revision;
+    targets.push({ entry, id, expected, before });
   }
-  const identity = schemaDigest([entries, targets.map(({ id, expected }) => [id, expected]), settings.schema]);
-  const transactionId = `linear-estimate-${identity.slice(0, 32)}`;
-  const steps: PublicSdk.WorkspaceTransactionStep[] = targets.map(({ entry, id, before, expected, foreign, restoreVersion }) => {
-    const markerBase = `${transactionId}:${id}:`;
-    const marker = markerBase + crypto.randomUUID();
-    let owned: EstimateTarget | undefined;
-    /** Re-read at every inspect/recovery boundary; skipped items have no dependent mutations. */
-    const inspect = async (): Promise<PublicSdk.WorkspaceTransactionStepInspection> => {
-      await boundary?.("inspect", id);
-      const current = await observeEstimateTarget(pmRoot, id);
-      if (foreign) { outcomes.set(id, "foreign"); return { state: "applied", result: "foreign" }; }
-      if (expected === undefined) { outcomes.set(id, "superseded"); return { state: "applied", result: "superseded" }; }
-      if (current.revision === expected) return { state: "pending" };
-      if (current.marker?.startsWith(markerBase)) { outcomes.set(id, "unchanged"); return { state: "applied", result: "peer_applied" }; }
-      outcomes.set(id, "superseded"); return { state: "applied", result: "superseded" };
-    };
-    /** Compensate only an exact post-write snapshot positively retained by this invocation. */
-    const compensate = async (): Promise<void> => {
-      const current = await observeEstimateTarget(pmRoot, id);
-      // Full created document and exact post-write history coordinate must match what THIS run read back.
-      if (!owned || current.revision !== owned.revision || current.marker !== marker) return;
-      await boundary?.("before_compensate", id);
-      const latest = await observeEstimateTarget(pmRoot, id);
-      if (latest.revision !== owned.revision) return;
-      if (before.document && before.timestamp) {
-        const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, before.timestamp, { pmRoot });
-        if (historical.as_of_version === null || schemaDigest(historical.document) !== schemaDigest(before.document)) return;
-        if ((await observeEstimateTarget(pmRoot, id)).revision !== owned.revision) return;
-        await pm.restore(id, String(historical.as_of_version), { message: `Compensate ${marker}` });
-      }
-      else if (!before.document && owned.version > before.version && latest.document) await pm.run("delete", { id, options: { force: true,
-        message: estimateRollbackMessage({ format: "pm-linear/estimate-rollback/1", id, linearId: entry.linearId, version: latest.version,
-          historyDigest: schemaDigest(latest.history), documentDigest: schemaDigest(latest.document), marker }),
-      } });
-    };
-    return {
-      id: schemaDigest(id).slice(0, 32), inspect,
-      prepareCompensation: async () => { await boundary?.("compensation_prepared", id); return { version: before.version, existed: before.document !== null }; },
-      apply: async () => {
-        await boundary?.("before_write", id);
-        let current = await observeEstimateTarget(pmRoot, id);
-        if (current.revision !== expected) { outcomes.set(id, expected !== undefined && current.marker?.startsWith(markerBase) ? "unchanged" : "superseded"); return outcomes.get(id)!; }
-        let restored = false;
-        if (restoreVersion !== undefined) {
-          await boundary?.("before_restore", id);
-          current = await observeEstimateTarget(pmRoot, id);
-          if (current.revision !== expected) { outcomes.set(id, "superseded"); return "superseded"; }
-          const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(restoreVersion), { pmRoot });
-          if ((await observeEstimateTarget(pmRoot, id)).revision !== expected) { outcomes.set(id, "superseded"); return "superseded"; }
-          const prior = current;
-          const result = await pm.restore(id, String(restoreVersion), { message: marker });
-          try {
-            await boundary?.("restored", id);
-            owned = await observeEstimateMutation(pmRoot, id, marker, prior, result.item, historical.document.body, nativeSchema);
-            if (!owned) { outcomes.set(id, "superseded"); return "superseded"; }
-            await boundary?.("after_restore", id);
-            await boundary?.("before_update", id);
-            current = await observeEstimateTarget(pmRoot, id);
-            if (current.revision !== owned.revision) { outcomes.set(id, "superseded"); return "superseded"; }
-          } catch (error: unknown) {
-            owned = await observeEstimateMutation(pmRoot, id, marker, prior, result.item, historical.document.body, nativeSchema);
-            await compensate(); throw error;
-          }
-          restored = true;
-        }
-        const source = current.document?.metadata;
-        const scopes = ["parent", "goal", "objective", "sprint", "release"] as const;
-        const unset = scopes.filter((name) => !source?.[name]);
-        const status = runtime.normalizeStatusInput(entry.status, registry);
-        if (!status) throw new LinearEstimateRefusal("estimate_input_invalid", "Map provider states to the tracker's registered statuses before importing.");
-        const mapped = linearImportOptions(entry);
-        // The boundary already requires literal calendar dates. Normalize that literal
-        // once for BOTH the SDK write and canonical comparison; never infer a relative date.
-        const deadline = entry.deadline ? new Date(entry.deadline).toISOString() : undefined;
-        const title = runtime.toNonEmptyImportString(entry.title)!;
-        const values = { ...mapped, title, ...(deadline ? { deadline } : {}), status, message: marker,
-          parent: source?.parent ?? "none", goal: source?.goal, objective: source?.objective, sprint: source?.sprint, release: source?.release,
-          unset: [...unset, ...(!entry.deadline ? ["deadline"] : []), ...(!entry.assignee ? ["assignee"] : [])],
-          ...(runtime.isTerminalStatus(status, registry) ? { closeReason: source?.close_reason ?? `Linear issue ${entry.identifier} terminal` } : {}),
-        };
-        if (current.document) {
-          const metadata = { ...current.document.metadata, title, description: entry.description,
-            status, priority: entry.priority as ItemMetadata["priority"], tags: runtime.parseTags(mapped.tags), ...(deadline ? { deadline } : {}),
-            ...(entry.assignee ? { assignee: entry.assignee } : {}),
-            ...(values.closeReason ? { close_reason: values.closeReason } : {}) };
-          if (!entry.deadline) delete metadata.deadline;
-          if (!entry.assignee) delete metadata.assignee;
-          const desired = runtime.canonicalDocument({ metadata, body: entry.body }, { schema: nativeSchema });
-          const observed = runtime.canonicalDocument(current.document, { schema: nativeSchema });
-          if (schemaDigest(desired) === schemaDigest(observed)) {
-            const outcome = restored ? "created" : "unchanged"; outcomes.set(id, outcome);
-            if (restored) try { await boundary?.("written", id); await boundary?.("after_write", id); } catch (error: unknown) { await compensate(); throw error; }
-            return outcome;
-          }
-        }
-        // The remaining read-to-write window is explicit: the SDK has no expected-history revision option.
-        let produced: ItemMetadata;
-        if (current.document) {
-          let result: PublicSdk.UpdateResult;
-          try { result = await pm.update(id, values); } catch (error: unknown) { await compensate(); throw error; }
-          produced = result.item as unknown as ItemMetadata;
-          outcomes.set(id, restored ? "created" : result.changed_fields.length ? "updated" : "unchanged");
-        } else { const result = await pm.create({ ...values, id }); produced = result.item; outcomes.set(id, "created"); }
-        // Expected values come from the SDK producer receipt and the planned body,
-        // never from a later observed item that a peer might already have edited.
-        try {
-          await boundary?.("written", id);
-          owned = await observeEstimateMutation(pmRoot, id, marker, current, produced, entry.body, nativeSchema);
-          await boundary?.("after_write", id);
-        } catch (error: unknown) {
-          owned = await observeEstimateMutation(pmRoot, id, marker, current, produced, entry.body, nativeSchema);
-          await compensate(); throw error;
-        }
-        return outcomes.get(id)!;
-      },
-      compensate,
-    };
-  });
-  let recovered = false;
-  if (options.atomic && steps.length) {
-    const commit = assertSdkFunction(sdk.commitWorkspaceTransaction, "commitWorkspaceTransaction");
-    const result = await commit({ pmRoot, transactionId, author: process.env.PM_AUTHOR ?? "pm-linear", steps });
-    recovered = result.recovered;
-    // A fully committed peer journal bypasses inspect; reconcile from current SDK state rather than claim new writes.
-    for (const target of targets) if (!outcomes.has(target.id)) {
-      const current = await observeEstimateTarget(pmRoot, target.id);
-      outcomes.set(target.id, target.expected !== undefined && (current.revision === target.expected || current.marker?.startsWith(`${transactionId}:${target.id}:`)) ? "unchanged" : "superseded");
+  const prerequisites = new Map(targets.map((target) => [target.id, new Set<string>()]));
+  const invalidRelationships = new Set<string>();
+  for (const target of targets) {
+    let graph: PublicSdk.RelationshipGraph;
+    try { graph = sdk.RelationshipGraph!.fromItems(targets.map((candidate) => candidate.id === target.id && target.before?.document ? target.before.document.metadata : { id: candidate.id })); }
+    catch { invalidRelationships.add(target.id); continue; }
+    for (const edge of graph.edges()) {
+    const kind = graph.registry().require(edge.kind);
+    const dependent = kind.hierarchy ? kind.hierarchyDirection === "source_parent" ? edge.target : edge.source
+      : kind.ordering ? kind.precedence === "target_before_source" ? edge.source : edge.target : undefined;
+    const required = dependent === edge.source ? edge.target : edge.source;
+    if (dependent && prerequisites.has(required)) prerequisites.get(dependent)?.add(required);
     }
-  } else for (const step of steps) { if ((await step.inspect()).state === "pending") await step.apply(); }
-  const created = [...outcomes.values()].filter((outcome) => outcome === "created").length;
-  const updated = [...outcomes.values()].filter((outcome) => outcome === "updated").length;
-  const ignored = [...outcomes.values()].filter((outcome) => outcome === "superseded" || outcome === "foreign").length;
-  const estimateSkips: NonNullable<SyncResult["estimateSkips"]> = [];
-  for (const [id, reason] of outcomes) if ((reason === "foreign" || reason === "superseded") && estimateSkips.length < 20) estimateSkips.push({ id, reason });
-  return { synced: created + updated, created, updated, skipped: skipped + ignored, team: options.team, issues: [],
-    estimateSkips, omittedEstimateSkips: ignored - estimateSkips.length,
-    atomic: Boolean(options.atomic), ...(options.atomic ? { transactionId, recovered } : {}) };
+  }
+  const pending = [...targets];
+  const finished = new Set<string>();
+  const refused = new Set<string>();
+  while (pending.length) {
+    const ready = pending.findIndex((target) => [...prerequisites.get(target.id)!].every((id) => finished.has(id)));
+    const { entry, id, expected, before } = pending.splice(ready < 0 ? 0 : ready, 1)[0];
+    if (ready < 0 || invalidRelationships.has(id) || targets.filter((target) => target.id === id).length > 1 || [...prerequisites.get(id)!].some((id) => refused.has(id))) {
+      results.push({ id, linearId: entry.linearId, action: "skipped", code: "import_conflict", reason: "superseded", remedy: "Resolve duplicate targets, dependency cycles or skipped prerequisites, then retry a fresh plan." });
+      finished.add(id); refused.add(id); continue;
+    }
+    let outcome: LinearImportOutcome | undefined;
+    let submitted = false;
+    let desiredState: PublicSdk.ItemDocument | undefined;
+    try {
+      await boundary?.("observed", id);
+      await boundary?.("inspect", id);
+      if (!before || !entry.match && (before.document !== null || before.version !== 0)) {
+        results.push({ id, linearId: entry.linearId, action: "skipped", code: "import_conflict", reason: "foreign", remedy: "Inspect the reserved native identity and link the intended live item explicitly before retrying." }); continue;
+      }
+      await boundary?.("before_write", id);
+      let current = await observeEstimateTarget(pmRoot, id);
+      if (expected === undefined || current.revision !== expected) {
+        results.push({ id, linearId: entry.linearId, action: "skipped", code: "import_conflict", reason: "superseded", remedy: "Read the current item and retry with a fresh provider/base observation; dependent mutations were skipped." }); continue;
+      }
+      const source = current.document?.metadata;
+      const status = runtime.normalizeStatusInput(entry.status, registry);
+      if (!status) throw new LinearEstimateRefusal("estimate_input_invalid", "Map provider states to the tracker's registered statuses before importing.");
+      const mapped = linearImportOptions(entry);
+      const deadline = entry.deadline ? new Date(entry.deadline).toISOString() : undefined;
+      const title = runtime.toNonEmptyImportString(entry.title)!;
+      const reason = source?.close_reason ?? `Linear issue ${entry.identifier} terminal`;
+      // The SDK's primary close/cancel transitions release the assignee. Keep
+      // that native lifecycle result stable on later field-only replays.
+      const assignee = status === registry.close_status || status === registry.canceled_status ? undefined : entry.assignee;
+      const desired = runtime.canonicalDocument({ metadata: { ...(source ?? {}), title, description: entry.description,
+        status, priority: entry.priority, tags: runtime.parseTags(mapped.tags), deadline, assignee } as ItemMetadata,
+        body: entry.body }, { schema: nativeSchema });
+      desiredState = desired;
+      const observed = current.document ? runtime.canonicalDocument(current.document, { schema: nativeSchema }) : null;
+      const values: PublicSdk.PmClientFullMutationOptions = {};
+      const unset: string[] = [];
+      for (const key of ["title", "description", "priority", "tags", "deadline", "assignee", "status"] as const) {
+        if (observed && schemaDigest(desired.metadata[key] ?? null) === schemaDigest(observed.metadata[key] ?? null)) continue;
+        if ((key === "deadline" || key === "assignee") && desired.metadata[key] === undefined) { if (observed) unset.push(key); continue; }
+        const value = key === "tags" ? linearTagInput(desired.metadata.tags ?? []) : desired.metadata[key];
+        values[key] = value;
+      }
+      if (!observed || desired.body !== observed.body) values.body = entry.body;
+      if (unset.length) values.unset = unset;
+      if (values.status && runtime.isTerminalStatus(status, registry)) values.closeReason = reason;
+      if (observed && Object.keys(values).length === 0) { results.push({ id, linearId: entry.linearId, action: "unchanged" }); continue; }
+      // Create explicitly clears ambient scope; updates omit unchanged relationships and fields.
+      if (observed && projectionForce) values.force = true;
+      if (!observed) { values.parent = "none"; values.unset = ["goal", "objective", "sprint", "release"]; }
+      // The native close route can save fields before closing. Validate that exact
+      // one-item mutation with the SDK before touching the live target.
+      if (observed && values.status === registry.close_status) {
+        // Installed packages contain a runtime-only host SDK link. The shared
+        // guarded mirror omits that code pointer without following it; native
+        // preview then validates only regular tracker data in the owned copy.
+        await readClosureItems(pmRoot, [id], async (copy) => {
+          await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot: copy,
+            transactionId: `linear-preview-${schemaDigest([id, expected, values])}`, author,
+            mutations: [{ op: "update", id, options: values }] });
+          return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, issues: [] };
+        });
+      }
+      await boundary?.("validated", id);
+      await boundary?.("before_update", id);
+      current = await observeEstimateTarget(pmRoot, id);
+      if (current.revision !== expected) {
+        results.push({ id, linearId: entry.linearId, action: "skipped", code: "import_conflict", reason: "superseded", remedy: "Read the current item and retry; no fields or dependent mutations were submitted." }); continue;
+      }
+      // #1576/#1620: no SDK item precondition covers this final read-to-write window.
+      submitted = true;
+      if (current.document) {
+        const written = await pm.update(id, values);
+        outcome = { id, linearId: entry.linearId, action: written.changed_fields.length ? "updated" : "unchanged" };
+      } else { await pm.create({ ...values, id }); outcome = { id, linearId: entry.linearId, action: "created" }; }
+      results.push(outcome);
+      await boundary?.("written", id);
+      await boundary?.("after_write", id);
+    } catch (error: unknown) {
+      // Never rewrite an earlier success or a peer's state to compensate for a later error.
+      if (outcome) { outcome.code = "import_observer_failed"; outcome.remedy = "The item was applied. Read current state before retrying; earlier successes are retained."; }
+      else {
+        const after = submitted ? await observeEstimateCandidate(pmRoot, id) : undefined;
+        const changed = submitted && (!after || after.revision !== expected);
+        const actual = after?.document ? runtime.canonicalDocument(after.document, { schema: nativeSchema }) : null;
+        let complete = Boolean(actual && desiredState && actual.body === desiredState.body);
+        if (actual && desiredState) for (const key of ["title", "description", "priority", "tags", "deadline", "assignee", "status"] as const)
+          if (schemaDigest(actual.metadata[key] ?? null) !== schemaDigest(desiredState.metadata[key] ?? null)) complete = false;
+        results.push(complete ? { id, linearId: entry.linearId, action: "unchanged", code: "import_reconciled",
+          remedy: "The native call failed but current fields match the requested state. The SDK or a peer may have applied it; no new write is attributed to this invocation." }
+          : changed ? { id, linearId: entry.linearId, action: "unconfirmed", code: "import_incomplete",
+            remedy: "The SDK call failed and the target changed. Inspect current fields and native history before retrying; peers or a partial native call may be present. No rollback ran." }
+          : { id, linearId: entry.linearId, action: "skipped", code: error instanceof LinearEstimateRefusal && error.code === "estimate_target_changed" || error instanceof runtime.PmCliError && error.exitCode === runtime.EXIT_CODE.CONFLICT ? "import_conflict" : "import_failed",
+            remedy: "Inspect this item's SDK policy/schema and current state, then retry fresh inputs; successful items remain applied." });
+      }
+      console.error(`Linear item ${id}: ${outcome ? "applied before observer failure" : "not completed"}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      finished.add(id);
+      if (["skipped", "unconfirmed"].includes(results.at(-1)!.action)) refused.add(id);
+    }
+  }
+  const created = results.filter((row) => row.action === "created").length;
+  const updated = results.filter((row) => row.action === "updated").length;
+  const rejected = results.filter((row) => row.action === "skipped");
+  const estimateSkips = rejected.slice(0, 20).map((row) => ({ id: row.id!, reason: row.reason ?? "superseded" as const }));
+  return { synced: created + updated, created, updated, skipped: skipped + rejected.length, team: options.team, issues: [],
+    importMode: "forward-only", importResults: results, unconfirmed: results.filter((row) => row.action === "unconfirmed").length, estimateSkips, omittedEstimateSkips: rejected.length - estimateSkips.length,
+    atomic: false };
+}
+
+/** Exact per-item forward result; successful earlier writes are never rolled back. */
+export interface LinearImportOutcome {
+  /** Native target, or null when filtering/ambiguous provenance prevented selecting one. */
+  id: string | null;
+  /** Stable provider identity also present for pre-target refusals. */
+  linearId?: string;
+  action: "created" | "updated" | "unchanged" | "skipped" | "unconfirmed";
+  code?: "import_conflict" | "import_failed" | "import_observer_failed" | "import_incomplete" | "import_filtered" | "import_reconciled";
+  reason?: "foreign" | "superseded";
+  remedy?: string;
 }
 
 /** Counts and schema evidence returned by either supported writer path. */
 export interface SyncResult {
+  /** Native-call failures with a changed target whose complete desired state cannot be confirmed. */
+  unconfirmed?: number;
+  /** All target outcomes, including unchanged items and typed per-item refusals. */
+  importResults?: LinearImportOutcome[];
+  /** Imports retain previous successes; no batch rollback or isolation is implied. */
+  importMode?: "forward-only";
   /** Bounded per-target refusals; foreign records are never interpreted as owned work. */
   estimateSkips?: Array<{ id: string; reason: "foreign" | "superseded" }>;
   /** Number of additional skipped targets omitted from the bounded sample. */
   omittedEstimateSkips?: number;
-  /** SDK-only desired field plans from the exact atomic dry-run preparation used by writes. CLI receipts retain compact counts. */
+  /** SDK-only desired plans from the same forward-only dry-run preparation used by writes. */
   prepared?: PreparedLinearImport[];
   schema?: LinearSchemaReport;
   synced: number;
@@ -3044,8 +2958,8 @@ export interface SyncResult {
   skipped: number;
   team: string;
   issues: LinearIssue[];
-  // Atomic-only fields. Present when the batch committed as one transaction
-  // (or, for dryRun, when --atomic --dry-run shared the atomic prep path).
+  // Deprecated compatibility fields. Imports report atomic=false; only the old
+  // atomic-named SDK wrapper returns a revision-bound receipt ID, never a journal.
   atomic?: boolean;
   dryRun?: boolean;
   transactionId?: string;
@@ -3213,17 +3127,8 @@ async function buildImportDryRunPlan(
 }
 
 // ---------------------------------------------------------------------------
-// Atomic Linear import (pm-cli >= 2026.10.24 commitItemMutations)
+// Forward-only imports; old atomic-named pure helpers remain source-compatible.
 // ---------------------------------------------------------------------------
-//
-// `pm linear import/sync --atomic` commits the ENTIRE batch (creates + updates
-// + closes) as ONE workspace-writer-locked, crash-resumable transaction via the
-// SDK `commitItemMutations` helper. On ordinary failure every applied mutation
-// is compensated in reverse order; if compensation itself is incomplete the
-// tracker MAY hold partial state and the error tells the user to retry the same
-// import to resume the durable journal. The non-atomic path is byte-compatible
-// uses the same mapped fields; --atomic --dry-run shares the atomic preparation/matching path
-// and reports create/update/skip counts WITHOUT touching the SDK commit.
 
 const ATOMIC_IMPORT_PREFIX = "linear-import-";
 
@@ -3234,19 +3139,20 @@ type NormalizeItemId = (input: string, prefix: string) => string;
 type ReadSettings = (pmRoot: string) => Promise<{ id_prefix?: string }>;
 
 /**
- * Optional inputs to an atomic Linear import: author attribution and test seams.
+ * Compatibility options for the old atomic-named entrypoint; native batch commit seams are ignored.
  *
- * Every field is optional; the live path resolves the SDK helpers itself, while
- * the seams let a test inject `commitItemMutations`, `normalizeItemId`, and
- * `readSettings` so the crash-recovery and compensation branches run offline
- * without touching the real workspace transaction journal.
+ * The optional read guard and boundary observer remain useful for callers.
+ * The former batch-commit and ID-normalizer seams are retained only for source
+ * compatibility and are never invoked by the production writer.
  */
 export interface AtomicImportOptions {
-  /** Author attributed to the atomic transaction journal (defaults to `pm-linear`). */
+  /** Explicit author forwarded to every native item mutation. */
   atomicAuthor?: string;
-  /** Test seam: inject the SDK commit helper (skips SDK resolution). */
+  /** Boundary observer for forward-only fault/interleaving verification. */
+  onBoundary?: SyncRunDependencies["onEstimateBoundary"];
+  /** Deprecated inert batch seam; forward-only imports never invoke it. */
   commitItemMutations?: CommitItemMutations;
-  /** Test seam: inject normalizeItemId (skips SDK resolution). */
+  /** Deprecated inert normalizer seam; identities always use the host SDK. */
   normalizeItemId?: NormalizeItemId;
   /** Test seam: inject readSettings (skips SDK resolution). */
   readSettings?: ReadSettings;
@@ -3279,14 +3185,14 @@ function assertSdkFunction<F extends (...args: never[]) => unknown>(
 ): F {
   if (typeof fn !== "function") {
     throw new CommandError(
-      `--atomic requires @unbrained/pm-cli>=2026.10.24 with the commitItemMutations SDK primitive, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.10.24.`,
+      `Linear import requires @unbrained/pm-cli>=2026.10.24 with the public import SDK, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.10.24.`,
       EXIT_CODE.USAGE,
     );
   }
   return fn;
 }
 
-async function loadAtomicSdk(
+async function loadImportSdk(
   importSdk: () => Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> =
     () => import("@unbrained/pm-cli/sdk"),
 ): Promise<Partial<typeof import("@unbrained/pm-cli/sdk")>> {
@@ -3295,36 +3201,16 @@ async function loadAtomicSdk(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new CommandError(
-      `--atomic requires @unbrained/pm-cli>=2026.10.24, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
+      `Linear import requires @unbrained/pm-cli>=2026.10.24, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
       EXIT_CODE.USAGE,
     );
   }
 }
 
-async function resolveAtomicSdkFunctions(opts: AtomicImportOptions): Promise<{
-  commitItemMutations: CommitItemMutations;
-  normalizeItemId: NormalizeItemId;
-  readSettings: ReadSettings;
-}> {
-  const needsSdk =
-    !opts.commitItemMutations || !opts.normalizeItemId || !opts.readSettings;
-  const mod = needsSdk ? await loadAtomicSdk() : undefined;
-  return {
-    commitItemMutations: opts.commitItemMutations ??
-      assertSdkFunction<CommitItemMutations>(
-        mod?.commitItemMutations,
-        "commitItemMutations",
-      ),
-    normalizeItemId: opts.normalizeItemId ??
-      assertSdkFunction<NormalizeItemId>(mod?.normalizeItemId, "normalizeItemId"),
-    readSettings: opts.readSettings ??
-      assertSdkFunction<ReadSettings>(mod?.readSettings, "readSettings"),
-  };
-}
-
 /**
- * Derive an order-independent transaction id from the desired import state and
- * the exact ordered mutation plan. Content or target changes produce a fresh
+ * Derive a legacy descriptive fingerprint from the desired import state and
+ * ordered mutation plan. This is not an executable import idempotency key;
+ * production imports compare current SDK revisions rather than replay journals. Content or target changes produce a fresh
  * transaction; a reordered retry of the same plan resumes the durable journal.
  * Canonical entries are sorted by the STABLE external key (the Linear issue
  * identifier), never by fetch order.
@@ -3400,7 +3286,10 @@ function linearImportOptions(entry: ItemPlan) {
   };
 }
 
-/** Map one rendered import entry to its reversible SDK mutation sequence. */
+/**
+ * Deprecated descriptive plan for older consumers; do not execute it as an import.
+ * Use syncLinearIssues, which applies changed fields with fresh SDK revision checks.
+ */
 export function buildAtomicImportMutations(
   team: string,
   entry: PreparedLinearImport,
@@ -3455,7 +3344,7 @@ export function buildAtomicImportMutations(
         },
       },
     ];
-    if (entry.status === "closed") {
+    if (entry.status === "closed" && entry.match?.status !== entry.status) {
       mutations.push({
         op: "close",
         id: managedItemId,
@@ -3473,7 +3362,7 @@ export function buildAtomicImportMutations(
   const mutations: BulkItemMutation[] = [
     { op: "update", id: itemId, options: updateOptions },
   ];
-  if (entry.status === "closed") {
+  if (entry.status === "closed" && entry.match?.status !== entry.status) {
     mutations.push({
       op: "close",
       id: itemId,
@@ -3483,107 +3372,26 @@ export function buildAtomicImportMutations(
   return { itemId, mutations };
 }
 
-/** Commit a complete issue-import batch under one crash-resumable transaction. */
-export async function importLinearAtomic(
-  pmRoot: string,
-  team: string,
-  entries: readonly PreparedLinearImport[],
-  opts: AtomicImportOptions = {},
-): Promise<{
-  transactionId: string;
-  recovered: boolean;
-  imported: number;
-  updated: number;
-  recoveredItems?: number;
-  itemIds: Map<string, string>;
+/** Deprecated compatibility name: imports now apply forward-only through the shared coordinator. */
+export async function importLinearAtomic(pmRoot: string, team: string, entries: readonly PreparedLinearImport[], opts: AtomicImportOptions = {}): Promise<SyncResult & {
+  imported: number; recovered: boolean; transactionId: string; recoveredItems?: number; itemIds: Map<string, string>;
 }> {
   for (const entry of entries) assertLiteralImportValues(entry);
-  const {
-    commitItemMutations: commit,
-    normalizeItemId,
-    readSettings,
-  } = await resolveAtomicSdkFunctions(opts);
-
-  // The atomic identity — every managed item id AND the durable transaction id
-  // — is derived from id_prefix. readSettings already resolves a missing or
-  // malformed settings file to defaults WITHOUT throwing, so a thrown error
-  // here is a genuine filesystem fault (e.g. EACCES/EIO). Silently falling back
-  // to "pm-" in that case would fork the identity of a retry from the original
-  // run: the resume would key a *different* journal and could duplicate every
-  // item. Fail loudly instead so the operator resolves the fault and re-runs
-  // the same, resumable transaction.
-  let idPrefix = "pm-";
-  try {
-    const settings = await readSettings(pmRoot);
-    if (settings.id_prefix) idPrefix = settings.id_prefix;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new CommandError(
-      `Atomic Linear import could not read workspace settings to resolve id_prefix: ${msg}. ` +
-        `The transaction identity is keyed on id_prefix, so proceeding with a fallback could duplicate items; ` +
-        `resolve the settings read error and retry the same import to resume its durable journal.`,
-      EXIT_CODE.GENERIC_FAILURE,
-    );
+  if (opts.readSettings) try { await opts.readSettings(pmRoot); } catch (error: unknown) {
+    throw new CommandError(`Linear import could not read workspace settings for id_prefix: ${String(error)}`);
   }
-
-  const mutations: BulkItemMutation[] = [];
-  const itemIds = new Map<string, string>();
-  // The transaction journal fingerprints the ordered step plan. Canonicalize
-  // by the stable Linear identifier so a retry whose API page/order changed
-  // supplies the exact same plan as well as the same transaction id.
-  for (const entry of [...entries].sort((a, b) =>
-    a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0
-  )) {
-    const planned = buildAtomicImportMutations(team, entry, idPrefix, normalizeItemId);
-    itemIds.set(entry.identifier, planned.itemId);
-    mutations.push(...planned.mutations);
-  }
-  const transactionId = deriveAtomicTransactionId(team, entries, mutations);
-
-  try {
-    const result = await commit({
-      pmRoot,
-      transactionId,
-      author: opts.atomicAuthor ?? "pm-linear",
-      mutations,
-      // This option selects how CREATE steps are compensated. The SDK's
-      // commitItemMutations contract independently snapshots and version-
-      // restores every UPDATE and CLOSE step (covered by the mixed rollback
-      // integration test below this implementation).
-      createCompensation: "delete",
-    });
-    // A recovered journal may include work applied by the interrupted process
-    // as well as steps resumed now. The SDK intentionally returns the durable
-    // final results, not a per-invocation delta, so create/update counts cannot
-    // be reconstructed truthfully. Report the recovered batch separately.
-    const recovered = result.recovered;
-    return {
-      transactionId,
-      recovered,
-      imported: recovered ? 0 : entries.filter((e) => !e.match?.id).length,
-      updated: recovered ? 0 : entries.filter((e) => Boolean(e.match?.id)).length,
-      ...(recovered ? { recoveredItems: entries.length } : {}),
-      itemIds,
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (err instanceof AggregateError || /compensation failed/i.test(msg)) {
-      throw new CommandError(
-        `Atomic Linear import failed and compensation was incomplete. The tracker may contain partially applied state; retry the same import to resume transaction ${transactionId}, then inspect its durable journal if recovery still fails. Underlying error: ${msg}`,
-        EXIT_CODE.GENERIC_FAILURE,
-      );
-    }
-    if (err instanceof Error && err.name === "WorkspaceTransactionInterruptedError") {
-      throw new CommandError(
-        `Atomic Linear import was interrupted. Its durable journal is resumable; retry the same import to continue transaction ${transactionId}. Underlying error: ${msg}`,
-        EXIT_CODE.GENERIC_FAILURE,
-      );
-    }
-    throw new CommandError(
-      `Atomic Linear import failed after the SDK completed its normal compensation path; no new partial committed state is expected. Transaction id: ${transactionId}. Underlying error: ${msg}`,
-      EXIT_CODE.GENERIC_FAILURE,
-    );
-  }
+  const items = await readPmItems(pmRoot);
+  const matches = indexItemsByLinearId(items);
+  const ambiguous = ambiguousLinearIds(items);
+  const prepared = entries.map((entry) => ({ ...entry, match: entry.match?.id ? entry.match : ownMappingValue(matches, entry.linearId) }));
+  const revisions = await observeEstimateRevisions(pmRoot, items, opts.onBoundary);
+  for (const entry of prepared) if (entry.match?.id && (ambiguous.has(entry.linearId) || ownMappingValue(matches, entry.linearId)?.id !== entry.match.id)) revisions.delete(entry.match.id);
+  const result = await importEstimateBatch(pmRoot, { team, limit: entries.length }, prepared, 0, revisions, opts.onBoundary, false, opts.atomicAuthor);
+  const sdk = await importRuntimeSdk();
+  const settings = await sdk.readSettings(pmRoot);
+  return { ...result, imported: result.created, recovered: false,
+    transactionId: `linear-forward-${schemaDigest([team, entries, [...revisions]]).slice(0, 32)}`,
+    itemIds: new Map(prepared.map((entry) => [entry.identifier, entry.match?.id ?? deriveAtomicItemId(team, entry.identifier, settings.id_prefix, sdk.normalizeItemId)])) };
 }
 
 export async function syncLinearIssues(
@@ -3652,7 +3460,8 @@ export async function syncLinearIssues(
 
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
-    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues: [] };
+    return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues: [],
+      importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0 };
   }
 
   const statusMap = options.statusMap ?? {};
@@ -3661,24 +3470,25 @@ export async function syncLinearIssues(
   // are declared with the legacy loop below (the atomic path returns before it
   // and reports its own counts, so hoisting them here would be a dead store).
   let skipped = 0;
+  const filteredResults: LinearImportOutcome[] = [];
 
   // Resolve and validate the entire selected batch before the first write.
   const prepared: PreparedLinearImport[] = [];
   for (const issue of issues) {
-    if (ambiguous.has(issue.id)) { skipped++; console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
+    if (ambiguous.has(issue.id)) { skipped++; filteredResults.push({ id: null, linearId: issue.id, action: "skipped", code: "import_conflict", reason: "foreign", remedy: "Repair duplicate native provenance links before choosing a target; no item was written." }); console.error("Skipped ambiguous local Linear provenance; repair duplicate links before retrying."); continue; }
     // Reuse the same server-side state/cycle backstop filters as the legacy
     // path so `--atomic` skips the same issues and reports the same counts.
     if (options.stateFilter) {
       const stateName = issue.state.name.toLowerCase();
       if (!stateName.includes(options.stateFilter.toLowerCase())) {
-        skipped++;
+        skipped++; filteredResults.push({ id: null, linearId: issue.id, action: "skipped", code: "import_filtered", remedy: "Change the provider-state filter to include this issue; no native target was selected." });
         continue;
       }
     }
     if (options.cycleFilter) {
       const cycleName = issue.cycle?.name?.toLowerCase() ?? "";
       if (!cycleName.includes(options.cycleFilter.toLowerCase())) {
-        skipped++;
+        skipped++; filteredResults.push({ id: null, linearId: issue.id, action: "skipped", code: "import_filtered", remedy: "Change the provider-cycle filter to include this issue; no native target was selected." });
         continue;
       }
     }
@@ -3686,22 +3496,6 @@ export async function syncLinearIssues(
       throw new LinearEstimateRefusal("estimate_scope_mismatch", "Declare a mapping for the fetched issue's exact team and current scale revision; review linear estimates before importing.");
     }
     let previousTags = ownMappingValue(existingByLinearId, issue.id)?.tags;
-    if (!ownMappingValue(existingByLinearId, issue.id)?.id && issue.team && !dependencies.readItems) {
-      const runtime = await importRuntimeSdk();
-      const settings = await runtime.readSettings(pm_root);
-      const id = deriveAtomicItemId(options.team, issue.identifier, settings.id_prefix, runtime.normalizeItemId);
-      const target = await observeEstimateCandidate(pm_root, id);
-      const version = target ? await estimateRestoreVersion(pm_root, id, issue.id, target) : undefined;
-      if (version !== undefined && target) {
-        const sdk = await loadAtomicSdk();
-        const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(version), { pmRoot: pm_root });
-        if ((await observeEstimateTarget(pm_root, id)).revision === target.revision) {
-          previousTags = historical.document.metadata.tags;
-          revisions.set(id, target.revision);
-        }
-        await dependencies.onEstimateBoundary?.("recovery_planned", id);
-      }
-    }
     const plan = buildItemPlan(
       issue,
       statusMap,
@@ -3725,105 +3519,10 @@ export async function syncLinearIssues(
   }
 
   const scaleAwareIds = new Set(issues.filter((issue) => issue.team).map((issue) => issue.id));
-  if (prepared.some((entry) => scaleAwareIds.has(entry.linearId))) {
-    if (prepared.some((entry) => !scaleAwareIds.has(entry.linearId))) throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
-    return { ...await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary), ...(schema ? { schema } : {}) };
-  }
-
-  if (options.atomic) {
-    if (options.dryRun) {
-      const wouldCreate = prepared.filter((e) => !e.match?.id).length;
-      const wouldUpdate = prepared.length - wouldCreate;
-      console.error(
-        `[dry-run] Atomic plan would import ${wouldCreate}, update ${wouldUpdate}, skip ${skipped}.`
-      );
-      return {
-        synced: wouldCreate + wouldUpdate,
-        created: wouldCreate,
-        updated: wouldUpdate,
-        skipped,
-        team: options.team, ...(schema ? { schema } : {}),
-        issues: [],
-        atomic: true,
-        dryRun: true,
-        prepared,
-      };
-    }
-
-    // All-skipped (e.g. every issue filtered out by --state/--cycle): return a
-    // successful zero-sync result BEFORE touching the SDK, matching the legacy
-    // non-atomic path, which never errors on an all-filtered batch. `skipped`
-    // counts issues dropped by a filter — an expected, common state for a
-    // scheduled sync — not failures, so throwing here would break cron/CI jobs.
-    if (prepared.length === 0) {
-      console.error(
-        `No Linear issues to import after filters (skipped ${skipped}); nothing to commit.`
-      );
-      return {
-        synced: 0,
-        created: 0,
-        updated: 0,
-        skipped,
-        team: options.team, ...(schema ? { schema } : {}),
-        issues: [],
-        atomic: true,
-      };
-    }
-
-    const atomicResult = await (dependencies.commitAtomic ?? importLinearAtomic)(pm_root, options.team, prepared);
-    if (atomicResult.recovered) {
-      console.error(
-        `Atomic import recovered transaction ${atomicResult.transactionId} covering ${atomicResult.recoveredItems ?? prepared.length} item(s).`
-      );
-    } else {
-      console.error(
-        `Atomically imported ${atomicResult.imported} new, updated ${atomicResult.updated} existing, skipped ${skipped}.`
-      );
-    }
-    return {
-      synced: atomicResult.imported + atomicResult.updated,
-      created: atomicResult.imported,
-      updated: atomicResult.updated,
-      skipped,
-      team: options.team, ...(schema ? { schema } : {}),
-      issues: [],
-      atomic: true,
-      transactionId: atomicResult.transactionId,
-      recovered: atomicResult.recovered,
-      ...(atomicResult.recoveredItems !== undefined
-        ? { recoveredItems: atomicResult.recoveredItems }
-        : {}),
-    };
-  }
-
-  let created = 0;
-  let updated = 0;
-  const sdk = await importRuntimeSdk();
-  const pm = new sdk.PmClient({ pmRoot: pm_root, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
-  for (const entry of prepared) {
-    const values = linearImportOptions(entry);
-    try {
-      if (entry.match?.id) {
-        await pm.update(entry.match.id, { ...values, status: entry.status });
-        updated++;
-      } else {
-        await pm.create({ ...values, status: entry.status, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-        created++;
-      }
-    } catch (error: unknown) {
-      console.error(`Failed to ${entry.match?.id ? "update" : "create"} item for ${entry.identifier}: ${error instanceof Error ? error.message : String(error)}`);
-      skipped++;
-    }
-  }
-
-  return {
-    synced: created + updated,
-    created,
-    updated,
-    skipped,
-    team: options.team, ...(schema ? { schema } : {}),
-    issues,
-  };
+  if (prepared.some((entry) => scaleAwareIds.has(entry.linearId)) && prepared.some((entry) => !scaleAwareIds.has(entry.linearId)))
+    throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
+  const applied = await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary, dependencies.projectionForce);
+  return { ...applied, importResults: [...filteredResults, ...applied.importResults!], ...(schema ? { schema } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -4649,7 +4348,7 @@ export default defineExtension({
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
         { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-        { long: "--atomic", description: "Commit with crash-resumable journaling and compensation (pm-cli >=2026.10.24); concurrent SDK/CLI writers can interleave" },
+        { long: "--atomic", description: "Deprecated compatibility flag; imports are forward-only per item with conflict receipts, never batch rollback" },
         { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
@@ -4703,7 +4402,7 @@ export default defineExtension({
           if (result.atomic) {
             // syncLinearIssues already printed the atomic summary line.
             return {
-              success: true,
+              success: (result.unconfirmed ?? 0) === 0,
               synced: result.synced,
               created: result.created,
               updated: result.updated,
@@ -4711,6 +4410,7 @@ export default defineExtension({
               team: result.team.toUpperCase(),
               teamSource: teamSelection.source,
               ...(result.schema ? { schema: result.schema } : {}),
+          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
           ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
               atomic: true,
               dryRun: Boolean(result.dryRun),
@@ -4730,7 +4430,7 @@ export default defineExtension({
           }
 
           return {
-            success: true,
+            success: (result.unconfirmed ?? 0) === 0,
             synced: result.synced,
             created: result.created,
             updated: result.updated,
@@ -4738,6 +4438,7 @@ export default defineExtension({
             team: result.team.toUpperCase(),
             teamSource: teamSelection.source,
             ...(result.schema ? { schema: result.schema } : {}),
+          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
           ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
             dryRun: false,
           };
@@ -4856,7 +4557,7 @@ export default defineExtension({
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
       { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-      { long: "--atomic", description: "Commit with crash-resumable journaling and compensation (pm-cli >=2026.10.24); concurrent SDK/CLI writers can interleave" },
+      { long: "--atomic", description: "Deprecated compatibility flag; imports are forward-only per item with conflict receipts, never batch rollback" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ];
     for (const command of ["linear import", "linear-sync import"]) api.registerFlags(command, linearImportFlags);
@@ -4932,6 +4633,7 @@ export default defineExtension({
           team: result.team.toUpperCase(),
           teamSource: teamSelection.source,
           ...(result.schema ? { schema: result.schema } : {}),
+          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
           ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
           dryRun: Boolean(result.dryRun),
           ...(result.atomic ? { atomic: true } : {}),
@@ -5235,6 +4937,7 @@ export default defineExtension({
         team: result.team.toUpperCase(),
         teamSource: teamSelection.source,
         ...(result.schema ? { schema: result.schema } : {}),
+          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
           ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
         dryRun: Boolean(result.dryRun),
         ...(result.atomic ? { atomic: true } : {}),

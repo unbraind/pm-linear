@@ -39,7 +39,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 - A Linear API key with read access to the relevant teams (only for **live**
   paths; every `--dry-run` and offline `validate` works without one)
 
-The host minimum covers the guarded schema, history and transaction APIs used by
+The host minimum covers the guarded schema, history and preview APIs used by
 default imports. npm's peer requirement and the pm manifest enforce the same
 minimum. Existing tracker data stays readable; upgrade the host before loading
 this package on an earlier SDK.
@@ -335,7 +335,7 @@ metadata. `--atomic --dry-run` negotiates and previews against current metadata.
 Negotiation proves **read** access for importing; it does not attest Linear write
 permissions or gate export/push. Linear exposes no cross-request metadata snapshot
 transaction: a provider change after the final check remains a race. Run schema
-review and apply close together; `--atomic` protects the local batch.
+review and apply close together; `--atomic` is a deprecated compatibility flag; imports are forward-only per item.
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
@@ -705,12 +705,45 @@ share the same typed result. See [the schema, SDK example and retry guarantees](
 Imports skip an item if its planning snapshot disagrees with the SDK revision
 observation, preserving peer conversions and native edits. `estimateSkips` names
 the affected items; retry reads their current state while independent items proceed.
-Compensated creations retain their native history. Retry verifies the owned
-rollback, restores the same identity through the SDK and plans against fresh
-input, retaining earlier explicit conversions. Foreign tombstones remain skipped.
+Imports retain earlier successes and retry against current SDK state. They never
+roll back or implicitly restore deleted identities; reserved/foreign IDs skip with
+a remedy. Explicit conversions stay with live items through fresh-input retries.
 
 ### Without git
 
 Estimate inspection, import, sync and export work in ordinary initialized tracker
 directories without a git executable. Linear network operations require provider
 credentials; `linear estimates --scale` and export previews work offline.
+
+### Forward-only imports
+
+All `linear sync`, `linear import`, `linear-sync import` and typed SDK imports
+apply each item forward-only. The deprecated `--atomic` flag keeps parsing, but
+never enables batch rollback. If item B fails, item A stays applied; `importMode`
+is `forward-only`, `atomic` is false, and `importResults` lists every selected
+native target as created, updated, unchanged, skipped or unconfirmed. A conflict has code
+`import_conflict` and a remedy. A skipped prerequisite skips its dependents.
+
+Each write re-reads the SDK history revision paired with its saved base. Changed
+revisions, including ABA edits, skip the item. Updates submit only changed fields;
+an unchanged status is omitted, including on completed issues. Imports retain the
+SDK’s assignee-release effect for the configured primary close/cancel roles, so
+replaying a completed issue does not reassign it. New items explicitly
+clear ambient relationship scope. A fresh retry uses current state and converges
+without replaying a frozen journal. Deleted/reserved identities require explicit
+native inspection and restore; imports never resurrect them implicitly.
+
+```sh
+pm linear import --team ENG --json
+# Inspect importResults; rerun after resolving an import_conflict.
+pm linear sync --team ENG --json
+```
+
+The SDK has no item precondition ([#1576](https://github.com/unbraind/pm-cli/issues/1576))
+and its workspace transaction does not exclude ordinary writers
+([#1620](https://github.com/unbraind/pm-cli/issues/1620)). A window remains between the
+last SDK read and the mutation. Native completed transitions can internally write
+fields and close separately; their exact one-item plan is validated with the SDK
+in an isolated copy first. This does not guarantee isolation from a peer or an
+I/O/policy failure inside the final native call. Inspect a failed target before
+retrying; the importer never rolls back successful writes or peer state. Failed native calls re-read through the SDK: a complete current target is `unchanged`/`import_reconciled` without attributing a new write, an unchanged target is skipped, and a changed/incomplete target is `unconfirmed` with `import_incomplete`. Its dependents skip.

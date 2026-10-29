@@ -18,8 +18,8 @@ try {
       before: "if (schemaDigest(planned) === schemaDigest(observed)) revisions.set(item.id, target.revision);",
       after: "revisions.set(item.id, target.revision);" },
     { name: "missing planning revision silently adopts current target", pattern: "missing planning revisions", failure: "an existing target requires a paired revision",
-      before: "const expected = entry.match?.id ? revisions.get(entry.match.id) : before.version ? revisions.get(id) : before.revision;",
-      after: "const expected = revisions.get(entry.match?.id ?? \"\") ?? before.revision;" },
+      before: "const expected = entry.match?.id ? revisions.get(id) : before?.version ? undefined : before?.revision;",
+      after: "const expected = revisions.get(entry.match?.id ?? \"\") ?? before?.revision;" },
   ];
   const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };
   const results = [];

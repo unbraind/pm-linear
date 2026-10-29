@@ -1,32 +1,32 @@
 {
   "reverted": [
     {
-      "revertedBehavior": "every retained history is foreign",
+      "revertedBehavior": "deleted identities are adopted without explicit native restore",
       "passed": 0,
       "failed": 1
     },
     {
-      "revertedBehavior": "only the first birth can be compensated",
+      "revertedBehavior": "an applied item is misreported as skipped after observer failure",
       "passed": 0,
       "failed": 1
     },
     {
-      "revertedBehavior": "dependent update ignores a peer after restore",
+      "revertedBehavior": "dependent update ignores its immediate revision fence",
       "passed": 0,
       "failed": 1
     },
     {
-      "revertedBehavior": "recovery loses the historical declared conversion",
+      "revertedBehavior": "fresh retry loses the earlier declared conversion",
       "passed": 0,
       "failed": 1
     },
     {
-      "revertedBehavior": "newer tombstone revision authorizes an older plan",
+      "revertedBehavior": "missing revision silently adopts a newer native target",
       "passed": 0,
       "failed": 1
     },
     {
-      "revertedBehavior": "estimate ignore bypasses the guarded writer",
+      "revertedBehavior": "estimate ignore bypasses the shared forward writer",
       "passed": 0,
       "failed": 1
     },
@@ -36,7 +36,7 @@
       "failed": 1
     },
     {
-      "revertedBehavior": "rollback validation narrows native IDs to the provider-ID domain",
+      "revertedBehavior": "provider bounds incorrectly narrow SDK native identities",
       "passed": 0,
       "failed": 1
     },
@@ -47,7 +47,7 @@
     }
   ],
   "fixed": {
-    "passed": 7,
+    "passed": 8,
     "failed": 0
   },
   "reviewedCheckoutMutated": false

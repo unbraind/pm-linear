@@ -6,9 +6,9 @@ import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { canonicalDocument, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
+import { canonicalDocument, isTerminalStatus, resolveRuntimeStatusRegistry, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot, type PreparedLinearImport } from "../index.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -181,9 +181,7 @@ test("ownership retains isolated legacy projection for every custom terminal rol
       await cp(root, reference, { recursive: true });
       const settings = await readSettings(reference);
       const entry = { ...buildItemPlan(provider, {}), identifier: provider.identifier, linearId: provider.id, match };
-      const mutations = buildAtomicImportMutations("ENG", entry, settings.id_prefix, normalizeItemId).mutations
-        .map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
-      await commitItemMutations({ pmRoot: reference, transactionId: `terminal-${name}`, author: "fixture", mutations });
+      await applyOwnershipReference(reference, entry);
       const expected = hashes(await stateFromSdk(reference, options.item));
       const report = await previewLinearOwnership(options, root);
       for (const field of report.observation.fields) assert.equal(field.provider, expected.get(field.field), `${role}/${field.field}`);
@@ -316,10 +314,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     let remote: ReturnType<typeof hashes>;
     try {
       await cp(root, reference, { recursive: true });
-      const mutations: BulkItemMutation[] = buildAtomicImportMutations("ENG", plan, settings.id_prefix, normalizeItemId).mutations
-        .map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
-      const revision = createHash("sha256").update(JSON.stringify(before)).update(String(sequence)).digest("hex");
-      await commitItemMutations({ pmRoot: reference, transactionId: `reference-${revision}`, author: "fixture", mutations });
+      await applyOwnershipReference(reference, plan);
       remote = hashes(await stateFromSdk(reference, options.item));
     } finally { await rm(reference, { recursive: true, force: true }); }
     const report = await previewLinearOwnership({ ...options, base }, root);
@@ -754,3 +749,18 @@ test("review class: every tag producer preserves literal SDK control words and d
     for (const field of ["parent", "goal", "objective", "sprint", "release"] as const) assert.equal(actual[field], undefined, `${atomic}/${field}`);
   }
 });
+
+/** Independent field-effect oracle uses native SDK persistence and omits repeated lifecycle transitions. */
+async function applyOwnershipReference(root: string, plan: PreparedLinearImport) {
+  const pm = new PmClient({ pmRoot: root, noExtensions: true, author: "fixture" });
+  const current = (await pm.get(plan.match!.id!, { depth: "deep" })).item;
+  const { status, tags, deadline, assignee, identifier, linearId, match, ...fields } = plan;
+  const registry = resolveRuntimeStatusRegistry((await readSettings(root)).schema);
+  const terminal = isTerminalStatus(status, registry);
+  await pm.update(plan.match!.id!, { ...fields, tags: JSON.stringify(tags), force: true,
+    ...(status !== current.status ? { status, ...(terminal ? { closeReason: String(current.close_reason ?? `Linear issue ${identifier} terminal`) } : {}) } : {}),
+    ...(deadline ? { deadline } : {}), ...(assignee ? { assignee } : {}),
+    unset: [...(!deadline ? ["deadline"] : []), ...(!assignee ? ["assignee"] : [])] });
+  if (status === registry.close_status) await pm.close(plan.match!.id!, String(current.close_reason ?? `Linear issue ${identifier} terminal`), { force: true });
+  else if (status === registry.canceled_status) await pm.update(plan.match!.id!, { status, force: true });
+}

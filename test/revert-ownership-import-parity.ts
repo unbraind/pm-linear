@@ -20,8 +20,8 @@ try {
       before: "fetchIssues: async () => [issue]",
       after: "fetchIssues: async () => [{ ...issue, team: undefined }]" },
     { name: "legacy projection loses isolated repeat-closure compatibility",
-      before: "mutations: options.mutations.map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } })),",
-      after: "mutations: options.mutations,", pattern: "ownership retains isolated", failure: "Linear ownership refused" },
+      before: "projectionForce: !issue.team",
+      after: "projectionForce: false", pattern: "ownership retains isolated", failure: "AssertionError" },
   ];
   const args = ["--test", "--test-concurrency=1", "--test-name-pattern=ownership shares every import writer", "test/ownership.test.ts"];
   const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };

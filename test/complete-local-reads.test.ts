@@ -103,7 +103,8 @@ for (const atomic of [false, true]) {
     assert.equal(first.updated, 2);
     const second = await syncLinearIssues(options, root, { fetchIssues: async () => issues });
     assert.equal(second.created, 0);
-    assert.ok(second.updated === 3 || second.recoveredItems === 3);
+    assert.equal(second.updated, 0, "a replay omits unchanged fields instead of resubmitting updates or a frozen journal");
+    assert.equal(second.importResults?.filter((row) => row.action === "unchanged").length, 3);
     const corpus = await pm.listAllComplete({ includeBody: true });
     assert.equal(corpus.count, 3);
     assert.equal(corpus.items.find((item) => item.id === "fixture-closed")?.status, "open");

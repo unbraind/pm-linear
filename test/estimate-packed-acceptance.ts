@@ -6,13 +6,14 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PmClient } from "@unbrained/pm-cli/sdk";
+import { PmClient, isTerminalStatus, resolveRuntimeStatusRegistry, readSettings } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, encodeLinearEstimate, linearEstimateScaleRevision, syncLinearIssues, itemToLinearPayload, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const requestedHostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
 const vars = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_CACHE: join(tmpdir(), "linear-estimate-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
 await mkdir(vars.HOME);
+let lastDiagnostics = "";
 /** Commands inherit only explicit noncredential configuration and synthetic provider credentials. */
 async function run(bin: string, args: string[], cwd = scratch, extra: Record<string, string> = {}) {
   return new Promise<string>((done, fail) => {
@@ -21,7 +22,11 @@ async function run(bin: string, args: string[], cwd = scratch, extra: Record<str
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
     child.stderr.on("data", (chunk: Buffer) => { error += chunk.toString(); });
     child.on("error", fail);
-    child.on("exit", (code) => code === 0 ? done(output || error) : fail(new Error(`Packed ${args[0]} failed (${code}): ${error.slice(-800)}`)));
+    child.on("exit", (code) => {
+      lastDiagnostics = error;
+      if (code === 0) done(output || error);
+      else fail(new Error(`Packed ${args[0]} failed (${code}): ${error.slice(-800)}`));
+    });
   });
 }
 const team = { id: "team-packed", key: "PACK", issueEstimationType: "fibonacci", issueEstimationAllowZero: false, issueEstimationExtended: false };
@@ -44,7 +49,7 @@ const server = http.createServer((req, res) => {
     const selected = { ...issue, updatedAt: "2026-10-29T00:00:00Z" };
     if (!/\bteam\s*\{/.test(query)) delete selected.team;
     const data = query.includes("LinearEstimateScale") ? { teams: { nodes: [team] } } : query.includes("LinearSchema") ? {
-      teams: { nodes: [{ ...team, cyclesEnabled: false, triageEnabled: false, defaultIssueState: null, states: { nodes: [{ id: "queue", ...issue.state }], pageInfo } }] }, issueLabels: { nodes: [], pageInfo },
+      teams: { nodes: [{ ...team, cyclesEnabled: false, triageEnabled: false, defaultIssueState: null, states: { nodes: [{ id: "queue", ...issue.state }, { id: "completed", name: "Completed", type: "completed" }], pageInfo } }] }, issueLabels: { nodes: [], pageInfo },
     } : query.includes("viewer") ? { viewer: { id: "reader" } } : query.includes("LinearOwnership") ? { issue: selected } : { issues: { nodes: recoveryIssues?.map((value) => ({ ...value, updatedAt: selected.updatedAt })) ?? [selected], pageInfo } };
     res.writeHead(200, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ data }));
   });
@@ -81,13 +86,14 @@ try {
     ];
     for (const mode of modes) {
       const tracker = join(hostRoot, "trackers", mode.name); const pm = new PmClient({ pmRoot: tracker, noExtensions: true, author: "fixture" }); await pm.init("packed");
-      await assert.rejects(syncLinearIssues({ team: "PACK", limit: 10, atomic: true }, tracker, {
-        fetchIssues: async () => [issue], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Packed seed rollback"); },
-      }), /Packed seed rollback/);
+      const seeded = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true }, tracker, {
+        fetchIssues: async () => [issue], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Packed observer failure"); },
+      });
+      assert.equal(seeded.created, 1); assert.equal(seeded.importResults?.[0].code, "import_observer_failed");
       const prefix = [...mode.args, "--pm-path", tracker]; const extra = { ...mode.vars, ...network };
       await run(mode.bin, [...prefix, "package", "install", source, "--project"], scratch, mode.vars);
       const restored = JSON.parse(await run(mode.bin, [...prefix, "linear", "sync", "--team", "PACK", "--json"], scratch, extra)) as { created: number; skipped: number };
-      assert.equal(restored.created, 1); assert.equal(restored.skipped, 0, "the packed sync restores a compensated identity");
+      assert.equal(restored.created, 0); assert.equal(restored.skipped, 0, "the packed sync re-reads and recognizes the earlier success");
       const native = JSON.parse(await run(mode.bin, [...prefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra)) as LinearEstimateReport;
       assert.equal(native.rows[0].points, 5); assert.equal(native.rows[0].minutes, null);
       const file = join(scratch, "mapping.json");
@@ -150,16 +156,17 @@ try {
         const retryClient = new PmClient({ pmRoot: retryRoot, noExtensions: true, author: "fixture" }); await retryClient.init("retry");
         const values = ["a", "z"].map((suffix) => ({ ...structuredClone(issue), id: `remote-retry-${suffix}`, identifier: `PACK-retry-${suffix}` }));
         const conversion = { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }] };
-        await assert.rejects(syncLinearIssues({ team: "PACK", limit: 10, atomic: true, estimateMapping: conversion }, retryRoot, {
-          fetchIssues: async () => values, onEstimateBoundary: async (stage, id) => { if (stage === "after_write" && id.endsWith("-z")) throw new Error("Packed batch rollback"); },
-        }), /Packed batch rollback/);
-        assert.equal((await retryClient.listAllComplete()).items.length, 0);
+        const seededBatch = await syncLinearIssues({ team: "PACK", limit: 10, atomic: true, estimateMapping: conversion }, retryRoot, {
+          fetchIssues: async () => values, onEstimateBoundary: async (stage, id) => { if (stage === "before_update" && id.endsWith("-z")) throw new Error("Packed item failure"); },
+        });
+        assert.equal(seededBatch.created, 1); assert.equal(seededBatch.skipped, 1);
+        assert.equal((await retryClient.listAllComplete()).items.length, 1);
         const retryPrefix = [...mode.args, "--pm-path", retryRoot];
         await run(mode.bin, [...retryPrefix, "package", "install", source, "--project"], scratch, mode.vars);
         try {
-          recoveryIssues = values.map((value) => ({ ...value, title: " Fresh replay ", description: " Fresh\r\nbody " }));
-          const receipt = JSON.parse(await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--atomic", "--json"], scratch, extra)) as { created: number; skipped: number };
-          assert.equal(receipt.created, 2); assert.equal(receipt.skipped, 0);
+          recoveryIssues = values.map((value) => ({ ...value, title: " Fresh replay ", description: " Fresh\r\nbody ", ...(value.id.endsWith("-a") ? { state: { name: "Completed", type: "completed" } } : {}) }));
+          const receipt = JSON.parse(await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--estimate-mapping", file, "--atomic", "--json"], scratch, extra)) as { created: number; updated: number; skipped: number; atomic: boolean; importMode: string };
+          assert.equal(receipt.importMode, "forward-only"); assert.equal(receipt.atomic, false); assert.equal(receipt.updated, 1, JSON.stringify(receipt) + lastDiagnostics.slice(-2400)); assert.equal(receipt.created, 1); assert.equal(receipt.skipped, 0);
           const units = JSON.parse(await run(mode.bin, [...retryPrefix, "linear", "estimates", "--team", "PACK", "--json"], scratch, extra)) as LinearEstimateReport;
           assert.equal(units.counts.matched, 2); assert.ok(units.rows.every((row) => row.points === 5 && row.minutes === 240), "retry retains the earlier explicit mapping");
           const replay = await run(mode.bin, [...retryPrefix, importer, "import", "--team", "PACK", "--atomic"], scratch, extra);
@@ -172,7 +179,7 @@ try {
           assert.equal(byProviderId.size, 2);
           for (const value of recoveryIssues) {
             const plan = buildItemPlan(value, {}, {}, undefined, conversion);
-            const created = await reference.create({ ...plan, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+            const created = await reference.create({ ...plan, ...(isTerminalStatus(plan.status, resolveRuntimeStatusRegistry((await readSettings(referenceRoot)).schema)) ? { closeReason: `Linear issue ${value.identifier} terminal` } : {}), tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
             const expected = itemToLinearPayload((await reference.get(created.item.id, { depth: "deep" })).item);
             const actual = byProviderId.get(value.id); assert.ok(actual);
             for (const field of ["title", "description", "estimate"] as const) assert.deepEqual(actual[field], expected[field], "packed replay equals SDK-normalized reference");
@@ -180,7 +187,7 @@ try {
           restoredAliases++;
         } finally { recoveryIssues = undefined; }
       }
-      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, restoredIdentities: 1 + restoredAliases * 2, commands: 31 });
+      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, commands: 31 });
       process.stdout.write(`${hostVersion} ${mode.name}: passed\n`);
     }
   }

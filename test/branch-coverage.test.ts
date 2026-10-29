@@ -69,8 +69,9 @@ function prepared(identifier: string, overrides: Partial<PreparedLinearImport> =
 }
 
 /** Create a real empty pm workspace for atomic SDK paths that read settings. */
-function workspace(): string {
+function workspace(prefix = "fixture"): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-linear-branch-"));
+  assert.equal(spawnSync("pm", ["--path", root, "init", prefix], { encoding: "utf8" }).status, 0);
   return root;
 }
 
@@ -206,7 +207,7 @@ test("atomic import sorts equal identifiers through the real mutation seam", asy
         results: {},
       }),
     });
-    assert.equal(result.imported, 2);
+    assert.equal(result.imported, 0); assert.equal(result.skipped, 2);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -234,28 +235,18 @@ test("atomic import reports a non-Error settings-read rejection", async () => {
   }
 });
 
-test("atomic import wraps a non-Error SDK rejection as a generic CommandError", async () => {
+test("forward import ignores a non-Error obsolete rollback rejection", async () => {
   const root = workspace();
   try {
-    await assert.rejects(
-      () =>
-        importLinearAtomic(root, "ENG", [prepared("ENG-1")], {
-          commitItemMutations: async () => Promise.reject("string failure"),
-          normalizeItemId: (input: string, prefix: string) => `${prefix}${input.toLowerCase()}`,
-          readSettings: async () => ({ id_prefix: "pm-" }),
-        }),
-      (err: unknown) => {
-        assert.match(String(err), /Atomic Linear import failed/);
-        assert.match(String(err), /string failure/);
-        return true;
-      },
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+    const result = await importLinearAtomic(root, "ENG", [prepared("ENG-1")], {
+      commitItemMutations: async () => Promise.reject("must not run"),
+    });
+    assert.equal(result.created, 1); assert.equal(result.skipped, 0); assert.equal(result.atomic, false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test("sync scope logging covers every optional filter and the atomic fetch seam", async () => {
+test("sync scope logging covers every optional filter and the forward fetch seam", async (t) => {
+  const root = workspace(); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const result = await syncLinearIssues(
     {
       team: "ENG",
@@ -269,18 +260,18 @@ test("sync scope logging covers every optional filter and the atomic fetch seam"
       atomic: true,
       dryRun: true,
     },
-    "/unused",
+    root,
     {
       fetchIssues: async () => [],
       readItems: () => [],
     },
   );
-  assert.equal(result.atomic, undefined, "empty fetch returns before atomic preparation");
+  assert.equal(result.atomic, false, "empty fetch still declares the forward-only contract");
   assert.equal(result.synced, 0);
 
   const withOptionalFields = await syncLinearIssues(
     { team: "ENG", limit: 10, atomic: true, dryRun: true },
-    "/unused",
+    root,
     {
       fetchIssues: async () => [
         issue({
@@ -295,7 +286,7 @@ test("sync scope logging covers every optional filter and the atomic fetch seam"
 
   const recovered = await syncLinearIssues(
     { team: "ENG", limit: 10, atomic: true },
-    "/unused",
+    root,
     {
       fetchIssues: async () => [issue()],
       readItems: () => [],
@@ -308,7 +299,7 @@ test("sync scope logging covers every optional filter and the atomic fetch seam"
       }),
     },
   );
-  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.created, 1); assert.equal(recovered.importMode, "forward-only");
 });
 
 test("export-plan target state null and default cycle warning sink are covered", () => {
@@ -329,7 +320,7 @@ test("export-plan target state null and default cycle warning sink are covered",
 });
 
 test("export human branches render dry-run and payload previews from a real pm item", async () => {
-  const root = workspace();
+  const root = workspace("test");
   const pm = process.platform === "win32" ? "pm.cmd" : "pm";
   const init = spawnSync(pm, ["--path", root, "init", "test"], {
     encoding: "utf8",

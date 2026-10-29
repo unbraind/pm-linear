@@ -99,40 +99,40 @@ by foreign items are skipped. Bounded `estimateSkips` receipts identify `foreign
 or `superseded` targets, with an explicit omission count. A stored success from a peer is reconciled with the
 current SDK state instead of reported as a new write.
 
-`--atomic` coordinates unit-aware items with `commitWorkspaceTransaction`; it does
-**not** exclude ordinary SDK/CLI writers (pm-cli#1620). There remains a window
-between the final SDK read and SDK write because the mutation API has no expected
-history revision option. The feature does not claim serializable isolation.
-Transaction identity includes target revisions as well as desired content, so an
-older replay after a later import cannot reuse a completed content-only journal.
-Current target state decides unchanged outcomes. Preview uses the same entry
-producer and step inspection as apply, without committing.
+All imports use the same forward-only per-item coordinator, including provider-less
+inputs and the deprecated `--atomic` flag. No live-tracker import uses workspace or item batch transactions, restores,
+deletes, compensations or history ownership proofs. Native SDK preview executes
+only in an owned guarded mirror; runtime-only host SDK links are omitted without
+following them before the SDK regular-data preview runs. Each target's complete `importResults` receipt names its action and any
+`import_conflict`, `import_failed`, `import_incomplete` or `import_observer_failed` outcome with a remedy.
+A failure in B retains A's completed write. After-write observer failures report
+A as applied, never skipped. Native ordering/hierarchy relationships determine
+prerequisites using the SDK graph ontology; skipped prerequisites skip dependents.
 
-Deleting a compensated creation retains its native history and reserves the ID.
-The importer records a bounded, versioned rollback receipt in the native deletion
-event after verifying its exact SDK-produced write. Retry verifies the complete
-history prefix, provider identity, historical document and empty current state
-through SDK history APIs, then uses native `restore` for the same ID. Fresh input
-passes through the ordinary planner with the historical tags, so an earlier
-explicit conversion survives an option-free retry. The restore and any dependent
-update each re-read the expected revision and retain separate producer proofs.
-Repeated failures append further compensation records; history is never reset.
-Receipt JSON is limited to 8192 bytes, native IDs to 1024 characters, markers to
-2048 characters and versions to positive safe integers. Its producer and reader
-share the same strict schema and serialization; provider IDs retain their own
-128-character domain instead of imposing that limit on native SDK identities.
+Updates omit unchanged fields and status, including repeat closure. The target
+SDK registry identifies primary close/cancel roles; their native assignee-release
+effect remains stable across replays. Reference models derive the terminal state
+through SDK lifecycle producers instead of handwritten normalization. Immediately
+before the native mutation, the paired SDK revision is re-read. A stale base skips
+all dependent mutations. SDK one-item preview validates updates that route through
+close before live fields can be saved. Preview and ownership execute this same
+coordinator in an isolated copy. A fresh retry always reads current state; there
+are no content-keyed committed journals or frozen recovery plans.
 
-The earlier uninterrupted unit-writer create/delete format remains accepted when
-the native SDK verifies its complete birth and matching compensation marker.
-Malformed receipts, unrelated deleted IDs and peer-altered histories are foreign
-and skip alone. A peer edit after restore skips the dependent update, and
-compensation only removes the exact state still owned by that invocation.
+The final SDK read-to-write window remains because the SDK has no item precondition
+(pm-cli#1576), and workspace transactions do not exclude ordinary writers
+(pm-cli#1620). SDK close can internally save fields separately from closure; isolated
+validation does not remove failures or peer races inside the final native call.
+No cross-item rollback, serializable isolation or arbitrary-I/O atomicity is claimed.
 
-The declared host minimum is `2026.10.24` in both npm and the pm manifest. It covers
-the guarded schema and native history/transaction APIs needed by default imports;
-the development SDK pin is unchanged. Packed acceptance tests that minimum and
-the requested current host across project-local, npm-global, Bun-global, npx and
-bunx layouts, including retries of compensated SDK-generated histories.
+Deleted identities remain reserved and skip alone, regardless of an old rollback
+message. Historical items and histories still read and export. An operator can
+explicitly restore an intended historical item through the SDK, then retry; the
+importer never restores a deleted item implicitly. New forward-only failures
+produce no tombstones, so a retry recognizes completed items and applies only
+remaining differences. The declared host minimum remains 2026.10.24 in npm and the
+manifest, with its development SDK pin unchanged. Packed acceptance covers that
+minimum and current host in all five supported installation layouts.
 
 `linear ownership` acquires the same complete issue fields as import, then runs
 the production import coordinator in an isolated copy. It retains the item's
@@ -141,22 +141,30 @@ an unchanged issue, its acknowledged ownership observation replays as
 `unchanged`, including the provenance tags. Both JSON and TOON use this SDK path;
 old ownership mapping revisions require a fresh acknowledgement.
 
-The [packed receipt](estimate-packed-validation.json) records all five install
-layouts on host 2026.10.28: 55 command assertions, 115 read-only provider requests,
-zero provider mutations, 571-byte estimate receipts and 3331-byte ownership JSON
-receipts. Acquisition, writer-selection and legacy projection compatibility reverts fail the
-cross-path regression; the fixed implementation passes, as recorded in the
-[disposable revert receipt](ownership-import-parity-revert.json).
+The [packed receipt](estimate-packed-validation.json) records minimum/current host
+versions across project-local, npm-global, Bun-global, npx and bunx layouts, exact
+command and peer-interleaving counts, retained/retried identities, read-only
+provider requests and compact JSON sizes. The separate
+[artifact receipt](estimate-artifact-validation.json) binds its SHA-256 to every
+current shipped file and records the isolated ignored-file mutation check.
 
-Compensation re-reads before restoring an existing item's native history version.
-It deletes a newly created item only when this invocation verified its complete SDK producer receipt and planned body
-against native history and retained the exact history coordinate, and no later write
-exists. It never constructs that proof from a subsequently observed record.
-Per-invocation write nonces distinguish a peer's identical success from this
-invocation's ownership. After process recovery, unavailable ownership proof means leaving the target in
-place; audit and successful writes remain intact. Restore/delete operations also
-have the SDK read-to-write window. Retry always builds a fresh revision-bound plan.
+[Forward-import reverts](forward-import-revert.json) cover repeat closure,
+rollback reintroduction, prerequisite skips, revision fences and installed SDK
+code pointers. [Recovery reverts](estimate-recovery-revert.json) retain nine
+current-contract native-history/identity/mapping/host cases, with fixed source
+passing eight tests. Snapshot and ownership parity receipts retain their
+respective two and three behavioral mutants. These are disposable-copy tests;
+no reviewed checkout was mutated.
 
-The older provider-less atomic path is unchanged; the existing
-`pm-linear-atomic-replay-revision` item tracks that separate migration. Unit-aware
-imports do not call that frozen-plan path.
+The former provider-less atomic path has also migrated to this coordinator. The
+existing `pm-linear-atomic-replay-revision` item retains its audit context; production
+imports no longer resume those journals. Old pure atomic-named SDK helpers remain
+source-compatible descriptive helpers only; `importLinearAtomic` delegates to the
+forward-only writer and ignores the obsolete batch-commit seam.
+
+A native-call exception triggers SDK readback. Complete current desired fields
+are reconciled as unchanged without attributing a new write (`import_reconciled`);
+unchanged targets are skipped. A changed target whose
+complete desired fields cannot be confirmed is `unconfirmed`/`import_incomplete`,
+with an explicit count and inspection remedy; dependent writes skip. This avoids
+misreporting partial native calls or peer changes as untouched targets.

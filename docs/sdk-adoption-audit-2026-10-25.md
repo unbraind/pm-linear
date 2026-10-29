@@ -127,3 +127,8 @@ host-version skew, already tracked by
 warning tracked by [pm-linear-jloc](../.agents/pm/issues/pm-linear-jloc.toon).
 These health observations are separate from the package release gates; no
 history repair or dependency change is part of this follow-up.
+
+Current import contract update: the historical atomic-import row above is superseded
+by [forward-only imports](../README.md#forward-only-imports). Production imports no
+longer invoke SDK batch transactions or compensation; one-item SDK preview remains
+used for lifecycle validation. The development SDK pin is unchanged.

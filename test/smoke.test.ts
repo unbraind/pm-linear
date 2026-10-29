@@ -992,7 +992,7 @@ test("the declared host minimum covers every required estimate writer SDK capabi
   const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8")) as { packages: Record<string, { peerDependencies?: Record<string, string> }> };
   assert.equal(manifest.pm_min_version, "2026.10.24", "the declared minimum must include guarded schema loading");
   assert.equal(lock.packages[""].peerDependencies?.["@unbrained/pm-cli"], `>=${manifest.pm_min_version}`);
-  for (const key of ["loadGuardedRuntimeSchema", "commitWorkspaceTransaction", "readHistoryEntries", "verifyHistoryEntries", "getItemAt", "PmClient"] as const) assert.equal(typeof hostSdk[key], "function", key);
+  for (const key of ["loadGuardedRuntimeSchema", "previewItemMutations", "RelationshipGraph", "readHistoryEntries", "PmClient"] as const) assert.equal(typeof hostSdk[key], "function", key);
   for (const key of ["canonicalDocument", "emptyImportedDocument", "listAllComplete", "readSettings", "readLocatedItem", "locateItem", "resolveRuntimeStatusRegistry", "normalizeStatusInput", "isTerminalStatus"] as const) assert.equal(typeof hostRuntime[key], "function", key);
 });
 

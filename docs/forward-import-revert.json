@@ -1,0 +1,34 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "unchanged status is resubmitted, including repeated close",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "later item failure rolls back earlier completed writes",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "dependent plan ignores a skipped prerequisite",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "dependent mutation omits its immediate revision reread",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "native preview includes installed runtime code pointers as tracker data",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 3,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

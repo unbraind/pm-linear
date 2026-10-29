@@ -3,7 +3,7 @@
     "2026.10.24",
     "2026.10.28"
   ],
-  "artifactSha256": "e18fca6bc1f7b00f1fda9a5613d3ce952adcde43a998304b6240336af2fb49a5",
+  "artifactSha256": "5bde2fb7ab6b043d29ffaf18020a1740552546f8966152dd67817493a949243f",
   "modes": [
     {
       "hostVersion": "2026.10.24",
@@ -16,7 +16,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -30,7 +30,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -44,7 +44,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -58,7 +58,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -72,7 +72,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -86,7 +86,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -100,7 +100,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -114,7 +114,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -128,7 +128,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     },
     {
@@ -142,7 +142,7 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "restoredIdentities": 5,
+      "retainedOrRetriedIdentities": 5,
       "commands": 31
     }
   ],
