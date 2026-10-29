@@ -59,7 +59,10 @@ is no ratio, multiplication, interpolation, rounding or count-derived float deci
 Operator JSON files must be regular files of at most 16384 bytes. Each import tag
 is a canonical lowercase hexadecimal encoding because native tag normalization
 folds letter case. Producer and reader share the same schema and codec. Provider labels that collide
-with the owned namespaces are escaped reversibly; earlier foreign labels still export.
+with the owned namespaces, including `estimate:` and `cycle:`, are escaped as
+versioned records bound to the Linear issue ID. Earlier foreign and malformed
+literal tags still export unchanged. The same schema and derived UTF-8/JSON
+bounds validate every produced literal label record.
 
 `inspectLinearEstimates` returns `ok`, `teamId`, `scaleRevision`, complete corpus
 `counts`, at most `limit` rows, `omitted`, and `writes: 0`. Rows expose only item ID,

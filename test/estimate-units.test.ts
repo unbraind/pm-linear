@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
-import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries } from "@unbrained/pm-cli/sdk";
+import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScaleRevision, inspectLinearEstimates, syncLinearIssues, buildItemPlan, itemToLinearPayload, buildProvenance, deriveAtomicItemId, LinearEstimateRefusal,
   type LinearEstimateTeam, type LinearEstimateMapping, type LinearEstimateReport, type LinearIssue, type SyncResult } from "../index.ts";
@@ -103,7 +103,7 @@ test("one strict schema bounds input/output, producers round-trip, and malformed
   const ignored = buildItemPlan(issue(), {}, { estimate: "ignore" }); assert.ok(!ignored.tags.some((tag) => tag.startsWith("estimate:") || tag.startsWith("linear-estimate:")));
   const forged = issue(); forged.labels.nodes.push({ name: good }); assert.equal(buildItemPlan(forged, {}).tags.filter((tag) => tag.startsWith("linear-estimate:")).length, 1);
   assert.ok(itemToLinearPayload(buildItemPlan(forged, {})).labels!.includes(good));
-  for (const label of ["linear-estimate:legacy", "linear-native-label:!", "linear-native-label:ff", "linear-native-label:"]) assert.ok(itemToLinearPayload({ tags: [label] }).labels!.includes(label));
+  for (const label of ["linear-estimate:legacy", "linear-native-label:!", "linear-native-label:ff", "linear-native-label:", `linear-native-label:${Buffer.from("estimate:9").toString("hex")}`, `linear-native-label:${Buffer.from(JSON.stringify({ format: "foreign", label: "estimate:9" })).toString("hex")}`]) assert.ok(itemToLinearPayload({ tags: [label] }).labels!.includes(label));
 });
 
 test("CLI JSON and TOON share the SDK verdict; strict guards and offline files precede provider reads", async (t) => {
@@ -213,7 +213,7 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
       value.priority = (rng() >>> 8) % 5; value.dueDate = (rng() >>> 8) % 2 ? null : "2026-12-01";
       value.assignee = (rng() >>> 8) % 2 ? null : { name: " Native Agent ", email: null };
       value.cycle = { name: ` C${(rng() >>> 8) % 3} ` }; value.customer = { name: ` Customer ${(rng() >>> 8) % 3} ` };
-      value.labels.nodes = [{ name: ` tag-${(rng() >>> 8) % 5} ` }, { name: "constructor" }];
+      value.labels.nodes = [{ name: ` tag-${(rng() >>> 8) % 5} ` }, { name: "constructor" }, ...(sequence % 17 === 0 ? [{ name: "estimate:9" }, { name: "cycle:foreign" }] : [])];
       const statusIndex = (rng() >>> 8) % 5; const status = statusNames[statusIndex];
       value.state = { name: status, type: statusIndex % 2 ? "started" : "completed" };
       // Each generated sequence mixes an import/replay, SDK reads and a provider export.
@@ -243,12 +243,12 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         if (preview) for (const key of ["created", "updated", "skipped", "synced"] as const) assert.equal(preview[key], applied[key], `preview ${sequence} ${key}`);
         const points = remote.estimate ?? null;
         const previousContract = readLinearEstimate(previous?.tags ?? []).contract;
-        const tags = [...remote.labels.nodes.map((label) => label.name), `cycle:${remote.cycle!.name!.trim()}`, ...(points === null ? [] : [`estimate:${points}`]), `customer:${remote.customer!.name.trim()}`,
+        const tags = [...remote.labels.nodes.map((label) => { const native = parseTags(JSON.stringify([label.name]))[0] ?? ""; return ["linear-estimate:", "linear-native-label:", "estimate:", "cycle:"].some((prefix) => native.startsWith(prefix)) ? `linear-native-label:${Buffer.from(JSON.stringify({ format: "pm-linear/label/1", linearId: remote.id, label: label.name })).toString("hex")}` : label.name; }), `cycle:${toNonEmptyImportString(remote.cycle!.name)}`, ...(points === null ? [] : [`estimate:${points}`]), `customer:${toNonEmptyImportString(remote.customer!.name)}`,
           encodeLinearEstimate(team, points, conversion ?? previousContract?.mapping)];
         const scope = previous?.parent ?? "none";
         const desired = { title: `[${remote.identifier}] ${remote.title}`, body: remote.description ?? "", status: remote.state.name, priority: remote.priority === 0 ? 3 : remote.priority,
           tags: JSON.stringify(tags), description: buildProvenance(remote), parent: scope, unset: ["goal", "objective", "sprint", "release", ...(!remote.dueDate ? ["deadline"] : []), ...(!remote.assignee ? ["assignee"] : [])],
-          ...(remote.dueDate ? { deadline: remote.dueDate } : {}), ...(remote.assignee ? { assignee: remote.assignee.name!.trim() } : {}),
+          ...(remote.dueDate ? { deadline: remote.dueDate } : {}), ...(remote.assignee ? { assignee: remote.assignee.name! } : {}),
           ...(terminalStatuses.has(remote.state.name) ? { closeReason: `Linear issue ${remote.identifier} terminal` } : {}) };
         if (known) await model.update(aId, desired); else { await model.create({ ...desired, id: aId }); known = true; }
         const actualItem = (await actual.pm.get(aId, { depth: "deep" })).item;
@@ -418,4 +418,18 @@ test("multi-item imports sort targets, replay without duplicates and isolate a s
   assert.deepEqual(changed.estimateSkips, [{ id: aId, reason: "superseded" }]);
   assert.equal((await pm.get(aId)).item.title, "Peer preserved");
   assert.equal((await pm.get(zId)).item.title, `[${z.identifier}] Changed Z`);
+});
+
+test("provider labels resembling unit and cycle tags round-trip as literal labels", async (t) => {
+  const { root, pm } = await fixture(t); const value = issue("label-collision");
+  value.labels.nodes = [{ name: "estimate:9" }, { name: "cycle:foreign" }];
+  value.cycle = { name: "Actual" }; await sync(root, value, true, mapping);
+  const item = (await pm.listAllComplete({ includeBody: true })).items[0];
+  const payload = itemToLinearPayload(item);
+  assert.equal(payload.estimate, 5); assert.equal(payload.cycleName, "actual");
+  assert.ok(payload.labels!.includes("estimate:9")); assert.ok(payload.labels!.includes("cycle:foreign"));
+  assert.equal((await inspectLinearEstimates({ team }, root)).rows[0].minutes, 240);
+  const longest = "estimate:" + "界".repeat(32759);
+  const literal = issue("long-label"); literal.labels.nodes = [{ name: longest }];
+  assert.ok(itemToLinearPayload(buildItemPlan(literal, {})).labels!.includes(longest));
 });

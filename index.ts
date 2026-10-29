@@ -2206,20 +2206,34 @@ export class LinearEstimateRefusal extends CommandError {
 
 const ESTIMATE_TAG = "linear-estimate:";
 const NATIVE_LABEL_TAG = "linear-native-label:";
+/** A literal label record is versioned and bound to the provider identity that produced it. */
+interface NativeLabelRecord { format: "pm-linear/label/1"; linearId: string; label: string }
+const nativeLabelShape: ClosureShape = { kind: "object", fields: {
+  format: { kind: "literal", value: "pm-linear/label/1" }, linearId: closureId, label: ownershipText,
+} };
+// JSON escapes require at most six bytes per UTF-16 character; reserve bounded envelope overhead.
+const nativeLabelHexLimit = (ownershipText.max * 6 + 1024) * 2;
 
-/** Preserve provider labels that collide with either owned namespace as literal reversible data. */
-function encodeEstimateLabel(name: string): string {
+/** Preserve provider labels colliding with owned estimate/cycle namespaces as identity-bound literal data. */
+function encodeEstimateLabel(name: string, linearId: string): string {
   const key = name.trim().toLowerCase();
-  return key.startsWith(ESTIMATE_TAG) || key.startsWith(NATIVE_LABEL_TAG) ? NATIVE_LABEL_TAG + Buffer.from(name).toString("hex") : name;
+  if (!key.startsWith(ESTIMATE_TAG) && !key.startsWith(NATIVE_LABEL_TAG) && !key.startsWith("estimate:") && !key.startsWith("cycle:")) return name;
+  const record: NativeLabelRecord = { format: "pm-linear/label/1", linearId, label: name };
+  if (!closureMatches(record, nativeLabelShape)) throw new LinearSourceRefusal("issue.labels.nodes.name");
+  return NATIVE_LABEL_TAG + Buffer.from(JSON.stringify(record)).toString("hex");
 }
 
-/** Decode only canonical producer labels; foreign and malformed earlier tags remain exportable data. */
-function decodeEstimateLabel(tag: string): string {
-  if (!tag.startsWith(NATIVE_LABEL_TAG)) return tag;
+/** Decode canonical owned records only; older foreign tags remain literal exportable data. */
+function decodeEstimateLabel(tag: string, linearId: string | undefined): string {
+  if (!tag.startsWith(NATIVE_LABEL_TAG) || !linearId) return tag;
   const token = tag.slice(NATIVE_LABEL_TAG.length);
-  if (!token || token.length > 65536 || token.length % 2 || !/^[a-f0-9]+$/.test(token)) return tag;
-  const value = Buffer.from(token, "hex").toString("utf8");
-  return encodeEstimateLabel(value) === tag ? value : tag;
+  if (!token || token.length > nativeLabelHexLimit || token.length % 2 || !/^[a-f0-9]+$/.test(token)) return tag;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(token, "hex").toString("utf8"));
+    if (!closureMatches(parsed, nativeLabelShape)) return tag;
+    const record = parsed as NativeLabelRecord;
+    return record.linearId === linearId && encodeEstimateLabel(record.label, linearId) === tag ? record.label : tag;
+  } catch { return tag; }
 }
 const estimatePointShape: ClosureShape = { kind: "number", min: 0, max: 1000000, fractional: true };
 const estimateTeamShape: ClosureShape = { kind: "object", fields: {
@@ -2973,7 +2987,7 @@ export function buildItemPlan(
     : mapPriority(issue.priority);
   const tags = fieldIsIgnored(fieldMap, "labels")
     ? []
-    : issue.labels.nodes.map((l) => encodeEstimateLabel(l.name));
+    : issue.labels.nodes.map((l) => encodeEstimateLabel(l.name, issue.id));
   // --project-map (additive): tag the item with its Linear project name (or a
   // mapped value). De-duplicated against existing label-derived tags.
   const projectTag = resolveProjectTag(issue.project?.name, projectMap);
@@ -3750,7 +3764,7 @@ export function itemToLinearPayload(
     : parseCycleTag(rawTags);
   const contract = readLinearEstimate(rawTags).contract;
   const ownsUnitContract = Boolean(provenance?.linear_id && contract && (contract.points ?? undefined) === parseEstimateTag(rawTags));
-  const labels = rawTags.filter((tag) => tag.startsWith(ESTIMATE_TAG) && !ownsUnitContract ? true : !isReservedExportTag(tag)).map(decodeEstimateLabel);
+  const labels = rawTags.filter((tag) => tag.startsWith(ESTIMATE_TAG) && !ownsUnitContract ? true : !isReservedExportTag(tag)).map((tag) => decodeEstimateLabel(tag, provenance?.linear_id));
   const payload: LinearCreatePayload = {
     title: item.title ?? "(untitled)",
     description: item.body || (provenance ? "" : item.description || ""),
