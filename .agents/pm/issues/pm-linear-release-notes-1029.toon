@@ -1,0 +1,21 @@
+id: pm-linear-release-notes-1029
+title: Restore generated notes for prepared 2026.10.29
+description: "Repair delivered item lifecycle and release attribution, then regenerate the exact prepared-version changelog without changing version or workflows."
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-29T18:34:12.836Z"
+updated_at: "2026-10-29T18:45:16.808Z"
+author: codex-agent
+comments[3]{created_at,author,text}:
+  "2026-10-29T18:34:43.960Z",codex-agent,Read-only audit found the prepared 2026.10.29 ahead of npm with no tag or matching changelog section. Verified merged delivery PRs and successful release CI. Their owning items remain in_progress. Append-only pinned CLI lifecycle and release updates are explicitly authorized for recovery; unrelated open follow-ups remain open.
+  "2026-10-29T18:42:43.913Z",codex,"Pinned CLI recovery closes only merged PR 183 delivery and pins release 2026.10.29. npm run changelog:full now generates the exact pending-version section; linked npm run changelog:check passed 1/1. Origin/main has no corresponding heading (negative control); metadata repair makes the same command include it. Version, source, dependency pins and workflows are unchanged. Full npm/Bun release gates require fresh exact-head CI at unchanged thresholds."
+  "2026-10-29T18:44:53.952Z",codex-agent,"Attribution correction: the preceding validation comment and claim release inherited the project default author because that shell invocation omitted PM_AUTHOR. Both actions were performed by codex-agent in this recovery task. Their original append-only records are retained; this explicit-author claim/release restores the intended attribution boundary. No delivery evidence or item state is rewritten."
+files[1]{path,scope}:
+  CHANGELOG.md,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run changelog:check",project,codex-agent,"2026-10-29T18:35:37.646Z",local_mutation,fix/changelog-2026-10-29
+docs[1]{path,scope}:
+  README.md,project
+body: ""

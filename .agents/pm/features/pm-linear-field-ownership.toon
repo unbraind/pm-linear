@@ -2,13 +2,16 @@ id: pm-linear-field-ownership
 title: Preview Linear field ownership and same-field conflicts
 description: Compare an explicitly acknowledged Linear field snapshot with complete SDK local reads and current provider observations. Read-only preview; no cross-system atomic guarantee.
 type: Feature
-status: in_progress
+status: closed
 priority: 2
-tags: []
+tags[1]: "gh:unbraind/pm-linear#183"
 created_at: "2026-10-27T09:23:36.129Z"
-updated_at: "2026-10-27T20:25:03.573Z"
+updated_at: "2026-10-29T18:34:56.036Z"
+closed_at: "2026-10-29T18:34:55.366Z"
+completed_at: "2026-10-29T18:34:55.366Z"
 author: codex-agent
 acceptance_criteria: "Disjoint edits are distinguished from same-field conflicts; unknown bases never imply safe overwrites; preview makes zero mutations and explicitly declines atomic cross-system guarantees; typed SDK and CLI, compact TOON/JSON, actionable refusals, docs, seeded model tests and public tracker validation."
+release: 2026.10.29
 comments[38]{created_at,author,text}:
   "2026-10-27T09:23:55.309Z",codex-agent,"Overlap rechecked: host SDK exposes threeWayFieldConflict and complete SDK reads; Linear negotiateLinearSchema detects metadata drift while syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes. Jira mappings have no Linear ownership preview. This feature reuses SDK conflict decisions and existing Linear projections, isolates local reads, and adds observational context only. Installed pinned SDK is 2026.10.20; current registry CLI is 2026.10.27, with no dependency bump planned."
   "2026-10-27T09:24:04.444Z",codex-agent,"Overlap rechecked: SDK threeWayFieldConflict and complete SDK reads cover core comparison and acquisition. Linear negotiateLinearSchema detects metadata drift; syncLinearIssues upserts values. ADO sync/resolution owns revision-test writes; Jira has no Linear ownership preview. This adds observational context only. Pinned SDK is 2026.10.20; registry CLI is 2026.10.27, with no pin bump planned."
@@ -119,4 +122,5 @@ docs[4]{path,scope}:
   docs/field-ownership-validation.json,project
   docs/field-ownership.md,project
   README.md,project
+close_reason: Delivered by merged PR 183; verified successful CI; prepared-release note recovery authorized.
 body: ""
