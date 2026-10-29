@@ -4,14 +4,14 @@ description: Preserve Linear team estimate scale and declared points-to-effort m
 type: Feature
 status: in_progress
 priority: 2
-tags[2]: "gh:unbraind/pm-linear#189","gh:unbraind/pm-linear#191"
+tags[3]: "gh:unbraind/pm-linear#189","gh:unbraind/pm-linear#191","gh:unbraind/pm-linear#193"
 created_at: "2026-10-29T01:53:20.572Z"
-updated_at: "2026-10-29T20:24:59.222Z"
+updated_at: "2026-10-29T22:44:30.592Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Five points never become five minutes without a declared conversion; changing one team scale affects only its items; unconvertible estimates remain usable as native points.
-comments[76]{created_at,author,text}:
+comments[88]{created_at,author,text}:
   "2026-10-29T01:53:34.597Z",codex-agent,"Overlap checked against the installed CLI SDK public declarations, existing Linear estimate tags and round-trip features, and pm-gantt-chart duration inputs. Core estimated_minutes is numeric effort; Gantt consumes minutes and prior capacity work consumes estimates. Neither knows Linear team identity or scale settings. This feature owns provider unit provenance and an explicit scale-bound lookup conversion, preserving native points when unmapped. Existing atomic replay revision follow-up remains relevant; transactions do not exclude ordinary writers (pm-cli#1620)."
   "2026-10-29T02:03:57.444Z",codex-agent,"Implemented versioned per-item unit contracts with exact discrete conversion lookups and bounded team-scoped inspection. Provenance uses lowercase hexadecimal encoding because SDK tag normalization changes letter case; the real SDK tests caught this and the producer/reader now share one codec. Unit-aware writes use a single native mutation per item, registered status roles, explicit scopes and SDK history revision checks. The ordinary-writer read-to-write window remains and is documented; no lock-isolation claim."
   "2026-10-29T02:25:52.769Z",codex-agent,"Read-only public tracker validation passed against main: 112 items, 232 files, 1644154 bytes, 2 complete inspections, unchanged SHA-256, no git executable. No owned unit contracts exist in that corpus; conversion coverage is explicitly synthetic. Targeted network tests exercised sync and both import aliases in serial and transaction modes; the 500-sequence SDK reference-model test uses independent bounded tracker pairs with random custom lifecycle registries, whitespace, native fields, relationships, ambient focus and older-input replays."
@@ -88,7 +88,19 @@ comments[76]{created_at,author,text}:
   "2026-10-29T20:23:41.207Z",codex-agent,"Final-source revert proof PASS: node test/revert-import-boundaries.ts docs/import-boundaries-revert.json through pinned pm test. All 13 isolated production-behavior reverts failed with AssertionError: native/incoming ambiguity, explicit sync conflict, failed/unconfirmed/observer status, all three CLI result paths, both atomic SDK boundaries, ambiguous export and export failure status. Restored source passed all 7 selected regressions, zero failures. Source SHA256 fb70992ac0f830f2fe66e86e357cac2301b5e1945da1f98852fd03cd47cbfe93; reviewed checkout never mutated. Machine receipt records the exact source digest."
   "2026-10-29T20:23:49.388Z",codex-agent,"Digest correction to the preceding proof comment: the authoritative receipt and current index.ts both have SHA256 fb70992ac0f830f2fe66c86e357cac2301b5e1945da1f98852fd03cd47cbfe93. The earlier prose digest contained a transcription error; test evidence and receipt are unchanged."
   "2026-10-29T20:24:59.222Z",codex-agent,"Both repaired network replay regressions pass through pinned pm test (2 passed, 0 failed): changed responses update once; identical replays return unchanged. For the new filesystem-heavy mirror property only, raised the internal allowance from 600 to 1200 seconds after observed shared-host load exceeded six times CPU count; every file, assertion, native write and guard remains identical. The full npm release gate will provide the fresh restored-case retry; the four completed isolated mutant failures are retained rather than rerun after provider interruption."
-files[31]{path,scope}:
+  "2026-10-29T20:27:04.121Z",codex-agent,"Existing complete-local-reads regression PASS on final source: 10,002 real native items, 1 test passed, 0 failed, preview reports 0 creates and 1 update, final item count unchanged. Clean identity run took 1,188 seconds under host load; no fixture was reduced. History audit passed: the existing main history remains a byte prefix; the feature history is new on this branch. Added tracker/docs privacy check and changelog check pass. Full unchanged npm release gate started; Bun follows serially."
+  "2026-10-29T20:32:04.704Z",codex-agent,"Hostile diff pass completed for the three defect classes: unique target identity before write selection; any failed/conflicted/unconfirmed outcome drives positive host status; unavailable explicit guarantees refuse before effects. Searched every registration and return path across SDK sync, prepared import, deprecated atomic alias, CLI sync, both importer aliases and exporter read/plan/push. The common coordinator quarantines native and incoming duplicates; all three CLI result builders reuse shared status. Packed tests exercise both JSON/TOON, partial persistence and non-git trackers. Native compare/write limitations remain explicitly scoped by upstream 1576/1620; no cross-item isolation claim is introduced."
+  "2026-10-29T21:01:34.456Z",codex-agent,"Final packed artifact PASS on all 10 layouts: project-local, npm-global, Bun-global, npx and bunx on hosts 2026.10.24 and 2026.10.28. 830 layout commands, 270 SDK checks, 200 actual process-status scenarios, zero remote mutations. Exact artifact verification PASS: all 9 shipped files match, an ignored dist mutation in an owned copy is rejected, restoration matches. SHA256 e2c9bc7e70d23528c4c93df678c5711b5721f0864ff0008ceeb9232d7e3507f9. Receipts refreshed in docs/estimate-packed-validation.json and docs/estimate-artifact-validation.json."
+  "2026-10-29T21:05:02.602Z",codex-agent,"Mirror-policy proof completed without repeating finished mutants: all four isolated cases failed (import admission reverts to 20,000; observational default is widened; dry-run bypasses shared policy; native-close validation bypasses shared policy). Provider interruption happened after those failures. Fresh fixed-source command node --test --test-concurrency=1 test/import-isolation-budget.test.ts passed 1/1 via pinned pm test in owned memory-backed native scratch, 154 seconds; same corpus and assertions. The prior shared-host run cancelled at its timer, with no assertion failure. Segmented receipt docs/import-isolation-budget-revert.json records exact source SHA and interruption provenance; no successful exit is claimed for the interrupted combined invocation. Together with the boundary proof: 17 adversarial failures, 8 fixed-case passes, reviewed checkout never mutated."
+  "2026-10-29T21:32:30.295Z",codex-agent,"Reviewer-filed issue 193 now tracks the same already-fixed complete-corpus mirror regression. Linked its gh tag to this feature item. Restored 10,002-item matching and retained observational guard are already proven. Adding separate standalone native admission acceptance for a small allowed preview and refusal above each import limit (65,536 filesystem entries and 64 MiB), with unchanged source item/history. Two additional owned-copy mutations remove those limits independently. This extends adversarial validation only; production source and the validated packed bytes are unchanged."
+  "2026-10-29T21:36:14.882Z",codex-agent,"Issue 193 admission proof PASS: node test/revert-import-mirror-admission.ts docs/import-mirror-admission-revert.json via pinned pm test. Both independent guard removals fail with AssertionError (import entry limit and shared byte limit). Restored source passes all 3 real non-git native scenarios: small preview admitted, more than 65,536 physical entries refused, more than 64 MiB refused. Native item and full history stay byte-identical across every case. Regular hard-linked audit fixtures exercise physical entries, not logical item truncation. Source SHA matches all prior proofs and the validated runtime; receipt docs/import-mirror-admission.json and mutation receipt are linked. Total completed adversarial mutations: 19; fixed validation includes 7 boundary tests, 1 mirror property and 3 maximum-admission scenarios. Issue 184 explicitly belongs to PR183 and is not treated as a PR189 finding."
+  "2026-10-29T21:52:01.979Z",codex-agent,"The regular-filesystem npm gate completed: 451 tests, 450 passed, 1 failed; coverage 99.64% lines, 96.84% branches, 100% functions at unchanged thresholds. Sole failure: the executable schema-negotiation documentation still explicitly requested atomic mode. Migrated that example to forwardOnly and annotated the dated SDK audit without rewriting its historical evidence. Additional hostile SDK identity probe reproduced a third linked item: declared fresh provider ID plus description naming a shared existing ID produced count 4 instead of 3. New coordinator guard compares the declared ID with the exact persisted provenance parser before target selection. New regression covers missing/mismatched markers, both prepared SDK APIs, malformed injected sync IDs, consistent opaque IDs and readable legacy free text. Packed SDK scenarios and mutation proof are extended; all runtime-dependent validation will be refreshed on the changed source."
+  "2026-10-29T21:54:32.223Z",codex-agent,"Focused fixes PASS via pinned pm test: 2/2 tests, prepared identity/provenance consistency plus the actual executable reviewed-apply example. Before the guard, the same native SDK identity probe failed with 4 items instead of 3 (third linked create); after it, mismatched/missing provenance conflicts before selecting a target, both prepared APIs set exit 1, consistent opaque IDs and old free-text records remain usable. Runtime source SHA256 is now 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. Added the corresponding behavior revert and packed checks (31 SDK checks per layout). Fresh full npm/Bun gates, all mutation proofs and packed artifact acceptance are required for this changed runtime; earlier receipts remain historical until refreshed."
+  "2026-10-29T22:04:24.713Z",codex,"Final-source revert proofs PASS: 14 boundary behavior reverts, 4 mirror-policy controls and 2 maximum-quota guard removals all fail independently. Restored source passes 8 boundary tests, 1 mirror property and 3 admission scenarios. Every receipt binds source SHA256 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. All reverts ran only in owned copies; reviewed checkout never mutated. This fresh combined mirror run is complete; prior interrupted-source evidence remains in append-only comments. Refreshed packed matrix starts with 31 SDK checks per layout. New full npm gate is active with unchanged thresholds; Bun remains serial."
+  "2026-10-29T22:05:12.304Z",codex-agent,"Author correction: the immediately preceding proof-summary comment used the pinned CLI default codex because that one command omitted PM_AUTHOR. This append-only correction records codex-agent ownership of the same completed validation: 14 boundary reverts, 4 mirror controls and 2 quota-guard removals fail independently; fixed checks pass 8 boundary tests, 1 mirror property and 3 admission scenarios. Receipts bind source SHA256 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. No existing comment or history entry was edited or removed; the own claim remains codex-agent."
+  "2026-10-29T22:26:08.762Z",codex-agent,Current-source npm run reached the unchanged 900-second seed-1620 timer after the 400/500 milestone. No assertion failure preceded the cancellation. Other tests continue; this is not a passing gate claim. Production source remains 0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245. Retaining the full output and unchanged test timeout; the serial Bun gate and exact-head CI will re-run the case. Only a successful retry or CI result can classify this as a host-load timeout under the task rule.
+  "2026-10-29T22:44:30.592Z",codex-agent,"Latest runtime consumer acceptance PASS: all 10 layouts, 830 commands, 310 SDK checks, 200 process-status cases, zero provider mutations. Artifact b38b9aed417eb15b3d9551ce86a404f9e6c069fc1d2df2d7420eae1774b1e449 matched all 9 shipped files and rejected an ignored dist mutation. Remote main advanced with release notes only (PR192); incorporating it changes shipped CHANGELOG bytes, so current-artifact acceptance will be refreshed after merge. The local npm run has one unchanged seed-1620 timer cancellation and was stopped to free host capacity after that known non-passing result; no local gate pass is claimed. Dedicated exact-head CI will execute full npm and Bun release gates. Current-source behavioral proofs (20 failing mutations with restored successes) remain valid because main changes no runtime code."
+files[34]{path,scope}:
   index.ts,project
   manifest.json,project
   package-lock.json,project
@@ -103,24 +115,27 @@ files[31]{path,scope}:
   test/forward-import.test.ts,project
   test/import-boundaries.test.ts,project
   test/import-isolation-budget.test.ts,project
+  test/import-mirror-admission.ts,project
   test/native-reference.ts,project
   test/network.test.ts,project
   test/ownership-packed-acceptance.ts,project
   test/ownership-validation.ts,project
   test/ownership.test.ts,project
+  test/prepared-provenance.test.ts,project
   test/revert-estimate-recovery.ts,project
   test/revert-estimate-snapshot.ts,project
   test/revert-estimate-units.ts,project
   test/revert-forward-import.ts,project
   test/revert-import-boundaries.ts,project
   test/revert-import-isolation-budget.ts,project
+  test/revert-import-mirror-admission.ts,project
   test/revert-ownership-import-parity.ts,project
   test/revert-preview-contract.ts,project
   test/revert-sync-result-contract.ts,project
   test/smoke.test.ts,project
   test/sync-result-contract.test.ts,project
   test/verify-estimate-artifact.ts,project
-tests[27]:
+tests[30]:
   - command: node --test --test-concurrency=1 test/estimate-units.test.ts
     scope: project
     provenance:
@@ -318,7 +333,31 @@ tests[27]:
       created_at: "2026-10-29T20:24:10.519Z"
       source_kind: local_mutation
       source_ref: feat/estimate-unit-provenance
-docs[17]{path,scope}:
+  - command: node test/import-mirror-admission.ts docs/import-mirror-admission.json
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T21:32:27.485Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: node test/revert-import-mirror-admission.ts docs/import-mirror-admission-revert.json
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T21:32:29.083Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"identity class: prepared|documented reviewed apply\" test/prepared-provenance.test.ts test/schema-drift.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T21:52:00.430Z"
+      source_kind: local_mutation
+      source_ref: feat/estimate-unit-provenance
+docs[21]{path,scope}:
   docs/complete-local-reads.md,project
   docs/estimate-artifact-validation.json,project
   docs/estimate-packed-validation.json,project
@@ -330,9 +369,13 @@ docs[17]{path,scope}:
   docs/field-ownership.md,project
   docs/forward-import-revert.json,project
   docs/import-boundaries-revert.json,project
+  docs/import-isolation-budget-revert.json,project
+  docs/import-mirror-admission-revert.json,project
+  docs/import-mirror-admission.json,project
   docs/ownership-forward-validation.json,project
   docs/ownership-import-parity-revert.json,project
   docs/preview-contract-revert.json,project
+  docs/schema-negotiation.md,project
   docs/sdk-adoption-audit-2026-10-25.md,project
   docs/sync-result-contract-revert.json,project
   README.md,project

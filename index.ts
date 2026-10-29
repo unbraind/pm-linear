@@ -2840,7 +2840,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   for (const entry of entries) { if (seen.has(entry.linearId)) ambiguous.add(entry.linearId); seen.add(entry.linearId); }
   const targets = [];
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
-    if (ambiguous.has(entry.linearId)) { results.push(linearProvenanceConflict(entry.linearId)); continue; }
+    if (ambiguous.has(entry.linearId) || parseProvenance(entry.description)?.linear_id !== entry.linearId) { results.push(linearProvenanceConflict(entry.linearId)); continue; }
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
     const before = await observeEstimateCandidate(pmRoot, id);
     const expected = entry.match?.id ? revisions.get(id) : before?.version ? undefined : before?.revision;
@@ -3028,7 +3028,7 @@ export interface SyncResult extends LinearImportReceipt {
 /** A non-unique provider identity selects no native target and authorizes no write. */
 function linearProvenanceConflict(linearId: string): LinearImportOutcome {
   return { id: null, linearId, action: "skipped", code: "import_conflict", reason: "foreign",
-    remedy: "Repair duplicate native provenance links or duplicate provider rows before choosing a target; no item was written for this row." };
+    remedy: "Repair duplicate native links, duplicate provider rows or inconsistent prepared provenance before choosing a target; no item was written for this row." };
 }
 
 /** One result contract drives SDK, command and importer process status without discarding receipts. */

@@ -1,5 +1,5 @@
 {
-  "sourceSha256": "fb70992ac0f830f2fe66c86e357cac2301b5e1945da1f98852fd03cd47cbfe93",
+  "sourceSha256": "0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245",
   "reverted": [
     {
       "revertedBehavior": "ambiguous native provenance becomes an unmatched create",
@@ -8,6 +8,11 @@
     },
     {
       "revertedBehavior": "duplicate provider identities create separate native targets",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "declared SDK identity disagrees with written provenance",
       "passed": 0,
       "failed": 1
     },
@@ -68,7 +73,7 @@
     }
   ],
   "fixed": {
-    "passed": 7,
+    "passed": 8,
     "failed": 0
   },
   "reviewedCheckoutMutated": false

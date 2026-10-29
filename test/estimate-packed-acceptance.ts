@@ -159,11 +159,17 @@ for (const scaled of [false, true]) {
   const before = (await client.listAllComplete({ includeBody: true })).items;
   const conflict = await importLinearForwardOnly(root, "PACK", [entry]); assert.equal(conflict.exit_code, 1); assert.equal(conflict.created, 0);
   assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before); checks++;
+  const inconsistent = { ...entry, linearId: remote.id + "-declared-other", identifier: remote.identifier + "-mismatched" };
+  for (const compatibility of [false, true]) {
+    const refused = compatibility ? await importLinearAtomic(root, "PACK", [inconsistent], { forwardOnly: true }) : await importLinearForwardOnly(root, "PACK", [inconsistent]);
+    assert.equal(refused.created, 0); assert.equal(refused.exit_code, 1); assert.equal(refused.importResults[0].code, "import_conflict");
+    assert.equal(refused.itemIds.size, 0); assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before); checks++;
+  }
 }
 console.log(JSON.stringify({ checks, ids }));
 `);
       const sdkContract = JSON.parse(await run(process.execPath, [sdkProgram, sdkRoot, sdkInput], scratch, extra)) as { checks: number; ids: string[] };
-      assert.equal(sdkContract.checks, 27); assert.equal(sdkContract.ids.length, 2);
+      assert.equal(sdkContract.checks, 31); assert.equal(sdkContract.ids.length, 2);
       const scopeUnset = ["goal", "objective", "sprint", "release"].flatMap((field) => ["--unset", field]);
       const reference = JSON.parse(await run(mode.bin, [...sdkPrefix, "--no-extensions", "create", "--title", "Native unset reference", "--assignee", "Local Agent", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars)) as { id: string };
       await run(mode.bin, [...sdkPrefix, "--no-extensions", "update", reference.id, "--unset", "assignee", "--parent", "none", ...scopeUnset, "--json"], scratch, mode.vars);

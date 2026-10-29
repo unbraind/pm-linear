@@ -1,0 +1,20 @@
+{
+  "sourceSha256": "0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245",
+  "mutants": [
+    {
+      "behavior": "import preview silently removes its entry admission limit",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "behavior": "shared mirror silently removes its byte admission limit",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 3,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

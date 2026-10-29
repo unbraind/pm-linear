@@ -87,6 +87,11 @@ snapshot file name and byte before and after each module invocation; both
 snapshots remained unchanged, including the absence of new runtime files.
 No live Linear account or hosted tracker was accessed.
 
+The invocation above records the API used by this dated audit. Current reruns
+must explicitly migrate an atomic request with `forwardOnly: true`, or select
+`forwardOnly: true` without `atomic`; an unavailable atomic request now refuses
+before reads or writes. The original audit results remain historical evidence.
+
 ## Verification boundaries
 
 Revert proofs per replacement are not applicable: this follow-up replaces no

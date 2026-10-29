@@ -20,7 +20,7 @@ export async function discoverTeamSchema(pmRoot: string) {
 export async function importReviewedTeam(pmRoot: string, reviewedSchemaVersion: string) {
   try {
     return await syncLinearIssues({
-      ...mapping, schemaVersion: reviewedSchemaVersion, limit: 100, atomic: true,
+      ...mapping, schemaVersion: reviewedSchemaVersion, limit: 100, forwardOnly: true,
     }, pmRoot);
   } catch (error: unknown) {
     if (error instanceof LinearSchemaRefusal) {
@@ -36,6 +36,10 @@ its mapping. In a separate apply invocation, pass the saved `schemaVersion` to
 `importReviewedTeam(pmRoot, reviewedSchemaVersion)`. The apply function does not
 replace that reviewed value with a freshly discovered version; drift returns a
 typed refusal instead of silently approving a new mapping.
+
+This example explicitly accepts per-item forward application. Earlier successes
+remain applied if a later item fails. A schema version does not request batch
+atomicity; explicit atomic requests require a separate forward-only migration.
 
 The report deliberately omits issue content and the full label catalog. Labels
 map by name to pm tags. The label digest/version binds both IDs and names, so a

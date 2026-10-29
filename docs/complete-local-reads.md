@@ -62,8 +62,8 @@ also includes the canonical all-status/full/body/strict/unbounded CLI diagnostic
 `test/complete-local-reads.test.ts` initializes disposable trackers through the
 real `PmClient`. Its large fixture uses public `commitImportedItem` in-process,
 writing real TOON documents and per-item history for 10,002 items. Export must
-retain all items and the last body; atomic import preview must match the last
-Linear provenance instead of planning a duplicate. Legacy and atomic re-import
+retain all items and the last body; forward-only import preview must match the last
+Linear provenance instead of planning a duplicate. Normal and explicitly migrated compatibility re-import
 cases start with closed and canceled local work, update those existing IDs, and
 require the second import to create zero items. Both flag spellings now use the forward-only writer; a replay reports three
 unchanged items and zero updates instead of recovering a content-only journal.

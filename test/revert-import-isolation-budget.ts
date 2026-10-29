@@ -19,7 +19,7 @@ try {
     { name: "dry-run bypasses the shared import mirror policy", before: 'const staged = await readImportMirror(root, [],', after: 'const staged = await readClosureItems(root, [],' },
     { name: "native close validation bypasses the shared import mirror policy", before: 'await readImportMirror(pmRoot, [id], async (copy) => {', after: 'await readClosureItems(pmRoot, [id], async (copy) => {' },
   ];
-  const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+  const variables = { PATH: process.env.PATH ?? "", HOME: scratch, TMPDIR: tmpdir(), NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   const results = [];
   for (const mutant of mutants) {
     assert.ok(original.includes(mutant.before), mutant.name);

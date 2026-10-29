@@ -1,0 +1,30 @@
+{
+  "sourceSha256": "0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245",
+  "mutants": [
+    {
+      "behavior": "import mirror reuses the observational entry limit",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "behavior": "observational default is accidentally widened",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "behavior": "dry-run bypasses the shared import mirror policy",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "behavior": "native close validation bypasses the shared import mirror policy",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 1,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}
