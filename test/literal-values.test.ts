@@ -176,7 +176,8 @@ test("literal class: 500 seeded imports round-trip literal values and agree with
     const after = await document(root, id);
     assert.equal(after.body, state.issue.description, `literal body ${sequence}`);
     assert.equal(after.metadata.title, plan.title, `literal title ${sequence}`);
-    assert.equal(after.metadata.assignee, plan.assignee ?? before.metadata.assignee, `literal assignee ${sequence}`);
+    // An absent mapped assignee clears the native value; literal strings still round-trip exactly.
+    assert.equal(after.metadata.assignee, plan.assignee, `literal assignee ${sequence}`);
     const expected = canonicalDocument({ metadata: { ...before.metadata, ...plan } as ItemMetadata, body: plan.body }, { schema: (await readSettings(root)).schema });
     assert.deepEqual(after.metadata.tags, expected.metadata.tags);
     for (const field of ["parent", "goal", "objective", "sprint", "release"] as const) assert.equal(after.metadata[field], relationships[field]);

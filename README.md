@@ -765,3 +765,5 @@ retrying; the importer never rolls back successful writes or peer state. Failed 
 Failed, conflicted or unconfirmed rows set `success: false` and nonzero `exit_code` on SDK receipts and every JSON/TOON command/import alias. Filters and complete readback reconciliation remain successful. Duplicate native provenance or duplicate selected provider IDs select no target, report `import_conflict`, and write nothing for those rows.
 
 Export previews preserve duplicate native records as conflict-marked payloads. Mutation plans and pushes omit ambiguous provider targets and report `exportConflicts` with a nonzero exit, while independent rows can proceed.
+
+Import dry-run and native-close validation share a separate bounded mirror policy: 65,536 source entries and the same 64 MiB byte limit. This admits legitimate item/history pairs beyond 10,000 native items. Observational ownership and closure commands retain their 20,000-entry limit. Every mirror rejects unsupported source symlinks and changes only owned copies.

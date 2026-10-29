@@ -2470,6 +2470,11 @@ interface ClosureReadView {
   estimateResult?: LinearImportReceipt;
 }
 
+/** Import validation admits native item/history pairs without raising observational command limits. */
+async function readImportMirror(source: string, selections: string[], projection: (root: string) => Promise<LinearImportReceipt>): Promise<ClosureReadView> {
+  return readClosureItems(source, selections, projection, 65536);
+}
+
 /**
  * Isolate bytes before any settings/schema read can repair or backfill files.
  * The bounded bootstrap copy applies no item-folder filter. SDK complete reads
@@ -2477,7 +2482,7 @@ interface ClosureReadView {
  * the final read view. Only owned copies ever reach repairing SDK entry points.
  * The source is an absolute, canonical tracker path resolved by the boundary.
  */
-async function readClosureItems(source: string, selections: string[], projection?: (root: string) => Promise<LinearImportReceipt>): Promise<ClosureReadView> {
+async function readClosureItems(source: string, selections: string[], projection?: (root: string) => Promise<LinearImportReceipt>, entryLimit = 20000): Promise<ClosureReadView> {
   const scratch = await mkdtemp(join(tmpdir(), "pm-linear-read-"));
   const bootstrap = join(scratch, "bootstrap");
   const reader = join(scratch, "reader");
@@ -2503,7 +2508,7 @@ async function readClosureItems(source: string, selections: string[], projection
       if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw new Error("Unsupported tracker entry");
       files++;
       bytes += info.isFile() ? info.size : 0;
-      if (files > 20000 || bytes > 67108864) throw new Error("Tracker isolation budget exceeded");
+      if (files > entryLimit || bytes > 67108864) throw new Error("Tracker isolation budget exceeded");
       return true;
     } });
     if (await writableMirror()) throw new Error("Copied tracker contains a symbolic link");
@@ -2817,7 +2822,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const runtime = await importRuntimeSdk();
   if (options.dryRun) {
     const root = await realpath(runtime.resolvePmRoot(process.cwd(), pmRoot));
-    const staged = await readClosureItems(root, [], (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions, undefined, projectionForce, explicitAuthor));
+    const staged = await readImportMirror(root, [], (copy) => importEstimateBatch(copy, { ...options, dryRun: false }, entries, skipped, revisions, undefined, projectionForce, explicitAuthor));
     console.error(`[dry-run] Forward-only plan: ${staged.estimateResult!.created} creates, ${staged.estimateResult!.updated} updates, ${staged.estimateResult!.skipped} skipped.`);
     return { ...staged.estimateResult!, dryRun: true, prepared: entries };
   }
@@ -2915,7 +2920,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
         // Installed packages contain a runtime-only host SDK link. The shared
         // guarded mirror omits that code pointer without following it; native
         // preview then validates only regular tracker data in the owned copy.
-        await readClosureItems(pmRoot, [id], async (copy) => {
+        await readImportMirror(pmRoot, [id], async (copy) => {
           await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot: copy,
             transactionId: `linear-preview-${schemaDigest([id, expected, values])}`, author,
             mutations: [{ op: "update", id, options: values }] });

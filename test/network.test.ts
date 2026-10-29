@@ -723,8 +723,9 @@ test("a connection refused (no server) surfaces a request-failure CommandError",
 // ---------------------------------------------------------------------------
 
 test("syncLinearIssues updates an existing linked item instead of creating a duplicate", async () => {
+  let title = "Initial title";
   const server = await startLinearServer(() => ({
-    body: issuesPage([issue("ENG-1", { title: "Updated title" })]),
+    body: issuesPage([issue("ENG-1", { title })]),
   }));
   const root = freshWorkspace();
   try {
@@ -732,9 +733,12 @@ test("syncLinearIssues updates an existing linked item instead of creating a dup
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
       async () => {
         await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        title = "Updated title";
         const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(result.created, 0, "second run updates, no new create");
         assert.equal(result.updated, 1);
+        const replay = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(replay.updated, 0); assert.equal(replay.importResults?.[0].action, "unchanged");
       },
     );
     assert.equal(itemCount(root), 1, "still one item - no duplicate");
@@ -838,11 +842,12 @@ function mutationOk(identifier: string): string {
 }
 
 test("sync writes and then updates optional deadline and assignee fields", async () => {
+  let dueDate = "2026-02-03", email = "ada@example.com";
   const server = await startLinearServer(() => ({
     body: issuesPage([
       issue("ENG-OPTIONAL", {
-        dueDate: "2026-02-03",
-        assignee: { email: "ada@example.com", name: "Ada" },
+        dueDate,
+        assignee: { email, name: "Ada" },
       }),
     ]),
   }));
@@ -853,8 +858,11 @@ test("sync writes and then updates optional deadline and assignee fields", async
       async () => {
         const first = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(first.created, 1);
+        dueDate = "2026-03-04"; email = "grace@example.com";
         const second = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(second.updated, 1);
+        const replay = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(replay.updated, 0); assert.equal(replay.importResults?.[0].action, "unchanged");
       },
     );
     assert.equal(itemCount(root), 1);

@@ -25,7 +25,7 @@ try {
       before: 'current = await observeEstimateTarget(pmRoot, id);\n      if (current.revision !== expected) {',
       after: 'current = await observeEstimateTarget(pmRoot, id);\n      if (false) {' },
     { name: "native preview includes installed runtime code pointers as tracker data", file: "forward-import.test.ts", pattern: "forward-only title", failure: "1",
-      before: `await readClosureItems(pmRoot, [id], async (copy) => {
+      before: `await readImportMirror(pmRoot, [id], async (copy) => {
           await assertSdkFunction(sdk.previewItemMutations, "previewItemMutations")({ pmRoot: copy,
             transactionId: \`linear-preview-\${schemaDigest([id, expected, values])}\`, author,
             mutations: [{ op: "update", id, options: values }] });

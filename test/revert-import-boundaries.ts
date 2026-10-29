@@ -1,6 +1,7 @@
 /** Prove class regressions fail behaviorally in disposable source copies; never mutate the reviewed checkout. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -43,7 +44,7 @@ try {
   await writeFile(join(scratch, "index.ts"), original);
   const fixed = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern=class:|export --push isolates|identity export class", "test/import-boundaries.test.ts", "test/network.test.ts"], { cwd: scratch, env: variables, encoding: "utf8", timeout: 600000 });
   assert.equal(fixed.status, 0, (fixed.stdout + fixed.stderr).slice(-3000)); assert.match(fixed.stdout, /tests 7/);
-  const report = { reverted: results, fixed: { passed: 7, failed: 0 }, reviewedCheckoutMutated: false };
+  const report = { sourceSha256: createHash("sha256").update(original).digest("hex"), reverted: results, fixed: { passed: 7, failed: 0 }, reviewedCheckoutMutated: false };
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
   process.stdout.write(JSON.stringify(report) + "\n");
 } finally { await rm(scratch, { recursive: true, force: true }); }
