@@ -339,7 +339,11 @@ review and apply close together; `--atomic` is a deprecated compatibility flag; 
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
+Live `--atomic --dry-run` receipts retain `dryRun: true` on sync and both import aliases, including empty or filtered results. Counts describe simulated changes; summaries say “Would sync/import”, and no item/history mutation is applied.
+
 ## Field ownership conflict previews
+
+A refused or unconfirmed native projection returns `projection_failed` with a remedy, never an `ok` ownership observation. Wait for the native lease owner or resolve the import policy/conflict, then re-read both systems. Read-only tracker files are supported; source bytes and permissions remain unchanged. A skipped copy write cannot certify provider values as unchanged.
 
 `pm linear ownership --item ITEM --base acknowledged.json` compares the last
 explicitly acknowledged observation with current local and Linear values. It

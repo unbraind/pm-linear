@@ -6,8 +6,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PmClient, isTerminalStatus, resolveRuntimeStatusRegistry, readSettings } from "@unbrained/pm-cli/sdk";
+import { acquireLock, PmClient } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, encodeLinearEstimate, linearEstimateScaleRevision, syncLinearIssues, itemToLinearPayload, type LinearEstimateReport, type LinearOwnershipReport, type LinearIssue } from "../index.ts";
+
+import { referenceLifecycle } from "./native-reference.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
 const requestedHostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
@@ -25,7 +27,7 @@ async function run(bin: string, args: string[], cwd = scratch, extra: Record<str
     child.on("exit", (code) => {
       lastDiagnostics = error;
       if (code === 0) done(output || error);
-      else fail(new Error(`Packed ${args[0]} failed (${code}): ${error.slice(-800)}`));
+      else fail(new Error(`Packed ${args[0]} failed (${code}): ${(output + error).slice(-1600)}`));
     });
   });
 }
@@ -110,6 +112,23 @@ try {
       const acknowledged = JSON.parse(await run(mode.bin, [...ownershipArgs, "--json"], scratch, extra)) as LinearOwnershipReport;
       assert.ok(acknowledged.fields.every((field) => field.decision === "unchanged"), mode.name);
       const ownershipToon = await run(mode.bin, ownershipArgs, scratch, extra); assert.match(ownershipToon, /unchanged/); assert.doesNotMatch(ownershipToon, /unknown_base/);
+      const previousTitle = issue.title;
+      const beforePreview = JSON.parse(await run(mode.bin, [...prefix, "--no-extensions", "show", converted.rows[0].id, "--json"], scratch, mode.vars)) as unknown;
+      try {
+        issue.title = "Only a simulated provider edit";
+        for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
+          const simulated = await run(mode.bin, [...prefix, ...command, "--team", "PACK", "--atomic", "--dry-run", ...(json ? ["--json"] : [])], scratch, extra);
+          if (json) { const receipt = JSON.parse(simulated) as { dryRun: boolean; updated: number; atomic: boolean }; assert.equal(receipt.dryRun, true); assert.equal(receipt.updated, 1); assert.equal(receipt.atomic, false); }
+          else assert.match(simulated, /dryRun: true/);
+          assert.match(lastDiagnostics, /Would sync|Would import/);
+          const afterPreview = JSON.parse(await run(mode.bin, [...prefix, "--no-extensions", "show", converted.rows[0].id, "--json"], scratch, mode.vars)) as unknown;
+          assert.deepEqual(afterPreview, beforePreview, "every packed dry-run preserves SDK-read native state");
+        }
+        const release = await acquireLock(tracker, converted.rows[0].id, 600, "peer");
+        try {
+          for (const json of [true, false]) await assert.rejects(run(mode.bin, [...ownershipArgs, ...(json ? ["--json"] : [])], scratch, extra), /projection_failed/);
+        } finally { await release(); }
+      } finally { issue.title = previousTitle; }
       const legacyRoot = join(hostRoot, "legacy", mode.name);
       const legacy = new PmClient({ pmRoot: legacyRoot, noExtensions: true, author: "fixture" }); await legacy.init("legacy");
       await legacy.schemaAddStatus("finished-custom", { role: ["terminal_done"] });
@@ -179,7 +198,8 @@ try {
           assert.equal(byProviderId.size, 2);
           for (const value of recoveryIssues) {
             const plan = buildItemPlan(value, {}, {}, undefined, conversion);
-            const created = await reference.create({ ...plan, ...(isTerminalStatus(plan.status, resolveRuntimeStatusRegistry((await readSettings(referenceRoot)).schema)) ? { closeReason: `Linear issue ${value.identifier} terminal` } : {}), tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+            const lifecycle = await referenceLifecycle(referenceRoot, undefined, plan.status, plan.assignee, `Linear issue ${value.identifier} terminal`);
+            const created = await reference.create({ ...plan, ...lifecycle, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release", ...lifecycle.unset] });
             const expected = itemToLinearPayload((await reference.get(created.item.id, { depth: "deep" })).item);
             const actual = byProviderId.get(value.id); assert.ok(actual);
             for (const field of ["title", "description", "estimate"] as const) assert.deepEqual(actual[field], expected[field], "packed replay equals SDK-normalized reference");
@@ -187,7 +207,7 @@ try {
           restoredAliases++;
         } finally { recoveryIssues = undefined; }
       }
-      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, commands: 31 });
+      results.push({ hostVersion, mode: mode.name, passed: true, nativePoints: 5, declaredMinutes: 240, jsonBytes: Buffer.byteLength(raw), ownershipJsonBytes: Buffer.byteLength(ownershipRaw), ownershipUnchanged: true, legacyTerminalProjection: true, peerInterleavings: interleavings, retainedOrRetriedIdentities: 1 + restoredAliases * 2, simulationChecks: 6, refusedProjectionChecks: 2, commands: 39 });
       process.stdout.write(`${hostVersion} ${mode.name}: passed\n`);
     }
   }

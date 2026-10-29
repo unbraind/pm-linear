@@ -9,6 +9,7 @@ const source = resolve(import.meta.dirname, "..");
 const scratch = await mkdtemp(join(tmpdir(), "linear-ownership-parity-revert-"));
 try {
   await mkdir(join(scratch, "test"));
+  await cp(join(source, "test/native-reference.ts"), join(scratch, "test/native-reference.ts"));
   await cp(join(source, "test/ownership.test.ts"), join(scratch, "test/ownership.test.ts"));
   await writeFile(join(scratch, "package.json"), '{"type":"module"}\n');
   await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");
@@ -21,7 +22,7 @@ try {
       after: "fetchIssues: async () => [{ ...issue, team: undefined }]" },
     { name: "legacy projection loses isolated repeat-closure compatibility",
       before: "projectionForce: !issue.team",
-      after: "projectionForce: false", pattern: "ownership retains isolated", failure: "AssertionError" },
+      after: "projectionForce: false", pattern: "ownership retains isolated", failure: "projection_failed" },
   ];
   const args = ["--test", "--test-concurrency=1", "--test-name-pattern=ownership shares every import writer", "test/ownership.test.ts"];
   const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };

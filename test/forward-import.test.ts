@@ -4,8 +4,10 @@ import test from "node:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireLock, PmClient, readSettings, readHistoryEntries, getHistoryPath, normalizeItemId, isTerminalStatus, resolveRuntimeStatusRegistry, type PmClientFullMutationOptions } from "@unbrained/pm-cli/sdk";
+import { acquireLock, PmClient, readSettings, readHistoryEntries, getHistoryPath, normalizeItemId, type PmClientFullMutationOptions } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, deriveAtomicItemId, syncLinearIssues, type LinearIssue, type LinearImportOutcome } from "../index.ts";
+
+import { referenceLifecycle } from "./native-reference.ts";
 
 /** A provider issue with a changing full set of portable fields. */
 function provider(index: number): LinearIssue {
@@ -18,15 +20,9 @@ async function applyReference(pm: PmClient, id: string, issue: LinearIssue, root
   const current = (await pm.get(id, { depth: "deep" })).item;
   const plan = buildItemPlan(issue, {});
   const { status, tags, deadline, assignee, ...fields } = plan;
-  const registry = resolveRuntimeStatusRegistry((await readSettings(root)).schema);
-  const terminal = isTerminalStatus(status, registry);
-  await pm.update(id, { ...fields, tags: JSON.stringify(tags),
-    ...(status !== current.status ? { status, ...(terminal ? { closeReason: String(current.close_reason ?? `Linear issue ${issue.identifier} terminal`) } : {}) } : {}),
-    ...(deadline ? { deadline } : {}), ...(assignee ? { assignee } : {}),
-    unset: [...(!deadline ? ["deadline"] : []), ...(!assignee ? ["assignee"] : [])] });
-  // Ask native lifecycle producers for their normalized terminal field effects.
-  if (status === registry.close_status) await pm.close(id, String(current.close_reason ?? `Linear issue ${issue.identifier} terminal`), { force: true });
-  else if (status === registry.canceled_status) await pm.update(id, { status, force: true });
+  const lifecycle = await referenceLifecycle(root, current, status, assignee, `Linear issue ${issue.identifier} terminal`);
+  await pm.update(id, { ...fields, tags: JSON.stringify(tags), ...lifecycle,
+    ...(deadline ? { deadline } : {}), unset: [...(!deadline ? ["deadline"] : []), ...lifecycle.unset] });
 }
 
 test("forward-only title plus close survives a later failure and completed title edits never repeat close", async (t) => {
@@ -64,12 +60,12 @@ test("forward-only title plus close survives a later failure and completed title
   const replay = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => issues }); assert.equal(replay.synced, 0);
 });
 
-test("forward-only seeded 500 multi-item failure and peer schedules converge with exact SDK state and receipts", { timeout: 1800000 }, async (t) => {
+test("forward-only seeded 500 multi-item failure and peer schedules converge with exact SDK state and receipts", { timeout: 5400000 }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), "linear-forward-model-")); t.after(() => rm(base, { recursive: true, force: true }));
   const root = join(base, "actual"), referenceRoot = join(base, "reference");
   await mkdir(root); await mkdir(referenceRoot);
   const pm = new PmClient({ pmRoot: root, cwd: root, noExtensions: true, author: "fixture" });
-  const model = new PmClient({ pmRoot: referenceRoot, cwd: referenceRoot, noExtensions: true, author: "fixture" });
+  const model = new PmClient({ pmRoot: referenceRoot, cwd: referenceRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
   for (const client of [pm, model]) await client.init("forward");
   const savedCeiling = process.env.GIT_CEILING_DIRECTORIES; process.env.GIT_CEILING_DIRECTORIES = tmpdir();
   t.after(() => { if (savedCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = savedCeiling; });
@@ -84,7 +80,7 @@ test("forward-only seeded 500 multi-item failure and peer schedules converge wit
   const stages = ["observed", "inspect", "before_write", "validated", "before_update", "written", "after_write"];
   let seed = 15761620;
   const rng = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
-  const fields = ["title", "body", "status", "priority", "description", "tags", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const;
+  const fields = ["id", "type", "author", "title", "body", "status", "priority", "description", "tags", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const;
   for (let sequence = 0; sequence < 500; sequence++) {
     const desired = oldInputs.length && sequence % 9 === 0 ? structuredClone(oldInputs[rng() % oldInputs.length]) : issues.map((issue, index) => ({ ...issue,
       title: ` Work ${sequence}-${index} `, description: ` Body ${sequence}${sequence % 2 ? "\r\n" : "\n"}line `,

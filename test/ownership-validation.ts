@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, LinearOwnershipRefusal, previewLinearOwnership, type LinearIssue } from "../index.ts";
+import { referenceLifecycle } from "./native-reference.ts";
 
 /** Change modes only on a test-owned copy. */
 async function modes(root: string, writable: boolean) {
@@ -17,15 +18,16 @@ async function modes(root: string, writable: boolean) {
 /** Hash names and bytes and require every source entry to be immutable. */
 async function snapshot(root: string) {
   const hash = createHash("sha256");
-  assert.equal((await stat(root)).mode & 0o222, 0);
+  assert.equal((await stat(root)).mode & 0o777, 0o555);
   const files = await readdir(root, { recursive: true, withFileTypes: true });
   for (const entry of files.sort((a, b) => join(a.parentPath, a.name).localeCompare(join(b.parentPath, b.name)))) {
     const path = join(entry.parentPath, entry.name);
-    assert.equal((await stat(path)).mode & 0o222, 0);
+    assert.equal((await stat(path)).mode & 0o777, entry.isDirectory() ? 0o555 : 0o444);
     if (entry.isFile()) { hash.update(relative(root, path)); hash.update(await readFile(path)); }
   }
   return hash.digest("hex");
 }
+
 
 const root = resolve(process.argv[2] ?? "");
 const inside = relative(tmpdir(), root);
@@ -65,7 +67,9 @@ try {
   await cp(root, derived, { recursive: true }); await modes(derived, true);
   const overlay = new PmClient({ pmRoot: derived, noExtensions: true, author: "fixture" });
   const plan = buildItemPlan(provider, {});
-  await overlay.update(selected, { ...plan, tags: plan.tags.join(","), unset: ["deadline", "assignee"], closeReason: "Synthetic validation overlay" });
+  const { status, assignee, ...fields } = plan;
+  const lifecycle = await referenceLifecycle(derived, (await overlay.get(selected, { depth: "deep" })).item, status, assignee, "Synthetic validation overlay");
+  await overlay.update(selected, { ...fields, tags: JSON.stringify(plan.tags), ...lifecycle, unset: ["deadline", ...lifecycle.unset] });
   await modes(derived, false);
   const initial = await snapshot(derived);
   const baseline = await previewLinearOwnership({ item: selected }, derived);

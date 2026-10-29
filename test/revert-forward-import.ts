@@ -8,6 +8,7 @@ const source = resolve(import.meta.dirname, "..");
 const scratch = await mkdtemp(join(tmpdir(), "linear-forward-revert-"));
 try {
   await mkdir(join(scratch, "test"));
+  await cp(join(source, "test/native-reference.ts"), join(scratch, "test/native-reference.ts"));
   for (const file of ["forward-import.test.ts", "estimate-units.test.ts"]) await cp(join(source, "test", file), join(scratch, "test", file));
   await writeFile(join(scratch, "package.json"), '{"type":"module"}\n');
   await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");

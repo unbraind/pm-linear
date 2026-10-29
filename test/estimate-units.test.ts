@@ -11,6 +11,8 @@ import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScal
   previewLinearOwnership,
   type LinearEstimateTeam, type LinearEstimateMapping, type LinearEstimateReport, type LinearIssue, type SyncResult } from "../index.ts";
 
+import { referenceLifecycle } from "./native-reference.ts";
+
 const team: LinearEstimateTeam = { id: "team-a", key: "ENG", issueEstimationType: "fibonacci", issueEstimationAllowZero: false, issueEstimationExtended: false };
 const mapping: LinearEstimateMapping = { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }, { points: 0, minutes: 0 }] };
 /** Fully selected issue including native values and whitespace variants. */
@@ -257,12 +259,10 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     const aParent = await actual.pm.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
     await model.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
     const statusNames: string[] = [];
-    const terminalStatuses = new Set<string>();
     const roleChoices = [["active"], ["blocked"], ["terminal", "terminal_done"], ["terminal", "terminal_canceled"]];
     for (let index = 0; index < 5; index++) {
       const name = `custom-${group}-${index}-${(rng() >>> 8) % 100000}`;
       const role = roleChoices[(rng() >>> 8) % roleChoices.length]; statusNames.push(name);
-      if (role.includes("terminal")) terminalStatuses.add(name);
       for (const pm of [actual.pm, model]) await pm.schemaAddStatus(name, { role });
     }
     wire.statuses = statusNames.map((name, index) => ({ id: `state-${index}`, name, type: "started" }));
@@ -313,14 +313,13 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         const tags = [...remote.labels.nodes.map((label) => { const native = parseTags(JSON.stringify([label.name]))[0] ?? ""; return ["linear-estimate:", "linear-native-label:", "estimate:", "cycle:"].some((prefix) => native.startsWith(prefix)) ? `linear-native-label:${Buffer.from(JSON.stringify({ format: "pm-linear/label/1", linearId: remote.id, label: label.name })).toString("hex")}` : label.name; }), `cycle:${toNonEmptyImportString(remote.cycle!.name)}`, ...(points === null ? [] : [`estimate:${points}`]), `customer:${toNonEmptyImportString(remote.customer!.name)}`,
           encodeLinearEstimate(team, points, conversion ?? previousContract?.mapping)];
         const scope = previous?.parent ?? "none";
-        const desired = { title: `[${remote.identifier}] ${remote.title}`, body: remote.description ?? "", status: remote.state.name, priority: remote.priority === 0 ? 3 : remote.priority,
-          tags: JSON.stringify(tags), description: buildProvenance(remote), parent: scope, unset: ["goal", "objective", "sprint", "release", ...(!remote.dueDate ? ["deadline"] : []), ...(!remote.assignee ? ["assignee"] : [])],
-          ...(remote.dueDate ? { deadline: remote.dueDate } : {}), ...(remote.assignee ? { assignee: remote.assignee.name! } : {}),
-          ...(terminalStatuses.has(remote.state.name) ? { closeReason: `Linear issue ${remote.identifier} terminal` } : {}) };
-        if (known) {
-          const { status: desiredStatus, closeReason, ...fields } = desired;
-          await model.update(aId, { ...fields, ...(previous?.status !== desiredStatus ? { status: desiredStatus, ...(closeReason ? { closeReason } : {}) } : {}) });
-        } else { await model.create({ ...desired, id: aId }); known = true; }
+        const lifecycle = await referenceLifecycle(modelRoot, previous, remote.state.name, remote.assignee?.name ?? undefined, `Linear issue ${remote.identifier} terminal`);
+        const desired = { title: `[${remote.identifier}] ${remote.title}`, body: remote.description ?? "", priority: remote.priority === 0 ? 3 : remote.priority,
+          tags: JSON.stringify(tags), description: buildProvenance(remote), parent: scope,
+          ...lifecycle, unset: ["goal", "objective", "sprint", "release", ...(!remote.dueDate ? ["deadline"] : []), ...lifecycle.unset],
+          ...(remote.dueDate ? { deadline: remote.dueDate } : {}) };
+        if (known) await model.update(aId, desired);
+        else { await model.create({ ...desired, id: aId }); known = true; }
         const actualItem = (await actual.pm.get(aId, { depth: "deep" })).item;
         const modelItem = (await model.get(aId, { depth: "deep" })).item;
         for (const field of ["title", "body", "status", "priority", "tags", "type", "author", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const) assert.deepEqual(actualItem[field], modelItem[field], `sequence ${sequence} field ${field}`);
@@ -682,4 +681,25 @@ test("provider labels resembling unit and cycle tags round-trip as literal label
   const longest = "estimate:" + "界".repeat(32759);
   const literal = issue("long-label"); literal.labels.nodes = [{ name: longest }];
   assert.ok(itemToLinearPayload(buildItemPlan(literal, {})).labels!.includes(longest));
+});
+
+
+test("model oracle normalizes hyphenated custom roles and never repeats terminal transitions", async (t) => {
+  const { root, pm } = await fixture(t);
+  const native = await pm.create({ title: "Oracle reference", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  let index = 0;
+  for (const role of ["active", "blocked", "terminal_done", "terminal_canceled"]) {
+    const name = `random-hyphenated-${index++}`;
+    await pm.schemaAddStatus(name, { role: [role] });
+    const before = (await pm.get(native.item.id, { depth: "deep" })).item;
+    const transition = await referenceLifecycle(root, before, name, "Remote", "Model reason");
+    await pm.update(native.item.id, { ...transition, title: name });
+    const current = (await pm.get(native.item.id, { depth: "deep" })).item;
+    const replay = await referenceLifecycle(root, current, name, "Remote", "Model reason");
+    assert.equal(replay.status, undefined, `${role} replay omits normalized status`);
+    assert.equal(replay.closeReason, undefined);
+    if (role.startsWith("terminal")) assert.equal(current.close_reason, "Model reason");
+    await pm.update(native.item.id, { ...replay, title: `${name} edited` });
+    assert.equal((await pm.get(native.item.id, { depth: "deep" })).item.close_reason, current.close_reason);
+  }
 });

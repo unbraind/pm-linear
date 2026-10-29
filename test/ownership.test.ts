@@ -2,13 +2,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import http from "node:http";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { canonicalDocument, isTerminalStatus, resolveRuntimeStatusRegistry, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
+import { acquireLock, canonicalDocument, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot, type PreparedLinearImport } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type SyncResult, type LinearOwnershipOptions, type LinearOwnershipSnapshot, type PreparedLinearImport } from "../index.ts";
+
+import { referenceLifecycle } from "./native-reference.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -630,8 +632,8 @@ test("review class: import validates every selected page container before planni
 
 test("review class: legacy updates apply empty mapped values just like the shared dry-run plan", async (t) => {
   const { root, pm, state, options } = await fixture(t);
-  const bin = join(root, "bin");
-  await mkdir(bin);
+  const bin = await mkdtemp(join(tmpdir(), "linear-empty-bin-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
   await symlink(process.execPath, join(bin, "node"));
   await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
   process.env.PATH = bin;
@@ -703,7 +705,8 @@ test("review class: every tag producer preserves literal SDK control words and d
   const savedAuthor = process.env.PM_AUTHOR;
   process.env.PM_AUTHOR = "fixture";
   t.after(() => { if (savedAuthor === undefined) delete process.env.PM_AUTHOR; else process.env.PM_AUTHOR = savedAuthor; });
-  const bin = join(root, "bin"); await mkdir(bin);
+  const bin = await mkdtemp(join(tmpdir(), "linear-path-bin-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
   await symlink(process.execPath, join(bin, "node"));
   await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
   process.env.PATH = bin;
@@ -755,12 +758,78 @@ async function applyOwnershipReference(root: string, plan: PreparedLinearImport)
   const pm = new PmClient({ pmRoot: root, noExtensions: true, author: "fixture" });
   const current = (await pm.get(plan.match!.id!, { depth: "deep" })).item;
   const { status, tags, deadline, assignee, identifier, linearId, match, ...fields } = plan;
-  const registry = resolveRuntimeStatusRegistry((await readSettings(root)).schema);
-  const terminal = isTerminalStatus(status, registry);
-  await pm.update(plan.match!.id!, { ...fields, tags: JSON.stringify(tags), force: true,
-    ...(status !== current.status ? { status, ...(terminal ? { closeReason: String(current.close_reason ?? `Linear issue ${identifier} terminal`) } : {}) } : {}),
-    ...(deadline ? { deadline } : {}), ...(assignee ? { assignee } : {}),
-    unset: [...(!deadline ? ["deadline"] : []), ...(!assignee ? ["assignee"] : [])] });
-  if (status === registry.close_status) await pm.close(plan.match!.id!, String(current.close_reason ?? `Linear issue ${identifier} terminal`), { force: true });
-  else if (status === registry.canceled_status) await pm.update(plan.match!.id!, { status, force: true });
+  const lifecycle = await referenceLifecycle(root, current, status, assignee, `Linear issue ${identifier} terminal`);
+  await pm.update(plan.match!.id!, { ...fields, tags: JSON.stringify(tags), force: true, ...lifecycle,
+    ...(deadline ? { deadline } : {}), unset: [...(!deadline ? ["deadline"] : []), ...lifecycle.unset] });
 }
+
+
+test("projection refuses every skipped writer instead of certifying an old provider image", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const base = (await previewLinearOwnership(options, root)).observation;
+  (state.issue as LinearIssue).title = "Provider edit hidden by a peer lease";
+  const before = (await pm.get(options.item, { depth: "deep" })).item;
+  const release = await acquireLock(root, options.item, 600, "peer");
+  try {
+    await assert.rejects(previewLinearOwnership({ ...options, base }, root), refused("projection_failed"));
+    for (const global of [{ json: true }, {}]) {
+      const result = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { item: options.item }, global });
+      assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "projection_failed");
+      assert.notEqual((result.result as { ok?: boolean }).ok, true);
+    }
+    assert.deepEqual((await pm.get(options.item, { depth: "deep" })).item, before);
+    await assert.rejects(acquireLock(root, options.item, 600, "competitor"), /lock|locked/i);
+  } finally { await release(); }
+  const retry = await previewLinearOwnership({ ...options, base }, root);
+  assert.equal(retry.fields.find((row) => row.field === "title")?.decision, "provider_edit");
+});
+
+test("every simulated import route preserves dry-run receipts and durable source bytes", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const mode of ["update", "empty", "filtered"] as const) {
+    (state.issue as LinearIssue).title = "Simulated provider title";
+    state.rawIssuesBody = mode === "empty" ? JSON.stringify({ data: { issues: { nodes: [], pageInfo: { hasNextPage: false } } } }) : undefined;
+    const commandOptions = { team: "ENG", atomic: true, dryRun: true, ...(mode === "filtered" ? { cycle: "missing" } : {}) };
+    await new PmClient({ pmRoot: root, noExtensions: true }).listAllComplete({ includeBody: true });
+    await negotiateLinearSchema({ team: "ENG" }, root);
+    const before = await durable(root);
+    for (const global of [{ json: true }, {}]) for (const route of ["sync", "linear", "linear-sync"]) {
+      const result = route === "sync"
+        ? await harness.runCommand({ command: "linear sync", pmRoot: root, options: commandOptions, global })
+        : await harness.runImporter({ importer: route, pmRoot: root, options: commandOptions, global });
+      assert.equal(result.exitCode ?? 0, 0, `${mode}/${route}`);
+      const receipt = result.result as SyncResult;
+      assert.equal(receipt.dryRun, true, `${mode}/${route} simulation mode`);
+      assert.equal(receipt.atomic, false); assert.equal(receipt.importMode, "forward-only");
+      assert.equal(receipt.updated, mode === "update" ? 1 : 0);
+      assert.deepEqual(await durable(root), before, `${mode}/${route} writes no source bytes`);
+    }
+    const direct = await syncLinearIssues({ ...commandOptions, limit: 10, cycleFilter: commandOptions.cycle }, root);
+    assert.equal(direct.dryRun, true); assert.deepEqual(await durable(root), before);
+  }
+  assert.ok(options.item);
+});
+
+test("read-only tracker projections write only in writable owned mirrors", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const base = (await previewLinearOwnership(options, root)).observation;
+  const before = await durable(root);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  try {
+    for (const entry of entries) await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o555 : 0o444);
+    await chmod(root, 0o555);
+    (state.issue as LinearIssue).priority = 1;
+    await assert.doesNotReject(async () => {
+      const result = await previewLinearOwnership({ ...options, base }, root);
+      assert.equal(result.fields.find((row) => row.field === "priority")?.decision, "provider_edit");
+    });
+    assert.deepEqual(await durable(root), before, "read-only source bytes remain unchanged");
+    assert.equal((await stat(root)).mode & 0o777, 0o555);
+    for (const entry of entries) assert.equal((await stat(join(entry.parentPath, entry.name))).mode & 0o777, entry.isDirectory() ? 0o555 : 0o444);
+  } finally {
+    await chmod(root, 0o700);
+    for (const entry of entries) await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o700 : 0o600);
+  }
+});

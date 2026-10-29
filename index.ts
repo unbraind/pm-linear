@@ -1808,7 +1808,7 @@ export interface LinearOwnershipReport {
 /** Typed, sanitized refusals for callers that must decide whether and how to retry. */
 export class LinearOwnershipRefusal extends CommandError {
   /** Stable refusal category for agent branching. */
-  readonly code: "invalid_input" | "local_read_failed" | "selection_required" | "source_invalid" | "source_changed" | "access_denied" | "output_budget";
+  readonly code: "invalid_input" | "local_read_failed" | "selection_required" | "source_invalid" | "source_changed" | "access_denied" | "output_budget" | "projection_failed";
   /** Required recovery step before retrying. */
   readonly remedy: string;
   /** Schema-owned field coordinate when source validation fails. */
@@ -1888,7 +1888,7 @@ export async function previewLinearOwnership(options: LinearOwnershipOptions, pm
     }, copy, { fetchIssues: async () => [issue], projectionForce: !issue.team }));
   }
   catch (error: unknown) {
-    if (error instanceof LinearImportRefusal) throw error;
+    if (error instanceof LinearImportRefusal || error instanceof LinearOwnershipRefusal) throw error;
     throw new LinearOwnershipRefusal("invalid_input", "The SDK could not project this import against an isolated copy. Review native values and tracker schema/policy before retrying; no source writes or hooks ran.", "plan");
   }
   const { projected, ...projectionSource } = projection;
@@ -2464,6 +2464,7 @@ async function readClosureItems(source: string, selections: string[], projection
     for (const entry of await readdir(scratch, { recursive: true, withFileTypes: true })) {
       links ||= entry.isSymbolicLink();
       if (entry.isDirectory()) await chmod(join(entry.parentPath, entry.name), 0o700);
+      else if (entry.isFile() && ((await lstat(join(entry.parentPath, entry.name))).mode & 0o200) === 0) await chmod(join(entry.parentPath, entry.name), 0o600);
     }
     return links;
   }
@@ -2515,6 +2516,15 @@ async function readClosureItems(source: string, selections: string[], projection
       const withoutHooks = assertSdkFunction(transactionSdk.runWithActiveExtensions, "runWithActiveExtensions");
       const result = await withoutHooks({ path: bootstrap, noExtensions: true }, () => projection(bootstrap));
       if (selections.length) {
+        // A refused writer leaves the old item readable. That is not a provider
+        // projection and must never be hashed into an authoritative observation.
+        if (result.importMode) {
+          const outcomes = result.importResults ?? [];
+          if (result.skipped || result.unconfirmed || outcomes.length !== selectedIds.length || selectedIds.some((id) =>
+            !outcomes.some((row) => row.id === id && !row.code && ["created", "updated", "unchanged"].includes(row.action)))) {
+            throw new LinearOwnershipRefusal("projection_failed", "Resolve the item's native lease, policy, schema or import conflict, then retry the complete projection. No provider observation or source write was produced.", "plan");
+          }
+        }
         projected = (await readPmItems(bootstrap)).find((item) => item.id === selectedIds[0]);
         if (!projected) throw new Error("SDK projection target disappeared");
       } else estimateResult = result;
@@ -3461,7 +3471,7 @@ export async function syncLinearIssues(
   if (issues.length === 0) {
     console.error(`No issues found for team "${options.team}"${scope}. Check the team slug, filters, and your API key permissions.`);
     return { synced: 0, created: 0, updated: 0, skipped: 0, team: options.team, ...(schema ? { schema } : {}), issues: [],
-      importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0 };
+      importMode: "forward-only", importResults: [], atomic: false, unconfirmed: 0, ...(options.dryRun ? { dryRun: true, prepared: [] } : {}) };
   }
 
   const statusMap = options.statusMap ?? {};
@@ -4399,29 +4409,8 @@ export default defineExtension({
         try {
           const result = await syncLinearIssues(syncOpts, ctx.pm_root);
 
-          if (result.atomic) {
-            // syncLinearIssues already printed the atomic summary line.
-            return {
-              success: (result.unconfirmed ?? 0) === 0,
-              synced: result.synced,
-              created: result.created,
-              updated: result.updated,
-              skipped: result.skipped,
-              team: result.team.toUpperCase(),
-              teamSource: teamSelection.source,
-              ...(result.schema ? { schema: result.schema } : {}),
-          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
-          ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
-              atomic: true,
-              dryRun: Boolean(result.dryRun),
-              ...(result.transactionId !== undefined ? { transactionId: result.transactionId } : {}),
-              ...(result.recovered !== undefined ? { recovered: result.recovered } : {}),
-              ...(result.recoveredItems !== undefined ? { recoveredItems: result.recoveredItems } : {}),
-            };
-          }
-
           const summary =
-            `Synced ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
+            `${result.dryRun ? "[dry-run] Would sync" : "Synced"} ${result.synced} issue${result.synced !== 1 ? "s" : ""} ` +
             `(${result.created} new, ${result.updated} updated) from Linear team ${result.team.toUpperCase()}`;
           if (result.skipped > 0) {
             console.error(`${summary} (${result.skipped} skipped)`);
@@ -4438,9 +4427,9 @@ export default defineExtension({
             team: result.team.toUpperCase(),
             teamSource: teamSelection.source,
             ...(result.schema ? { schema: result.schema } : {}),
-          ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
-          ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
-            dryRun: false,
+            ...(result.importMode ? { importMode: result.importMode, importResults: result.importResults, unconfirmed: result.unconfirmed ?? 0, atomic: false } : {}),
+            ...(result.estimateSkips ? { estimateSkips: result.estimateSkips, omittedEstimateSkips: result.omittedEstimateSkips } : {}),
+            dryRun: Boolean(result.dryRun),
           };
         } catch (err: unknown) {
           // Preserve a more specific exitCode (e.g. a missing API key is a
@@ -4620,7 +4609,7 @@ export default defineExtension({
         const result = await syncLinearIssues(syncOpts, ctx.pm_root);
         if (!result.atomic) {
           console.error(
-            `Imported ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
+            `${result.dryRun ? "[dry-run] Would import" : "Imported"} ${result.synced} issue(s) (${result.created} new, ${result.updated} updated) ` +
               `from Linear team ${result.team.toUpperCase()}` +
               (result.skipped > 0 ? ` (${result.skipped} skipped)` : "")
           );
@@ -4924,7 +4913,7 @@ export default defineExtension({
 
       if (!result.atomic) {
         console.error(
-          `Synced ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
+          `${result.dryRun ? "[dry-run] Would sync" : "Synced"} ${result.synced} issues (${result.created} new, ${result.updated} updated) ` +
             `from Linear team ${result.team.toUpperCase()}`
         );
       }

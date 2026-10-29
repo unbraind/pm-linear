@@ -9,6 +9,7 @@ const source = resolve(import.meta.dirname, "..");
 const scratch = await mkdtemp(join(tmpdir(), "linear-snapshot-revert-"));
 try {
   await mkdir(join(scratch, "test"));
+  await cp(join(source, "test/native-reference.ts"), join(scratch, "test/native-reference.ts"));
   await cp(join(source, "test/estimate-units.test.ts"), join(scratch, "test/estimate-units.test.ts"));
   await writeFile(join(scratch, "package.json"), '{"type":"module"}\n');
   await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");

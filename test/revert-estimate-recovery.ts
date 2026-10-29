@@ -9,6 +9,7 @@ const source = resolve(import.meta.dirname, "..");
 const scratch = await mkdtemp(join(tmpdir(), "linear-recovery-revert-"));
 try {
   await mkdir(join(scratch, "test"));
+  await cp(join(source, "test/native-reference.ts"), join(scratch, "test/native-reference.ts"));
   for (const file of ["test/estimate-units.test.ts", "test/smoke.test.ts", "manifest.json", "package.json", "package-lock.json"]) await cp(join(source, file), join(scratch, file));
   await symlink(join(source, "node_modules"), join(scratch, "node_modules"), "dir");
   const original = await readFile(join(source, "index.ts"), "utf8");
