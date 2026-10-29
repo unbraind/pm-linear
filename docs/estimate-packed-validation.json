@@ -1,8 +1,12 @@
 {
-  "hostVersion": "2026.10.28",
-  "artifactSha256": "f36e9ca859c99bb0a7ebc03ca937c78fde2e916a9c54b34ab67e3f6b637c1d90",
+  "hostVersions": [
+    "2026.10.24",
+    "2026.10.28"
+  ],
+  "artifactSha256": "e18fca6bc1f7b00f1fda9a5613d3ce952adcde43a998304b6240336af2fb49a5",
   "modes": [
     {
+      "hostVersion": "2026.10.24",
       "mode": "project-local",
       "passed": true,
       "nativePoints": 5,
@@ -12,9 +16,11 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "commands": 23
+      "restoredIdentities": 5,
+      "commands": 31
     },
     {
+      "hostVersion": "2026.10.24",
       "mode": "npm-global",
       "passed": true,
       "nativePoints": 5,
@@ -24,9 +30,11 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "commands": 23
+      "restoredIdentities": 5,
+      "commands": 31
     },
     {
+      "hostVersion": "2026.10.24",
       "mode": "bun-global",
       "passed": true,
       "nativePoints": 5,
@@ -36,9 +44,11 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "commands": 23
+      "restoredIdentities": 5,
+      "commands": 31
     },
     {
+      "hostVersion": "2026.10.24",
       "mode": "npx",
       "passed": true,
       "nativePoints": 5,
@@ -48,9 +58,11 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "commands": 23
+      "restoredIdentities": 5,
+      "commands": 31
     },
     {
+      "hostVersion": "2026.10.24",
       "mode": "bunx",
       "passed": true,
       "nativePoints": 5,
@@ -60,9 +72,80 @@
       "ownershipUnchanged": true,
       "legacyTerminalProjection": true,
       "peerInterleavings": 6,
-      "commands": 23
+      "restoredIdentities": 5,
+      "commands": 31
+    },
+    {
+      "hostVersion": "2026.10.28",
+      "mode": "project-local",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "legacyTerminalProjection": true,
+      "peerInterleavings": 6,
+      "restoredIdentities": 5,
+      "commands": 31
+    },
+    {
+      "hostVersion": "2026.10.28",
+      "mode": "npm-global",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "legacyTerminalProjection": true,
+      "peerInterleavings": 6,
+      "restoredIdentities": 5,
+      "commands": 31
+    },
+    {
+      "hostVersion": "2026.10.28",
+      "mode": "bun-global",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "legacyTerminalProjection": true,
+      "peerInterleavings": 6,
+      "restoredIdentities": 5,
+      "commands": 31
+    },
+    {
+      "hostVersion": "2026.10.28",
+      "mode": "npx",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "legacyTerminalProjection": true,
+      "peerInterleavings": 6,
+      "restoredIdentities": 5,
+      "commands": 31
+    },
+    {
+      "hostVersion": "2026.10.28",
+      "mode": "bunx",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "ownershipJsonBytes": 3331,
+      "ownershipUnchanged": true,
+      "legacyTerminalProjection": true,
+      "peerInterleavings": 6,
+      "restoredIdentities": 5,
+      "commands": 31
     }
   ],
-  "readOnlyProviderRequests": 265,
+  "readOnlyProviderRequests": 710,
   "remoteMutations": 0
 }

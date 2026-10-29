@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { checkExtensionManifestCompatibility } from "@unbrained/pm-cli/sdk";
+import * as hostSdk from "@unbrained/pm-cli/sdk";
+import * as hostRuntime from "@unbrained/pm-cli/sdk/runtime";
 
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
@@ -985,6 +987,15 @@ test("the manifest host floor matches the package peer floor", () => {
   );
 });
 
+test("the declared host minimum covers every required estimate writer SDK capability", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as { pm_min_version: string };
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8")) as { packages: Record<string, { peerDependencies?: Record<string, string> }> };
+  assert.equal(manifest.pm_min_version, "2026.10.24", "the declared minimum must include guarded schema loading");
+  assert.equal(lock.packages[""].peerDependencies?.["@unbrained/pm-cli"], `>=${manifest.pm_min_version}`);
+  for (const key of ["loadGuardedRuntimeSchema", "commitWorkspaceTransaction", "readHistoryEntries", "verifyHistoryEntries", "getItemAt", "PmClient"] as const) assert.equal(typeof hostSdk[key], "function", key);
+  for (const key of ["canonicalDocument", "emptyImportedDocument", "listAllComplete", "readSettings", "readLocatedItem", "locateItem", "resolveRuntimeStatusRegistry", "normalizeStatusInput", "isTerminalStatus"] as const) assert.equal(typeof hostRuntime[key], "function", key);
+});
+
 /**
  * The floor above is only worth stating if the host actually enforces it. This
  * runs the SDK's own gate against the manifest bytes on disk, so a floor moved
@@ -997,6 +1008,11 @@ test("the pm host gate refuses every version below the declared floor", () => {
   const below = checkExtensionManifestCompatibility(manifest, { pmVersion: "2026.8.14" });
   assert.equal(below.compatible, false, "the known-bad 2026.8.14 host must be refused");
   assert.deepEqual(below.findings.map((f) => f.code), ["pm_min_version_unmet"]);
+  for (const pmVersion of ["2026.10.4", "2026.10.23"]) {
+    assert.equal(checkExtensionManifestCompatibility(manifest, { pmVersion }).compatible, false,
+      "hosts without the guarded schema contract must be refused before dispatch");
+  }
+  assert.equal(checkExtensionManifestCompatibility(manifest, { pmVersion: "2026.10.24" }).compatible, true);
   assert.equal(
     checkExtensionManifestCompatibility(manifest, { pmVersion: "2027.1.1" }).compatible,
     true,

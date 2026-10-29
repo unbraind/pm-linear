@@ -34,10 +34,15 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 ## Requirements
 
-- pm-cli / `@unbrained/pm-cli` SDK `>=2026.10.4`, resolvable from the installed extension
+- pm-cli / `@unbrained/pm-cli` SDK `>=2026.10.24`, resolvable from the installed extension
 - Node.js `>=22.18.0`
 - A Linear API key with read access to the relevant teams (only for **live**
   paths; every `--dry-run` and offline `validate` works without one)
+
+The host minimum covers the guarded schema, history and transaction APIs used by
+default imports. npm's peer requirement and the pm manifest enforce the same
+minimum. Existing tracker data stays readable; upgrade the host before loading
+this package on an earlier SDK.
 
 ---
 
@@ -700,6 +705,9 @@ share the same typed result. See [the schema, SDK example and retry guarantees](
 Imports skip an item if its planning snapshot disagrees with the SDK revision
 observation, preserving peer conversions and native edits. `estimateSkips` names
 the affected items; retry reads their current state while independent items proceed.
+Compensated creations retain their native history. Retry verifies the owned
+rollback, restores the same identity through the SDK and plans against fresh
+input, retaining earlier explicit conversions. Foreign tombstones remain skipped.
 
 ### Without git
 

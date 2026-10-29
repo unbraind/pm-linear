@@ -14,8 +14,9 @@ await sdk.listAllComplete(
 );
 ```
 
-The minimum peer version is the tested public SDK contract, `2026.10.4`.
-Lazy loading preserves extension discovery on older standalone hosts. Reads
+The minimum peer version is the tested public SDK contract, `2026.10.24`.
+The package floor also covers the guarded schema and history APIs used by default
+imports. Lazy SDK acquisition remains independent from module discovery. Reads
 require a resolvable SDK; missing/older SDKs produce an actionable `CommandError`.
 There is no bounded CLI fallback. Packed npm and native Bun consumers both
 export a closed item with its complete body even with an empty `PATH`.

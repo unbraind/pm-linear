@@ -223,5 +223,5 @@ test("missing resolvable SDK produces a recovery hint on a standalone installed 
   `, target], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /CommandError: Complete local item read refused/);
-  assert.match(run.stdout, /Upgrade @unbrained\/pm-cli to >=2026.10.4/);
+  assert.match(run.stdout, /Upgrade @unbrained\/pm-cli to >=2026.10.24/);
 });

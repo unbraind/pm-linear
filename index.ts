@@ -1227,7 +1227,7 @@ interface PmItem {
 }
 
 const COMPLETE_READ_RECOVERY =
-  "Upgrade @unbrained/pm-cli to >=2026.10.4, repair any unreadable tracker items, " +
+  "Upgrade @unbrained/pm-cli to >=2026.10.24, repair any unreadable tracker items, " +
   "and retry with listAllComplete({ includeBody: true }); diagnostic CLI: " +
   "pm list --all --full --include-body --strict-read --no-truncate " +
   "--output-budget unbounded --output-limit unbounded --json.";
@@ -2701,7 +2701,7 @@ export interface SyncOptions {
   estimateMapping?: LinearEstimateMapping;
   limit: number;
   dryRun?: boolean;
-  /** Commit the whole batch as one crash-resumable transaction (pm-cli >=2026.7.20). */
+  /** Commit the whole batch as one crash-resumable transaction (pm-cli >=2026.10.24). */
   atomic?: boolean;
 }
 
@@ -2731,6 +2731,86 @@ interface EstimateTarget {
   version: number;
   marker: string | null;
   timestamp: string | null;
+  history: Awaited<ReturnType<typeof PublicSdk.readHistoryEntries>>;
+}
+
+/** Append-only proof emitted only after compensation verifies this invocation's complete SDK write. */
+interface EstimateRollback {
+  format: "pm-linear/estimate-rollback/1";
+  id: string;
+  linearId: string;
+  version: number;
+  historyDigest: string;
+  documentDigest: string;
+  marker: string;
+}
+const estimateMutationMarkerPattern = /^linear-estimate-[a-f0-9]{32}:(.+):[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/s;
+const ESTIMATE_ROLLBACK_HEX_LIMIT = 16384;
+const estimateRollbackShape: ClosureShape = { kind: "object", fields: {
+  format: { kind: "literal", value: "pm-linear/estimate-rollback/1" }, id: { kind: "string", max: 1024 }, linearId: closureId,
+  version: { kind: "number", min: 1, max: Number.MAX_SAFE_INTEGER }, historyDigest: ownershipDigest,
+  documentDigest: ownershipDigest, marker: { kind: "string", max: 2048, pattern: estimateMutationMarkerPattern },
+} };
+const ESTIMATE_ROLLBACK_SEPARATOR = " | linear-estimate-rollback:";
+
+/** Producer and consumer share one bounded schema and exact serialization. */
+function estimateRollbackMessage(record: EstimateRollback): string {
+  assertEstimateShape(record, estimateRollbackShape);
+  const token = Buffer.from(JSON.stringify(record)).toString("hex");
+  if (token.length > ESTIMATE_ROLLBACK_HEX_LIMIT) throw new LinearEstimateRefusal("estimate_input_invalid", "Use a rollback record within the documented 8192-byte JSON bound; retain the current native history and inspect the item before retrying.", "estimate.rollback");
+  return `Compensate ${record.marker}${ESTIMATE_ROLLBACK_SEPARATOR}${token}`;
+}
+
+/** Foreign, legacy and malformed history messages remain ordinary non-owned records. */
+function readEstimateRollback(message: string | undefined): EstimateRollback | undefined {
+  const token = message?.split(ESTIMATE_ROLLBACK_SEPARATOR)[1];
+  if (!token || token.length > ESTIMATE_ROLLBACK_HEX_LIMIT || token.length % 2 || !/^[a-f0-9]+$/.test(token)) return undefined;
+  try {
+    const record: unknown = JSON.parse(Buffer.from(token, "hex").toString("utf8"));
+    if (!closureMatches(record, estimateRollbackShape)) return undefined;
+    return estimateRollbackMessage(record as EstimateRollback) === message ? record as EstimateRollback : undefined;
+  } catch { return undefined; }
+}
+
+/** Reuse a deleted identity only when the SDK verifies the exact prefix and document we compensated. */
+async function estimateRestoreVersion(pmRoot: string, id: string, linearId: string, target: EstimateTarget): Promise<number | undefined> {
+  const deletion = target.history.at(-1);
+  const receipt = readEstimateRollback(deletion?.message);
+  const birthMarker = target.history[0]?.message?.split(" | explicit_unset=")[0];
+  // Earlier unit-aware writers could only compensate their first creation.
+  // The SDK's complete create/delete chain supplies their original birth proof.
+  const legacy = target.version === 2 && target.history[0].op === "create" && birthMarker?.match(estimateMutationMarkerPattern)?.[1] === id && deletion?.message === `Compensate ${birthMarker}`;
+  if (target.document || deletion?.op !== "delete" || !receipt && !legacy) return undefined;
+  if (receipt && (receipt.id !== id || receipt.linearId !== linearId || receipt.marker.match(estimateMutationMarkerPattern)?.[1] !== id ||
+    receipt.version !== target.version - 1 || receipt.historyDigest !== schemaDigest(target.history.slice(0, -1)) ||
+    receipt.marker !== target.history.at(-2)?.message?.split(" | explicit_unset=")[0])) return undefined;
+  const sdk = await loadAtomicSdk();
+  const runtime = await importRuntimeSdk();
+  const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
+  try {
+    if (!verify(target.history, runtime.emptyImportedDocument()).ok) return undefined;
+    const version = receipt?.version ?? 1;
+    const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(version), { pmRoot });
+    if (historical.as_of_version !== version || receipt && schemaDigest(historical.document) !== receipt.documentDigest ||
+      !verify(target.history.slice(0, -1), historical.document).ok ||
+      historical.document.metadata.id !== id || parseProvenance(historical.document.metadata.description)?.linear_id !== linearId ||
+      !receipt && !readLinearEstimate(historical.document.metadata.tags).contract) return undefined;
+    return version;
+  } catch { return undefined; }
+}
+
+/** Retain ownership only for one exact SDK-produced append after the checked pre-write history. */
+async function observeEstimateMutation(pmRoot: string, id: string, marker: string, before: EstimateTarget,
+  produced: ItemMetadata, body: string, schema: PublicSdk.PmSettings["schema"]): Promise<EstimateTarget | undefined> {
+  const runtime = await importRuntimeSdk();
+  const sdk = await loadAtomicSdk();
+  const expected = runtime.canonicalDocument({ metadata: produced, body }, { schema });
+  const observed = await observeEstimateTarget(pmRoot, id);
+  const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
+  return observed.version === before.version + 1 && observed.marker === marker &&
+    schemaDigest(observed.history.slice(0, -1)) === schemaDigest(before.history) &&
+    verify(observed.history, expected).current_matches_latest === true && observed.document !== null &&
+    verify(observed.history, observed.document).current_matches_latest === true ? observed : undefined;
 }
 
 /** Read history around the native document; disagreement refuses a mixed snapshot. */
@@ -2749,7 +2829,12 @@ async function observeEstimateTarget(pmRoot: string, id: string, boundary?: Sync
   const after = await readHistory(historyPath, id);
   if (schemaDigest(before) !== schemaDigest(after)) throw new LinearEstimateRefusal("estimate_target_changed", "The target changed during its SDK read. Read current state and retry; no frozen import plan is authoritative.");
   return { revision: `${after.length}:${schemaDigest([after, document])}`, document, version: after.length,
-    marker: after.at(-1)?.message?.split(" | explicit_unset=")[0] ?? null, timestamp: after.at(-1)?.ts ?? null };
+    marker: after.at(-1)?.message?.split(" | explicit_unset=")[0] ?? null, timestamp: after.at(-1)?.ts ?? null, history: after };
+}
+
+/** An unlinked identity with unreadable native history is foreign, never an owned mutation target. */
+async function observeEstimateCandidate(pmRoot: string, id: string): Promise<EstimateTarget | undefined> {
+  try { return await observeEstimateTarget(pmRoot, id); } catch { return undefined; }
 }
 
 /** Pair each planning image with the same SDK-canonical document and bracketed history revision. */
@@ -2792,19 +2877,22 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   if (!sdk.PmClient) throw new LinearEstimateRefusal("estimate_local_unavailable", "Install a compatible public SDK PmClient; unit-aware imports require the full native mutation contract.");
   const pm = new sdk.PmClient({ cwd: pmRoot, pmRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
   const targets = [];
+  const outcomes = new Map<string, "created" | "updated" | "unchanged" | "superseded" | "foreign">();
   for (const entry of [...entries].sort((a, b) => compareSchemaKeys(a.linearId, b.linearId))) {
     const id = entry.match?.id ?? deriveAtomicItemId(options.team, entry.identifier, settings.id_prefix, runtime.normalizeItemId);
-    const before = await observeEstimateTarget(pmRoot, id);
-    const expected = entry.match?.id ? revisions.get(entry.match.id) : before.revision;
+    const before = entry.match ? await observeEstimateTarget(pmRoot, id) : await observeEstimateCandidate(pmRoot, id);
+    if (!before) { outcomes.set(id, "foreign"); continue; }
+    const expected = entry.match?.id ? revisions.get(entry.match.id) : before.version ? revisions.get(id) : before.revision;
+    const restoreVersion = !entry.match && before.document === null && before.version !== 0
+      ? await estimateRestoreVersion(pmRoot, id, entry.linearId, before) : undefined;
     // A deterministic ID alone is not an ownership proof for a create.
-    const foreign = !entry.match && (before.document !== null || before.version !== 0);
-    targets.push({ entry, id, before, expected, foreign });
+    const foreign = !entry.match && (before.document !== null || before.version !== 0 && restoreVersion === undefined);
+    targets.push({ entry, id, before, expected, foreign, restoreVersion });
     await boundary?.("observed", id);
   }
   const identity = schemaDigest([entries, targets.map(({ id, expected }) => [id, expected]), settings.schema]);
   const transactionId = `linear-estimate-${identity.slice(0, 32)}`;
-  const outcomes = new Map<string, "created" | "updated" | "unchanged" | "superseded" | "foreign">();
-  const steps: PublicSdk.WorkspaceTransactionStep[] = targets.map(({ entry, id, before, expected, foreign }) => {
+  const steps: PublicSdk.WorkspaceTransactionStep[] = targets.map(({ entry, id, before, expected, foreign, restoreVersion }) => {
     const markerBase = `${transactionId}:${id}:`;
     const marker = markerBase + crypto.randomUUID();
     let owned: EstimateTarget | undefined;
@@ -2832,15 +2920,41 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
         if ((await observeEstimateTarget(pmRoot, id)).revision !== owned.revision) return;
         await pm.restore(id, String(historical.as_of_version), { message: `Compensate ${marker}` });
       }
-      else if (owned.version === 1 && schemaDigest(current.document) === schemaDigest(owned.document)) await pm.run("delete", { id, options: { force: true, message: `Compensate ${marker}` } });
+      else if (!before.document && owned.version > before.version && latest.document) await pm.run("delete", { id, options: { force: true,
+        message: estimateRollbackMessage({ format: "pm-linear/estimate-rollback/1", id, linearId: entry.linearId, version: latest.version,
+          historyDigest: schemaDigest(latest.history), documentDigest: schemaDigest(latest.document), marker }),
+      } });
     };
     return {
       id: schemaDigest(id).slice(0, 32), inspect,
       prepareCompensation: async () => { await boundary?.("compensation_prepared", id); return { version: before.version, existed: before.document !== null }; },
       apply: async () => {
         await boundary?.("before_write", id);
-        const current = await observeEstimateTarget(pmRoot, id);
+        let current = await observeEstimateTarget(pmRoot, id);
         if (current.revision !== expected) { outcomes.set(id, expected !== undefined && current.marker?.startsWith(markerBase) ? "unchanged" : "superseded"); return outcomes.get(id)!; }
+        let restored = false;
+        if (restoreVersion !== undefined) {
+          await boundary?.("before_restore", id);
+          current = await observeEstimateTarget(pmRoot, id);
+          if (current.revision !== expected) { outcomes.set(id, "superseded"); return "superseded"; }
+          const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(restoreVersion), { pmRoot });
+          if ((await observeEstimateTarget(pmRoot, id)).revision !== expected) { outcomes.set(id, "superseded"); return "superseded"; }
+          const prior = current;
+          const result = await pm.restore(id, String(restoreVersion), { message: marker });
+          try {
+            await boundary?.("restored", id);
+            owned = await observeEstimateMutation(pmRoot, id, marker, prior, result.item, historical.document.body, nativeSchema);
+            if (!owned) { outcomes.set(id, "superseded"); return "superseded"; }
+            await boundary?.("after_restore", id);
+            await boundary?.("before_update", id);
+            current = await observeEstimateTarget(pmRoot, id);
+            if (current.revision !== owned.revision) { outcomes.set(id, "superseded"); return "superseded"; }
+          } catch (error: unknown) {
+            owned = await observeEstimateMutation(pmRoot, id, marker, prior, result.item, historical.document.body, nativeSchema);
+            await compensate(); throw error;
+          }
+          restored = true;
+        }
         const source = current.document?.metadata;
         const scopes = ["parent", "goal", "objective", "sprint", "release"] as const;
         const unset = scopes.filter((name) => !source?.[name]);
@@ -2865,36 +2979,42 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
           if (!entry.assignee) delete metadata.assignee;
           const desired = runtime.canonicalDocument({ metadata, body: entry.body }, { schema: nativeSchema });
           const observed = runtime.canonicalDocument(current.document, { schema: nativeSchema });
-          if (schemaDigest(desired) === schemaDigest(observed)) { outcomes.set(id, "unchanged"); return "unchanged"; }
+          if (schemaDigest(desired) === schemaDigest(observed)) {
+            const outcome = restored ? "created" : "unchanged"; outcomes.set(id, outcome);
+            if (restored) try { await boundary?.("written", id); await boundary?.("after_write", id); } catch (error: unknown) { await compensate(); throw error; }
+            return outcome;
+          }
         }
         // The remaining read-to-write window is explicit: the SDK has no expected-history revision option.
         let produced: ItemMetadata;
         if (current.document) {
-          const result = await pm.update(id, values);
+          let result: PublicSdk.UpdateResult;
+          try { result = await pm.update(id, values); } catch (error: unknown) { await compensate(); throw error; }
           produced = result.item as unknown as ItemMetadata;
-          outcomes.set(id, result.changed_fields.length ? "updated" : "unchanged");
+          outcomes.set(id, restored ? "created" : result.changed_fields.length ? "updated" : "unchanged");
         } else { const result = await pm.create({ ...values, id }); produced = result.item; outcomes.set(id, "created"); }
         // Expected values come from the SDK producer receipt and the planned body,
         // never from a later observed item that a peer might already have edited.
-        const expectedDocument = runtime.canonicalDocument({ metadata: produced, body: entry.body }, { schema: nativeSchema });
-        await boundary?.("written", id);
-        const observed = await observeEstimateTarget(pmRoot, id);
-        const history = await assertSdkFunction(sdk.readHistoryEntries, "readHistoryEntries")(runtime.getHistoryPath(pmRoot, id), id);
-        const verify = assertSdkFunction(sdk.verifyHistoryEntries, "verifyHistoryEntries");
-        if (observed.marker === marker && verify(history, expectedDocument).current_matches_latest === true && observed.document && verify(history, observed.document).current_matches_latest === true) owned = observed;
-        try { await boundary?.("after_write", id); } catch (error: unknown) { await compensate(); throw error; }
+        try {
+          await boundary?.("written", id);
+          owned = await observeEstimateMutation(pmRoot, id, marker, current, produced, entry.body, nativeSchema);
+          await boundary?.("after_write", id);
+        } catch (error: unknown) {
+          owned = await observeEstimateMutation(pmRoot, id, marker, current, produced, entry.body, nativeSchema);
+          await compensate(); throw error;
+        }
         return outcomes.get(id)!;
       },
       compensate,
     };
   });
   let recovered = false;
-  if (options.atomic) {
+  if (options.atomic && steps.length) {
     const commit = assertSdkFunction(sdk.commitWorkspaceTransaction, "commitWorkspaceTransaction");
     const result = await commit({ pmRoot, transactionId, author: process.env.PM_AUTHOR ?? "pm-linear", steps });
     recovered = result.recovered;
     // A fully committed peer journal bypasses inspect; reconcile from current SDK state rather than claim new writes.
-    if (!outcomes.size) for (const target of targets) {
+    for (const target of targets) if (!outcomes.has(target.id)) {
       const current = await observeEstimateTarget(pmRoot, target.id);
       outcomes.set(target.id, target.expected !== undefined && (current.revision === target.expected || current.marker?.startsWith(`${transactionId}:${target.id}:`)) ? "unchanged" : "superseded");
     }
@@ -3093,7 +3213,7 @@ async function buildImportDryRunPlan(
 }
 
 // ---------------------------------------------------------------------------
-// Atomic Linear import (pm-cli >= 2026.7.20 commitItemMutations)
+// Atomic Linear import (pm-cli >= 2026.10.24 commitItemMutations)
 // ---------------------------------------------------------------------------
 //
 // `pm linear import/sync --atomic` commits the ENTIRE batch (creates + updates
@@ -3159,7 +3279,7 @@ function assertSdkFunction<F extends (...args: never[]) => unknown>(
 ): F {
   if (typeof fn !== "function") {
     throw new CommandError(
-      `--atomic requires @unbrained/pm-cli>=2026.7.20 with the commitItemMutations SDK primitive, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.7.20.`,
+      `--atomic requires @unbrained/pm-cli>=2026.10.24 with the commitItemMutations SDK primitive, but the installed SDK does not export ${exportName} as a function. Upgrade @unbrained/pm-cli to >=2026.10.24.`,
       EXIT_CODE.USAGE,
     );
   }
@@ -3175,7 +3295,7 @@ async function loadAtomicSdk(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new CommandError(
-      `--atomic requires @unbrained/pm-cli>=2026.7.20, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
+      `--atomic requires @unbrained/pm-cli>=2026.10.24, but the SDK could not be imported: ${msg}. Install or upgrade @unbrained/pm-cli.`,
       EXIT_CODE.USAGE,
     );
   }
@@ -3565,12 +3685,29 @@ export async function syncLinearIssues(
     if (options.estimateMapping && (!issue.team || options.estimateMapping.teamId !== issue.team.id || options.estimateMapping.scaleRevision !== linearEstimateScaleRevision(issue.team))) {
       throw new LinearEstimateRefusal("estimate_scope_mismatch", "Declare a mapping for the fetched issue's exact team and current scale revision; review linear estimates before importing.");
     }
+    let previousTags = ownMappingValue(existingByLinearId, issue.id)?.tags;
+    if (!ownMappingValue(existingByLinearId, issue.id)?.id && issue.team && !dependencies.readItems) {
+      const runtime = await importRuntimeSdk();
+      const settings = await runtime.readSettings(pm_root);
+      const id = deriveAtomicItemId(options.team, issue.identifier, settings.id_prefix, runtime.normalizeItemId);
+      const target = await observeEstimateCandidate(pm_root, id);
+      const version = target ? await estimateRestoreVersion(pm_root, id, issue.id, target) : undefined;
+      if (version !== undefined && target) {
+        const sdk = await loadAtomicSdk();
+        const historical = await assertSdkFunction(sdk.getItemAt, "getItemAt")(id, String(version), { pmRoot: pm_root });
+        if ((await observeEstimateTarget(pm_root, id)).revision === target.revision) {
+          previousTags = historical.document.metadata.tags;
+          revisions.set(id, target.revision);
+        }
+        await dependencies.onEstimateBoundary?.("recovery_planned", id);
+      }
+    }
     const plan = buildItemPlan(
       issue,
       statusMap,
       options.fieldMap ?? {},
       options.projectMap ?? { enabled: false, passthrough: false, map: {} },
-      options.estimateMapping, ownMappingValue(existingByLinearId, issue.id)?.tags,
+      options.estimateMapping, previousTags,
     );
     prepared.push({
       identifier: issue.identifier,
@@ -3587,8 +3724,9 @@ export async function syncLinearIssues(
     });
   }
 
-  if (prepared.some((entry) => readLinearEstimate(entry.tags).contract)) {
-    if (prepared.some((entry) => !readLinearEstimate(entry.tags).contract)) throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
+  const scaleAwareIds = new Set(issues.filter((issue) => issue.team).map((issue) => issue.id));
+  if (prepared.some((entry) => scaleAwareIds.has(entry.linearId))) {
+    if (prepared.some((entry) => !scaleAwareIds.has(entry.linearId))) throw new LinearEstimateRefusal("estimate_input_invalid", "Import a complete selected batch with team scale metadata on every issue; do not mix legacy and scale-aware writes.");
     return { ...await importEstimateBatch(pm_root, options, prepared, skipped, revisions, dependencies.onEstimateBoundary), ...(schema ? { schema } : {}) };
   }
 
@@ -4511,7 +4649,7 @@ export default defineExtension({
         { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)" },
         { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-        { long: "--atomic", description: "Commit the complete sync as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
+        { long: "--atomic", description: "Commit with crash-resumable journaling and compensation (pm-cli >=2026.10.24); concurrent SDK/CLI writers can interleave" },
         { long: "--dry-run", description: "Preview the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY" },
         { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
       ],
@@ -4718,7 +4856,7 @@ export default defineExtension({
       { long: "--limit", value_name: "n", description: "Maximum number of issues to fetch (default: 100)." },
       { long: "--estimate-mapping", value_name: "file", description: "Explicit team/scale-bound points-to-minute lookup JSON; never infer time from points." },
         { long: "--schema-version", value_name: "version", description: "Require the reviewed schema version before local changes." },
-      { long: "--atomic", description: "Commit the complete import as one workspace-writer-locked, crash-resumable transaction (pm-cli >=2026.7.20); compensate applied mutations on failure and report incomplete compensation" },
+      { long: "--atomic", description: "Commit with crash-resumable journaling and compensation (pm-cli >=2026.10.24); concurrent SDK/CLI writers can interleave" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --atomic it fetches issues to build the plan, so it needs LINEAR_API_KEY." },
     ];
     for (const command of ["linear import", "linear-sync import"]) api.registerFlags(command, linearImportFlags);

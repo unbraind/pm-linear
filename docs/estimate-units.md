@@ -108,6 +108,32 @@ older replay after a later import cannot reuse a completed content-only journal.
 Current target state decides unchanged outcomes. Preview uses the same entry
 producer and step inspection as apply, without committing.
 
+Deleting a compensated creation retains its native history and reserves the ID.
+The importer records a bounded, versioned rollback receipt in the native deletion
+event after verifying its exact SDK-produced write. Retry verifies the complete
+history prefix, provider identity, historical document and empty current state
+through SDK history APIs, then uses native `restore` for the same ID. Fresh input
+passes through the ordinary planner with the historical tags, so an earlier
+explicit conversion survives an option-free retry. The restore and any dependent
+update each re-read the expected revision and retain separate producer proofs.
+Repeated failures append further compensation records; history is never reset.
+Receipt JSON is limited to 8192 bytes, native IDs to 1024 characters, markers to
+2048 characters and versions to positive safe integers. Its producer and reader
+share the same strict schema and serialization; provider IDs retain their own
+128-character domain instead of imposing that limit on native SDK identities.
+
+The earlier uninterrupted unit-writer create/delete format remains accepted when
+the native SDK verifies its complete birth and matching compensation marker.
+Malformed receipts, unrelated deleted IDs and peer-altered histories are foreign
+and skip alone. A peer edit after restore skips the dependent update, and
+compensation only removes the exact state still owned by that invocation.
+
+The declared host minimum is `2026.10.24` in both npm and the pm manifest. It covers
+the guarded schema and native history/transaction APIs needed by default imports;
+the development SDK pin is unchanged. Packed acceptance tests that minimum and
+the requested current host across project-local, npm-global, Bun-global, npx and
+bunx layouts, including retries of compensated SDK-generated histories.
+
 `linear ownership` acquires the same complete issue fields as import, then runs
 the production import coordinator in an isolated copy. It retains the item's
 declared conversion table and chooses the same unit-aware writer. After importing

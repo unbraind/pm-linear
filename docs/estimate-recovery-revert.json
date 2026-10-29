@@ -1,0 +1,54 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "every retained history is foreign",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "only the first birth can be compensated",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "dependent update ignores a peer after restore",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "recovery loses the historical declared conversion",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "newer tombstone revision authorizes an older plan",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "estimate ignore bypasses the guarded writer",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "foreign unreadable history aborts independent targets",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "rollback validation narrows native IDs to the provider-ID domain",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "npm, manifest and lock permit the unsupported old host",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 7,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

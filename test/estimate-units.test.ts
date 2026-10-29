@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import http from "node:http";
-import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString } from "@unbrained/pm-cli/sdk";
+import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString, verifyHistoryEntries, getItemAt } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScaleRevision, inspectLinearEstimates, syncLinearIssues, buildItemPlan, itemToLinearPayload, buildProvenance, deriveAtomicItemId, LinearEstimateRefusal,
   previewLinearOwnership,
@@ -464,6 +464,194 @@ test("post-write peer state never becomes a compensation ownership proof", async
   }), /deliberate post-write failure/);
   const item = (await pm.listAllComplete()).items.find((row) => row.description?.includes(value.id));
   assert.equal(item?.title, "Peer edit before ownership observation");
+});
+
+test("compensated create lineages retry repeatedly without losing native history or freezing old inputs", async (t) => {
+  const { root, pm } = await fixture(t);
+  for (const atomic of [false, true]) {
+    const values = [issue(`retry-a-${atomic}`), issue(`retry-z-${atomic}`)];
+    const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues(
+      { team: "ENG", limit: 10, atomic: true, estimateMapping: mapping }, root, { fetchIssues: async () => values, onEstimateBoundary });
+    const settings = await readSettings(root);
+    const ids = values.map((value) => deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId));
+    await assert.rejects(run(async (stage, id) => { if (stage === "after_write" && id === ids[1]) throw new Error("Batch rollback"); }), /Batch rollback/);
+    assert.ok((await pm.listAllComplete()).items.every((row) => !ids.includes(row.id)));
+    for (const stage of ["restored", "after_restore", "before_update", "written", "after_write"]) {
+      const prefixes = await Promise.all(ids.map((id) => readHistoryEntries(getHistoryPath(root, id), id)));
+      values[1].title = ` New ${stage} title `; values[1].description = ` New ${stage}\r\nbody `;
+      await assert.rejects(run(async (current, id) => { if (current === stage && id === ids[1]) throw new Error("Retry rollback"); }), /Retry rollback/);
+      assert.ok((await pm.listAllComplete()).items.every((row) => !ids.includes(row.id)), `failure at ${stage} compensates the entire batch`);
+      for (const [index, id] of ids.entries()) {
+        const history = await readHistoryEntries(getHistoryPath(root, id), id);
+        assert.deepEqual(history.slice(0, prefixes[index].length), prefixes[index], "all prior SDK records remain unchanged");
+        assert.equal(history.at(-1)?.op, "delete"); assert.equal(verifyHistoryEntries(history).ok, true);
+      }
+    }
+    values[1].title = " Final fresh title "; values[1].description = " Final fresh\r\nbody ";
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic, estimateMapping: atomic ? mapping : undefined }, root, { fetchIssues: async () => values });
+    assert.equal(result.created, 2, "owned compensated identities must be recreated"); assert.equal(result.skipped, 0);
+    const referenceRoot = join(root, `reference-${atomic}`);
+    const reference = new PmClient({ pmRoot: referenceRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" }); await reference.init("units");
+    for (const [index, value] of values.entries()) {
+      const plan = buildItemPlan(value, {}, {}, undefined, mapping);
+      await reference.create({ ...plan, id: ids[index], tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      const actual = (await pm.get(ids[index], { depth: "deep" })).item;
+      const expected = (await reference.get(ids[index], { depth: "deep" })).item;
+      for (const field of ["title", "body", "status", "priority", "tags", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes"] as const) assert.deepEqual(actual[field], expected[field], `${atomic}: SDK state ${field}`);
+      const history = await readHistoryEntries(getHistoryPath(root, ids[index]), ids[index]);
+      assert.equal(history[0].op, "create"); assert.equal(history.at(-1)?.op, index ? "update" : "restore");
+      assert.equal(verifyHistoryEntries(history, (await getItemAt(ids[index], history.at(-1)!.ts, { pmRoot: root })).document).ok, true);
+    }
+    const replay = await syncLinearIssues({ team: "ENG", limit: 10, atomic }, root, { fetchIssues: async () => values });
+    assert.equal(replay.synced, 0); assert.equal(replay.skipped, 0);
+  }
+});
+
+test("recovery revalidates every restore and dependent update boundary against ordinary SDK writers", async (t) => {
+  const { root, pm } = await fixture(t);
+  const parent = await pm.create({ title: "Peer scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  for (const atomic of [false, true]) for (const boundary of ["recovery_planned", "observed", "inspect", ...(atomic ? ["compensation_prepared"] : []), "before_write", "before_restore", "restored", "after_restore", "before_update", "written", "after_write", "before_compensate"]) {
+    const value = issue(`recovery-${atomic}-${boundary}`);
+    await assert.rejects(sync(root, value, true, mapping, async (stage) => { if (stage === "after_write") throw new Error("Seed rollback"); }), /Seed rollback/);
+    const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
+    value.title = "Fresh input requires a dependent update";
+    let injected = false;
+    let peer: Awaited<ReturnType<typeof pm.listAllComplete>>["items"][number] | undefined;
+    const attempt = sync(root, value, atomic, undefined, async (stage, target) => {
+      if (target !== id) return;
+      if (stage === "after_write" && boundary === "before_compensate") throw new Error("Recovery rollback");
+      if (stage !== boundary || injected) return;
+      injected = true;
+      if (!(await pm.listAllComplete()).items.some((row) => row.id === id)) await pm.restore(id, "1");
+      await pm.update(id, { title: "Peer wins", body: "Peer\r\nbody", tags: JSON.stringify(["estimate:5", encodeLinearEstimate(team, 5, mapping)]),
+        parent: parent.item.id, unset: ["goal", "objective", "sprint", "release"], estimatedMinutes: "777", dep: [`id=${parent.item.id},kind=related_to`] });
+      peer = (await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === id);
+    });
+    if (boundary === "before_compensate") await assert.rejects(attempt, /Recovery rollback/);
+    else {
+      const result = await attempt;
+      if (!["written", "after_write"].includes(boundary)) assert.equal(result.skipped, 1, boundary);
+    }
+    assert.equal(injected, true, boundary);
+    assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === id), peer, `every peer field survives ${boundary}`);
+  }
+});
+
+test("foreign and malformed compensation records skip alone and never authorize identity reuse", async (t) => {
+  const { root, pm } = await fixture(t);
+  const mutations: Array<(record: Record<string, unknown>) => unknown> = [
+    () => null, () => [], (record) => ({ ...record, format: "foreign" }), (record) => ({ ...record, unknown: true }),
+    (record) => ({ ...record, version: Infinity }), (record) => ({ ...record, version: -1 }), (record) => ({ ...record, version: 0.5 }),
+    (record) => ({ ...record, id: "foreign" }), (record) => ({ ...record, linearId: "foreign" }),
+    (record) => ({ ...record, historyDigest: "0".repeat(64) }), (record) => ({ ...record, documentDigest: "0".repeat(64) }),
+    (record) => ({ ...record, version: 999 }), (record) => ({ ...record, marker: "foreign" }),
+  ];
+  const raw = ["", "Compensate foreign", "Compensate foreign | linear-estimate-rollback:!", "Compensate foreign | linear-estimate-rollback:a",
+    `Compensate foreign | linear-estimate-rollback:${"a".repeat(16386)}`, "Compensate foreign | linear-estimate-rollback:ff"];
+  for (const [index, change] of [...mutations, ...raw.map((message) => () => message)].entries()) {
+    const value = issue(`foreign-history-${index}`);
+    await assert.rejects(sync(root, value, true, undefined, async (stage) => { if (stage === "after_write") throw new Error("Seed rollback"); }), /Seed rollback/);
+    const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
+    const original = await readHistoryEntries(getHistoryPath(root, id), id);
+    const token = original.at(-1)!.message!.split(" | linear-estimate-rollback:")[1]; assert.ok(token);
+    const record = JSON.parse(Buffer.from(token, "hex").toString("utf8")) as Record<string, unknown>;
+    await pm.restore(id, "1");
+    const altered = change(record);
+    const message = typeof altered === "string" ? altered : `Compensate ${record.marker} | linear-estimate-rollback:${Buffer.from(JSON.stringify(altered)).toString("hex")}`;
+    await pm.run("delete", { id, options: { force: true, message } });
+    const before = await readHistoryEntries(getHistoryPath(root, id), id);
+    const independent = issue(`valid-peer-${index}`);
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: Boolean(index % 2) }, root, { fetchIssues: async () => [value, independent] });
+    assert.equal(result.created, 1); assert.equal(result.skipped, 1);
+    assert.deepEqual(result.estimateSkips, [{ id, reason: "foreign" }]);
+    assert.deepEqual(await readHistoryEntries(getHistoryPath(root, id), id), before, "foreign history remains untouched");
+    assert.ok(!(await pm.listAllComplete()).items.some((row) => row.id === id));
+  }
+  // A previously released ordinary create/delete stream has no owned rollback record.
+  const value = issue("legacy-tombstone"); const settings = await readSettings(root);
+  const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
+  await pm.create({ id, title: "Released legacy identity", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  await pm.run("delete", { id, options: { force: true } });
+  assert.equal((await sync(root, value)).estimateSkips?.[0].reason, "foreign");
+  // Must allow the genuine uninterrupted format written before rollback receipts existed.
+  const legacy = issue("earlier-unit-writer"); await sync(root, legacy);
+  const legacyRow = (await pm.listAllComplete()).items.find((row) => row.description?.includes(`linear_id=${legacy.id} `)); assert.ok(legacyRow);
+  const birth = await readHistoryEntries(getHistoryPath(root, legacyRow.id), legacyRow.id);
+  const marker = birth[0].message!.split(" | explicit_unset=")[0];
+  await pm.run("delete", { id: legacyRow.id, options: { force: true, message: `Compensate ${marker}` } });
+  assert.equal((await sync(root, legacy, true)).created, 1, "earlier owned compensation remains retryable");
+  for (const [index, contents] of ["{", "<<<<<<< foreign\n", "null\n", "[]\n"].entries()) {
+    const malformed = issue(`unreadable-tombstone-${index}`);
+    const target = deriveAtomicItemId("ENG", malformed.identifier, settings.id_prefix, normalizeItemId);
+    const historyPath = getHistoryPath(root, target); await mkdir(dirname(historyPath), { recursive: true });
+    await writeFile(historyPath, contents, { flag: "wx" });
+    const independent = issue(`readable-target-${index}`);
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true }, root, { fetchIssues: async () => [malformed, independent] });
+    assert.equal(result.created, 1); assert.equal(result.skipped, 1); assert.deepEqual(result.estimateSkips, [{ id: target, reason: "foreign" }]);
+    assert.equal((await sync(root, malformed, true)).skipped, 1, "all-foreign batches do not write an empty journal");
+  }
+});
+
+test("a peer rollback cannot replace the tombstone revision paired with recovery planning", async (t) => {
+  const { root, pm } = await fixture(t);
+  const peerMapping = { ...mapping, entries: [{ points: 5, minutes: 480 }] };
+  for (const atomic of [false, true]) for (const boundary of ["recovery_planned", "observed", "inspect", "before_write", "before_restore"]) {
+    const value = issue(`tombstone-aba-${atomic}-${boundary}`);
+    await assert.rejects(sync(root, value, true, mapping, async (stage) => { if (stage === "after_write") throw new Error("Seed rollback"); }), /Seed rollback/);
+    const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
+    let injected = false;
+    let peerHistory: Awaited<ReturnType<typeof readHistoryEntries>> = [];
+    const result = await sync(root, value, atomic, undefined, async (stage, target) => {
+      if (stage !== boundary || target !== id || injected) return;
+      injected = true;
+      // Ordinary imports do not acquire the outer workspace-transaction lock.
+      await assert.rejects(sync(root, { ...value, title: "Peer compensated input" }, false, peerMapping, async (transition) => {
+        if (transition === "after_write") throw new Error("Peer rollback");
+      }), /Peer rollback/);
+      peerHistory = await readHistoryEntries(getHistoryPath(root, id), id);
+    });
+    assert.equal(injected, true, boundary);
+    assert.equal(result.skipped, 1, "a changed tombstone revision skips its entire dependent plan");
+    assert.deepEqual(await readHistoryEntries(getHistoryPath(root, id), id), peerHistory);
+    assert.ok(!(await pm.listAllComplete()).items.some((row) => row.id === id));
+    assert.equal((await sync(root, value, atomic)).created, 1);
+    assert.equal((await inspectLinearEstimates({ team, limit: 100 }, root)).rows.find((row) => row.id === id)?.minutes, 480);
+  }
+});
+
+test("estimate ignore mappings retain the same guarded compensation and retry contract", async (t) => {
+  const { root, pm } = await fixture(t);
+  for (const ignoreAgain of [false, true]) {
+    const value = issue(`ignored-retry-${ignoreAgain}`);
+    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 10, atomic: true, fieldMap: { estimate: "ignore" } }, root, {
+      fetchIssues: async () => [value], onEstimateBoundary: async (stage) => { if (stage === "after_write") throw new Error("Ignored rollback"); },
+    }), /Ignored rollback/);
+    const result = await syncLinearIssues({ team: "ENG", limit: 10, atomic: true, ...(ignoreAgain ? { fieldMap: { estimate: "ignore" } } : {}) }, root, { fetchIssues: async () => [value] });
+    assert.equal(result.created, 1); assert.equal(result.skipped, 0);
+    const row = (await pm.listAllComplete()).items.find((item) => item.description?.includes(value.id)); assert.ok(row);
+    assert.equal(itemToLinearPayload(row).estimate, ignoreAgain ? undefined : 5);
+  }
+});
+
+test("rollback producers and validators preserve SDK-native identity domains", async (t) => {
+  const { root, pm } = await fixture(t);
+  for (const [index, identifier] of ["ENG-native-123", `ENG-${"x".repeat(110)}`, `ENG-${"x".repeat(170)}`].entries()) {
+    const name = `recovery-role-${index}-${random(42 + index)()}`;
+    const roles = [["active"], ["blocked"], ["terminal", "terminal_canceled"]][index];
+    await pm.schemaAddStatus(name, { role: roles });
+    const reference = await pm.create({ title: "Registry reference", status: name, closeReason: "Reference terminal state", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    const value = { ...issue(`native-domain-${index}`), identifier, state: { name, type: "started" } };
+    const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", identifier, settings.id_prefix, normalizeItemId);
+    const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues({ team: "ENG", limit: 10, atomic: true, statusMap: { [name]: name } }, root, { fetchIssues: async () => [value], onEstimateBoundary });
+    await assert.rejects(run(async (stage) => { if (stage === "after_write") throw new Error("Native rollback"); }), /Native rollback/);
+    const history = await readHistoryEntries(getHistoryPath(root, id), id);
+    assert.equal(history.at(-1)?.op, "delete"); assert.equal(verifyHistoryEntries(history).ok, true);
+    await assert.rejects(run(async (stage) => { if (stage === "after_write") throw new Error("Native retry rollback"); }), /Native retry rollback/);
+    assert.ok(!(await pm.listAllComplete()).items.some((row) => row.id === id));
+    const result = await run(); assert.equal(result.created, 1); assert.equal(result.skipped, 0);
+    const item = (await pm.get(id, { depth: "deep" })).item;
+    assert.equal(item.id, id); assert.equal(item.status, reference.item.status);
+  }
 });
 
 test("multi-item imports sort targets, replay without duplicates and isolate a superseded item", async (t) => {
