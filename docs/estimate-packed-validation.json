@@ -1,0 +1,48 @@
+{
+  "hostVersion": "2026.10.28",
+  "artifactSha256": "7fa366ae70c82f3a4bbb9d30925b1cf1f6701654970b78e736be38921c397386",
+  "modes": [
+    {
+      "mode": "project-local",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "commands": 7
+    },
+    {
+      "mode": "npm-global",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "commands": 7
+    },
+    {
+      "mode": "bun-global",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "commands": 7
+    },
+    {
+      "mode": "npx",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "commands": 7
+    },
+    {
+      "mode": "bunx",
+      "passed": true,
+      "nativePoints": 5,
+      "declaredMinutes": 240,
+      "jsonBytes": 571,
+      "commands": 7
+    }
+  ],
+  "readOnlyProviderRequests": 75,
+  "remoteMutations": 0
+}

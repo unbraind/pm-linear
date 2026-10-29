@@ -1,0 +1,12 @@
+{
+  "changedFunction": "buildItemPlan",
+  "reverted": {
+    "passed": 0,
+    "failed": 1
+  },
+  "fixed": {
+    "passed": 1,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

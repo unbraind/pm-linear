@@ -1,0 +1,36 @@
+id: pm-linear-estimate-unit-provenance
+title: Preserve team estimate scales and explicit effort conversions
+description: Preserve Linear team estimate scale and declared points-to-effort mapping alongside imported estimates; identify estimates invalidated by a team scale change.
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-29T01:53:20.572Z"
+updated_at: "2026-10-29T03:04:58.789Z"
+author: codex-agent
+acceptance_criteria: Five points never become five minutes without a declared conversion; changing one team scale affects only its items; unconvertible estimates remain usable as native points.
+comments[8]{created_at,author,text}:
+  "2026-10-29T01:53:34.597Z",codex-agent,"Overlap checked against the installed CLI SDK public declarations, existing Linear estimate tags and round-trip features, and pm-gantt-chart duration inputs. Core estimated_minutes is numeric effort; Gantt consumes minutes and prior capacity work consumes estimates. Neither knows Linear team identity or scale settings. This feature owns provider unit provenance and an explicit scale-bound lookup conversion, preserving native points when unmapped. Existing atomic replay revision follow-up remains relevant; transactions do not exclude ordinary writers (pm-cli#1620)."
+  "2026-10-29T02:03:57.444Z",codex-agent,"Implemented versioned per-item unit contracts with exact discrete conversion lookups and bounded team-scoped inspection. Provenance uses lowercase hexadecimal encoding because SDK tag normalization changes letter case; the real SDK tests caught this and the producer/reader now share one codec. Unit-aware writes use a single native mutation per item, registered status roles, explicit scopes and SDK history revision checks. The ordinary-writer read-to-write window remains and is documented; no lock-isolation claim."
+  "2026-10-29T02:25:52.769Z",codex-agent,"Read-only public tracker validation passed against main: 112 items, 232 files, 1644154 bytes, 2 complete inspections, unchanged SHA-256, no git executable. No owned unit contracts exist in that corpus; conversion coverage is explicitly synthetic. Targeted network tests exercised sync and both import aliases in serial and transaction modes; the 500-sequence SDK reference-model test uses independent bounded tracker pairs with random custom lifecycle registries, whitespace, native fields, relationships, ambient focus and older-input replays."
+  "2026-10-29T02:36:40.912Z",codex-agent,"Acceptance probes passed: five points stay native with no implicit minutes; explicit 5-to-240 lookup; only the changed team invalidates; zero, null and unmapped values remain native. Packed 2026.10.28 host acceptance passed project-local, npm global, Bun global, npx and bunx: 35 command assertions, 75 read-only provider requests, zero provider mutations, 571-byte single-item JSON receipts. Behavioral revert in a disposable copy changed only buildItemPlan provenance production: reverted 0 pass/1 fail; unchanged implementation 1 pass/0 fail. Initial linked-test invocation exposed the fixture directory setup error, now fixed. The pinned CLI refuses timeout_seconds metadata under the existing peer floor because it requires guarded item format 2; use runtime --timeout 1800 instead, without changing pins. Linked-test evidence recording is disabled by project policy, so results are retained in this item and validation documents."
+  "2026-10-29T02:37:36.564Z",codex-agent,"Implementation and acceptance probes are ready for review. The CI npm and Bun release gates will provide full-suite evidence at the pushed head, with unchanged coverage thresholds; local work uses focused tests, typecheck, docstring lint and diff checks because the shared host is saturated. The 500-sequence test rotates SDK sync, command sync, both importer aliases and host export, compares every touched native field through real SDK reads, and samples exact preview/apply equality. Concurrency guarantees explicitly retain the SDK read-to-write window (pm-cli#1620); provider-less legacy transaction migration remains owned by pm-linear-atomic-replay-revision. The item remains in progress for orchestrator verification and is not closed."
+  "2026-10-29T02:48:43.027Z",codex-agent,"The seeded model caught a terminal retry mismatch at sequence 100: the no-op projection omitted close_reason even though the native update writes it. Fixed the projection, preserve an existing native close reason, and use the public PmClient plus loadGuardedRuntimeSchema. Added a focused SDK-oracle regression spanning active, terminal_done and terminal_canceled registries, create and retry; it passes. Full 500-sequence validation remains in both CI release gates. Local focused execution omits that expensive model case on this saturated host; the earlier model probe reached sequence 100 before exposing the repaired defect."
+  "2026-10-29T02:56:09.080Z",codex-agent,"Final implementation keeps existing native close reasons, validates supplied CLI guard types and bounded regular input files before reads, and uses the same SDK canonical projection for unchanged decisions. Targeted custom-registry create/retry oracle passes; typecheck, test typecheck, docstring lint and whitespace checks pass. Full-model and full npm/Bun release evidence will be taken from the PR CI at the final head. All native schema/transaction capabilities are from the pinned supported SDK loaders; no provider or hosted mutations were used for validation."
+  "2026-10-29T03:04:50.707Z",codex-agent,"Final focused direct run passed 8/8 with node --test --test-concurrency=1 --test-skip-pattern=\"seed 1620\" test/estimate-units.test.ts (80558 ms). The earlier negative-lookahead name filter did not exclude the model in Node, so the linked focused command now uses the explicit skip-pattern flag. The final packed recheck passed all five host layouts again. Complete 500-sequence model validation is retained unchanged in CI; local full-gate execution is intentionally avoided per the shared-host rule. Typecheck, test compilation, docstring lint and diff checks pass."
+files[5]{path,scope}:
+  index.ts,project
+  test/estimate-packed-acceptance.ts,project
+  test/estimate-real-validation.ts,project
+  test/estimate-units.test.ts,project
+  test/revert-estimate-units.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=1 test/estimate-units.test.ts,project,codex-agent,"2026-10-29T02:25:33.444Z",local_mutation,feat/estimate-unit-provenance
+  node --test --test-concurrency=1 --test-skip-pattern='seed 1620' test/estimate-units.test.ts,project,codex-agent,"2026-10-29T03:04:41.420Z",local_mutation,feat/estimate-unit-provenance
+docs[5]{path,scope}:
+  docs/estimate-packed-validation.json,project
+  docs/estimate-real-validation.json,project
+  docs/estimate-revert-validation.json,project
+  docs/estimate-units.md,project
+  README.md,project
+body: ""

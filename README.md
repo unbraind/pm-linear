@@ -674,3 +674,28 @@ removed after each read; the source's permissions never change. Membership is re
 returning; observed local edits, paging drift, malformed data or ambiguous
 provenance produce typed refusals. Provider observations are not an atomic
 cross-issue snapshot. See [validation and limits](docs/dependency-closure.md).
+
+### Estimate units and team scales
+
+Linear estimates remain **native points**. Imports select the issue's immutable
+team ID, estimate scale, zero setting and extended-scale setting and retain them
+alongside `estimate:<points>`. They never populate `estimated_minutes` from points.
+An explicit scale-bound lookup can expose minutes in the inspection receipt:
+
+```bash
+pm linear estimates --team ENG --json
+pm linear import --team ENG --estimate-mapping conversion.json
+pm linear estimates --team ENG --scale reviewed-team.json --limit 20
+```
+
+`linear estimates` is read-only. Counts cover the complete SDK corpus, while the
+row sample defaults to 20 (maximum 100). `scale_changed` and `mapping_stale` identify
+invalidated conversions; unrelated teams remain unaffected. Missing conversions
+return `minutes: null` and retain usable native points. JSON and default TOON
+share the same typed result. See [the schema, SDK example and retry guarantees](docs/estimate-units.md).
+
+### Without git
+
+Estimate inspection, import, sync and export work in ordinary initialized tracker
+directories without a git executable. Linear network operations require provider
+credentials; `linear estimates --scale` and export previews work offline.
