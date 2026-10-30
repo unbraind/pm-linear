@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Preserve team estimate scales and explicit effort conversions ([pm-linear-estimate-unit-provenance](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-estimate-unit-provenance.toon))
+
+### Fixed
+
+- Restore generated notes for prepared 2026.10.29 ([pm-linear-release-notes-1029](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-release-notes-1029.toon))
+
 ## 2026.10.29 - 2026-10-29
 
 ### Added
@@ -11,6 +21,16 @@
 ### Other
 
 - Verify the 2026-10-25 SDK adoption audit disposition ([pm-linear-292r](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-292r.toon))
+
+## 2026.10.26 - 2026-10-26
+
+### Added
+
+- Read the bounded missing Linear prerequisite frontier ([pm-linear-focused-closure](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-focused-closure.toon))
+
+### Other
+
+- Point the npm homepage at the package catalog and link the author ([pm-linear-1y6b](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1y6b.toon))
 
 ## 2026.10.25 - 2026-10-25
 

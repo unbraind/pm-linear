@@ -2,11 +2,13 @@ id: pm-linear-release-notes-1029
 title: Restore generated notes for prepared 2026.10.29
 description: "Repair delivered item lifecycle and release attribution, then regenerate the exact prepared-version changelog without changing version or workflows."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-29T18:34:12.836Z"
-updated_at: "2026-10-29T18:45:16.808Z"
+updated_at: "2026-10-30T09:26:54.383Z"
+closed_at: "2026-10-30T09:26:53.608Z"
+completed_at: "2026-10-29T21:04:48.000Z"
 author: codex-agent
 comments[3]{created_at,author,text}:
   "2026-10-29T18:34:43.960Z",codex-agent,Read-only audit found the prepared 2026.10.29 ahead of npm with no tag or matching changelog section. Verified merged delivery PRs and successful release CI. Their owning items remain in_progress. Append-only pinned CLI lifecycle and release updates are explicitly authorized for recovery; unrelated open follow-ups remain open.
@@ -18,4 +20,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run changelog:check",project,codex-agent,"2026-10-29T18:35:37.646Z",local_mutation,fix/changelog-2026-10-29
 docs[1]{path,scope}:
   README.md,project
+close_reason: "Delivered by PR #192 (6a1dda0): Restore generated notes for prepared 2026.10.29 release"
 body: ""
