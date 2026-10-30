@@ -43,7 +43,11 @@ native data rather than being guessed into a duration.
 `--estimate-mapping` accepts the closed JSON shape shown above on `linear sync`,
 `linear import` and `linear-sync import`. A supplied mapping must match every
 selected issue's team and current scale revision before any item write. Subsequent
-imports preserve the previous same-team mapping. If that mapping becomes stale,
+imports preserve the previous same-team mapping. Exception: an import with
+`--map estimate=ignore` writes no estimate contract, and imports replace the item's
+tags, so the saved mapping is removed and a later normal import cannot recover it.
+Keep the mapping file and pass it again with `--estimate-mapping` after such an
+import. If that mapping becomes stale,
 it remains evidence and yields no minutes until explicitly replaced. Moving an
 issue to a different team drops that team's old mapping. An explicit zero remains
 zero; an unestimated issue remains null and never becomes a default point or time.

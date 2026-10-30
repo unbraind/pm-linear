@@ -32,11 +32,11 @@ try {
 
   const archive = join(root, "legacy-audit"); await mkdir(archive);
   // The isolation copy visits the tracker root and every descendant. Regular hard-linked audit records count as distinct
-  // entries; ext4 caps one inode at 65,000 links, so each seed carries at most 32,768. Fill to exactly the limit.
+  // entries; Windows caps one file at 1,023 links (ext4 at 65,000), so each seed carries at most 1,000. Fill to exactly the limit.
   const entries = async () => 1 + (await readdir(root, { recursive: true })).length;
   for (let part = 0, total = await entries(); total < 65536; part++) {
     const seed = join(archive, `seed-${part}.json`); await writeFile(seed, "{}\n"); total++;
-    const links = Math.min(32768, 65536 - total);
+    const links = Math.min(1000, 65536 - total);
     // Two operations at a time keep construction within host limits.
     for (let index = 0; index < links; index += 2) await Promise.all([index, index + 1].filter((entry) => entry < links).map((entry) => link(seed, join(archive, `record-${part}-${entry}.json`))));
     total += links;
