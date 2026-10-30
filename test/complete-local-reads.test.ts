@@ -78,7 +78,7 @@ test("complete local corpus exports and matches beyond 10,000 real SDK items", a
   assert.equal(exported.exported, 10_002);
   assert.ok(exported.payloads.some((item) => item.description.includes("Unabridged local body 10000")));
   const sync = await syncLinearIssues(
-    { team: "FIXTURE", limit: 1, atomic: true, dryRun: true }, root,
+    { team: "FIXTURE", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root,
     { fetchIssues: async () => [issue("10000")] },
   );
   assert.equal(sync.created, 0);
@@ -97,13 +97,14 @@ for (const atomic of [false, true]) {
         createMode: "progressive", allowDuplicate: true,
       });
     }
-    const options = { team: "FIXTURE", limit: 3, atomic };
+    const options = { team: "FIXTURE", limit: 3, atomic, forwardOnly: true };
     const first = await syncLinearIssues(options, root, { fetchIssues: async () => issues });
     assert.equal(first.created, 1);
     assert.equal(first.updated, 2);
     const second = await syncLinearIssues(options, root, { fetchIssues: async () => issues });
     assert.equal(second.created, 0);
-    assert.ok(second.updated === 3 || second.recoveredItems === 3);
+    assert.equal(second.updated, 0, "a replay omits unchanged fields instead of resubmitting updates or a frozen journal");
+    assert.equal(second.importResults?.filter((row) => row.action === "unchanged").length, 3);
     const corpus = await pm.listAllComplete({ includeBody: true });
     assert.equal(corpus.count, 3);
     assert.equal(corpus.items.find((item) => item.id === "fixture-closed")?.status, "open");
@@ -172,7 +173,7 @@ test("every degraded real complete-read envelope refuses before reconciliation w
     await t.test(degradation.name, async () => {
       const envelope = structuredClone(corpus) as unknown as Record<string, unknown>;
       await assert.rejects(() => syncLinearIssues(
-        { team: "FIXTURE", limit: 1, atomic: true }, root,
+        { team: "FIXTURE", limit: 1, atomic: true, forwardOnly: true }, root,
         {
           readItems: () => certifyPmItems(degradation.change(envelope)),
           fetchIssues: async () => { providerReads++; return [issue("new")]; },
@@ -223,5 +224,5 @@ test("missing resolvable SDK produces a recovery hint on a standalone installed 
   `, target], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /CommandError: Complete local item read refused/);
-  assert.match(run.stdout, /Upgrade @unbrained\/pm-cli to >=2026.10.4/);
+  assert.match(run.stdout, /Upgrade @unbrained\/pm-cli to >=2026.10.24/);
 });

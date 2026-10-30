@@ -2,13 +2,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import http from "node:http";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { canonicalDocument, commitItemMutations, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings, type ItemMetadata, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
+import { acquireLock, canonicalDocument, parseTags, normalizeItemId, locateItem, PmClient, readLocatedItem, readSettings } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { buildItemPlan, itemToLinearPayload, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type LinearOwnershipOptions, type LinearOwnershipSnapshot } from "../index.ts";
+import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type SyncResult, type LinearOwnershipOptions, type LinearOwnershipSnapshot, type PreparedLinearImport } from "../index.ts";
+
+import { referenceLifecycle } from "./native-reference.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -43,13 +45,16 @@ async function fixture(t: TestContext) {
       await state.onRead?.();
       res.writeHead(state.status, { "Content-Type": "application/json", Connection: "close" });
       const provider = state.issue as ReturnType<typeof issue>;
+      // A GraphQL server cannot return team fields that the caller omitted.
+      const selected = structuredClone(state.issue) as LinearIssue;
+      if (selected && typeof selected === "object" && !/\bteam\s*\{/.test(request.query)) delete selected.team;
       const pageInfo = { hasNextPage: false, endCursor: null };
       const data = request.query.includes("LinearSchema") ? {
         teams: { nodes: [{ id: "team", key: "ENG", cyclesEnabled: false, triageEnabled: false,
           issueEstimationType: "notUsed", defaultIssueState: null,
           states: { nodes: [{ id: "state", ...provider.state }], pageInfo } }] },
         issueLabels: { nodes: provider.labels.nodes.map((label, index) => ({ id: `label-${index}`, name: label.name })), pageInfo },
-      } : request.query.includes("issues(") ? { issues: { nodes: [state.issue], pageInfo } } : { issue: state.issue };
+      } : request.query.includes("issues(") ? { issues: { nodes: [selected], pageInfo } } : { issue: selected };
       res.end((request.query.includes("issues(") ? state.rawIssuesBody : undefined) ?? state.rawBody ?? JSON.stringify({ data, errors: state.errors }));
     })(); });
   });
@@ -127,6 +132,70 @@ test("CLI agrees with SDK in JSON and native TOON dispatch, including baseline f
   const invalid = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: {}, global: {} });
   assert.equal(invalid.exitCode, 2);
   assert.equal(invalid.errorCode, "invalid_input");
+});
+
+test("ownership shares every import writer and preserves team provenance and saved mappings", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const team = { id: "team", key: "ENG", issueEstimationType: "fibonacci", issueEstimationAllowZero: false, issueEstimationExtended: false };
+  const conversion = { teamId: team.id, scaleRevision: linearEstimateScaleRevision(team), entries: [{ points: 5, minutes: 240 }] };
+  const file = join(root, "estimate-mapping.json"); await writeFile(file, JSON.stringify(conversion));
+  for (const units of [true, false]) for (const atomic of [false, true]) for (const route of ["sdk", "sync", "linear", "linear-sync"]) {
+    const provider = issue(); provider.estimate = 5;
+    if (units) provider.team = { ...team, issueEstimationExtended: atomic };
+    state.issue = provider;
+    // Only the initial unit import supplies a mapping. Every later projection
+    // must preserve the saved map, including a map made stale by a scale change.
+    const declare = units && !atomic && route === "sdk";
+    if (route === "sdk") await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true, ...(declare ? { estimateMapping: conversion } : {}) }, root);
+    else {
+      const args = { team: "ENG", atomic, forwardOnly: true, skipPreflightNetwork: true, ...(declare ? { estimateMapping: file } : {}) };
+      const imported = route === "sync" ? await harness.runCommand({ command: "linear sync", pmRoot: root, options: args, global: { json: true } }) : await harness.runImporter({ importer: route, pmRoot: root, options: args, global: { json: true } });
+      assert.equal(imported.exitCode ?? 0, 0, `${units}/${atomic}/${route}`);
+    }
+    const before = await durable(root);
+    const observation = (await previewLinearOwnership(options, root)).observation;
+    assert.ok(observation.fields.every((field) => field.local === field.provider), `${units}/${atomic}/${route}: projection must equal SDK-read imported state`);
+    const base = join(root, "ownership-base.json"); await writeFile(base, JSON.stringify(observation));
+    for (const global of [{ json: true }, {}]) {
+      const replay = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { ...options, base }, global });
+      assert.equal(replay.exitCode ?? 0, 0);
+      assert.ok((replay.result as { fields: Array<{ decision: string }> }).fields.every((field) => field.decision === "unchanged"), `${units}/${atomic}/${route}`);
+    }
+    await rm(base);
+    assert.deepEqual(await durable(root), before, "ownership projection must not modify source bytes");
+    if (units) assert.deepEqual(readLinearEstimate((await pm.get(options.item)).item.tags ?? []).contract?.mapping, conversion);
+  }
+});
+
+test("ownership retains isolated legacy projection for every custom terminal role", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  await syncLinearIssues({ team: "OWNERSHIP", limit: 1, atomic: true, forwardOnly: true }, root, { fetchIssues: async () => [issue()] });
+  const original = hashes(await stateFromSdk(root, options.item));
+  for (const [name, role] of [["retired-custom", "terminal_done"], ["abandoned-custom", "terminal_canceled"]]) {
+    await pm.schemaAddStatus(name, { role: [role] });
+    await pm.update(options.item, { status: name, closeReason: "Synthetic native terminal state" });
+    const provider = issue(); provider.state = { name: "Provider finished", type: "completed" }; state.issue = provider;
+    const match = (await pm.get(options.item, { depth: "deep" })).item;
+    const before = await durable(root);
+    const reference = await mkdtemp(join(tmpdir(), "linear-terminal-reference-"));
+    try {
+      await cp(root, reference, { recursive: true });
+      const entry = { ...buildItemPlan(provider, {}), identifier: provider.identifier, linearId: provider.id, match };
+      await applyOwnershipReference(reference, entry);
+      const expected = hashes(await stateFromSdk(reference, options.item));
+      const report = await previewLinearOwnership(options, root);
+      for (const field of report.observation.fields) assert.equal(field.provider, expected.get(field.field), `${role}/${field.field}`);
+      assert.deepEqual(await durable(root), before, "copied repeat closure must never touch source state");
+    } finally { await rm(reference, { recursive: true, force: true }); }
+  }
+  // A copied committed journal for an older input must not replay blindly or
+  // collide with the projection-only permission adapter after native edits.
+  state.issue = issue();
+  const before = await durable(root);
+  const replay = await previewLinearOwnership(options, root);
+  for (const field of replay.observation.fields) assert.equal(field.provider, original.get(field.field), `historical replay/${field.field}`);
+  assert.deepEqual(await durable(root), before);
 });
 
 test("strict dense schemas reject extreme inputs before side effects; old content is allowed", async (t) => {
@@ -232,10 +301,9 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     const base = random() < 0.4 ? history[Math.floor(random() * history.length)] : baseline;
     const before = await stateFromSdk(root, options.item);
     const local = hashes(before);
-    const settings = await readSettings(root);
     // The oracle reads the exact plan produced by real atomic dry-run import,
     // including real provider schema negotiation and complete SDK local reads.
-    const imported = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    const imported = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root);
     assert.equal(imported.prepared?.length, 1);
     const plan = imported.prepared![0];
     assert.ok(Object.keys(plan).every((key) => ["identifier", "linearId", "match"].includes(key) || LINEAR_OWNERSHIP_FIELDS.some((field) => field === key)), "every native field emitted by import must be represented in the preview schema");
@@ -246,10 +314,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     let remote: ReturnType<typeof hashes>;
     try {
       await cp(root, reference, { recursive: true });
-      const mutations: BulkItemMutation[] = buildAtomicImportMutations("ENG", plan, settings.id_prefix, normalizeItemId).mutations
-        .map((mutation) => ({ ...mutation, options: { ...mutation.options, force: true } }));
-      const revision = createHash("sha256").update(JSON.stringify(before)).update(String(sequence)).digest("hex");
-      await commitItemMutations({ pmRoot: reference, transactionId: `reference-${revision}`, author: "fixture", mutations });
+      await applyOwnershipReference(reference, plan);
       remote = hashes(await stateFromSdk(reference, options.item));
     } finally { await rm(reference, { recursive: true, force: true }); }
     const report = await previewLinearOwnership({ ...options, base }, root);
@@ -337,7 +402,7 @@ test("review class: preview verdicts match the real import status mapping", asyn
   (state.issue as LinearIssue).state = { name: "Blocked", type: "unstarted" };
   const report = await previewLinearOwnership({ ...options, base }, root);
   assert.equal(report.fields.find((field) => field.field === "status")?.decision, "conflict");
-  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root);
   assert.equal(dry.prepared?.[0].status, "blocked");
   const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
   const file = join(root, "acknowledged.json"); await writeFile(file, JSON.stringify(base));
@@ -353,14 +418,14 @@ test("review class: nullable and omitted provider objects round-trip through imp
   for (const type of ["duplicate", "cancelled", "mystery"]) {
     state.issue = { ...native, state: { name: "Canceled", type } };
     const report = await previewLinearOwnership(options, root);
-    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root);
     assert.equal(dry.prepared?.[0].status, "closed");
     assert.equal(report.ok, true);
   }
   for (const cycle of [undefined, null, { name: null }, { name: "" }, { name: " Sprint Ω " }]) {
     state.issue = { ...native, cycle, assignee: undefined, project: undefined, customer: undefined };
     const report = await previewLinearOwnership(options, root);
-    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+    const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root);
     assert.equal(dry.prepared?.length, 1);
     assert.equal(report.ok, true);
     assert.deepEqual(dry.prepared?.[0].tags, buildItemPlan(state.issue as LinearIssue, {}).tags);
@@ -428,7 +493,7 @@ test("review class: every source consumer rejects non-object envelopes before de
       () => negotiateLinearSchema({ team: "ENG" }, root),
       () => captureLinearThread({ itemId: options.item, threadId: "root" }, root),
       () => fetchLinearDependencyClosure({ items: [options.item] }, root),
-      () => syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root),
+      () => syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root),
     ]) {
       await assert.rejects(action(), (error: unknown) => {
         assert.ok(error instanceof Error && !(error instanceof TypeError));
@@ -439,14 +504,14 @@ test("review class: every source consumer rejects non-object envelopes before de
     for (const global of [{ json: true }, {}]) {
       for (const [command, commandOptions] of [
         ["linear schema", { team: "ENG" }], ["linear capture", { item: options.item, thread: "root" }],
-        ["linear closure", { items: options.item }], ["linear sync", { team: "ENG", atomic: true, dryRun: true }],
+        ["linear closure", { items: options.item }], ["linear sync", { team: "ENG", atomic: true, forwardOnly: true, dryRun: true }],
       ] as const) {
         const result = await harness.runCommand({ command, pmRoot: root, options: commandOptions, global });
         assert.equal(result.exitCode, 2, command); assert.equal(result.errorCode, "source_invalid", command);
         assert.match((result.result as { field: string }).field, /^response/, command);
       }
       for (const importer of ["linear", "linear-sync"]) {
-        const result = await harness.runImporter({ importer, pmRoot: root, options: { team: "ENG", atomic: true, dryRun: true }, global });
+        const result = await harness.runImporter({ importer, pmRoot: root, options: { team: "ENG", atomic: true, forwardOnly: true, dryRun: true }, global });
         assert.equal(result.exitCode, 2, importer); assert.equal(result.errorCode, "source_invalid", importer);
         assert.equal((result.result as { field: string }).field, "response");
       }
@@ -495,7 +560,7 @@ test("review class: ambiguous current identities never become import targets in 
   try {
     console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
     for (const atomic of [true, false]) {
-      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, dryRun: atomic }, root);
+      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true, dryRun: atomic }, root);
       assert.equal(result.created, 0); assert.equal(result.updated, 0); assert.equal(result.skipped, 1);
       if (atomic) assert.deepEqual(result.prepared, []);
     }
@@ -553,7 +618,7 @@ test("review class: import validates every selected page container before planni
   const before = await pm.listAllComplete({ includeBody: true });
   for (const issues of [1, [], { nodes: {} }, { nodes: [null] }, { nodes: [], pageInfo: 1 }, { nodes: [], pageInfo: { hasNextPage: "yes" } }, { nodes: [], pageInfo: { endCursor: 42 } }]) {
     state.rawIssuesBody = JSON.stringify({ data: { issues } });
-    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root), (error: unknown) => {
+    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root), (error: unknown) => {
       assert.ok(error instanceof Error && !(error instanceof TypeError));
       assert.equal((error as { code?: string }).code, "source_invalid");
       assert.match((error as { field?: string }).field ?? "", /^issues/); return true;
@@ -565,8 +630,8 @@ test("review class: import validates every selected page container before planni
 
 test("review class: legacy updates apply empty mapped values just like the shared dry-run plan", async (t) => {
   const { root, pm, state, options } = await fixture(t);
-  const bin = join(root, "bin");
-  await mkdir(bin);
+  const bin = await mkdtemp(join(tmpdir(), "linear-empty-bin-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
   await symlink(process.execPath, join(bin, "node"));
   await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
   process.env.PATH = bin;
@@ -575,7 +640,7 @@ test("review class: legacy updates apply empty mapped values just like the share
   const before = await stateFromSdk(root, options.item);
   const provider = state.issue as LinearIssue;
   provider.description = ""; provider.labels = { nodes: [] }; provider.cycle = null; provider.estimate = null; provider.customer = null;
-  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, dryRun: true }, root);
+  const dry = await syncLinearIssues({ team: "ENG", limit: 1, atomic: true, forwardOnly: true, dryRun: true }, root);
   assert.equal(dry.prepared?.[0].body, ""); assert.deepEqual(dry.prepared?.[0].tags, []);
   const result = await syncLinearIssues({ team: "ENG", limit: 1 }, root);
   assert.equal(result.updated, 1); assert.equal(result.skipped, 0);
@@ -638,7 +703,8 @@ test("review class: every tag producer preserves literal SDK control words and d
   const savedAuthor = process.env.PM_AUTHOR;
   process.env.PM_AUTHOR = "fixture";
   t.after(() => { if (savedAuthor === undefined) delete process.env.PM_AUTHOR; else process.env.PM_AUTHOR = savedAuthor; });
-  const bin = join(root, "bin"); await mkdir(bin);
+  const bin = await mkdtemp(join(tmpdir(), "linear-path-bin-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
   await symlink(process.execPath, join(bin, "node"));
   await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
   process.env.PATH = bin;
@@ -663,7 +729,7 @@ test("review class: every tag producer preserves literal SDK control words and d
     const expected = canonicalDocument({ metadata: { ...(await stateFromSdk(root, options.item)).metadata, tags: [name] }, body: "" }, { schema: settings.schema }).metadata.tags ?? [];
     for (const atomic of [true, false]) {
       await pm.update(options.item, { tags: '["peer"]', parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic }, root);
+      const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true }, root);
       assert.equal(result.updated, 1); assert.equal(result.skipped, 0);
       assert.deepEqual((await stateFromSdk(root, options.item)).metadata.tags ?? [], expected, `${atomic}/${name}`);
     }
@@ -675,12 +741,93 @@ test("review class: every tag producer preserves literal SDK control words and d
     const actor = new PmClient({ pmRoot: root, cwd: root, noExtensions: true, author: atomic ? "pm-linear" : "fixture" });
     await actor.focus(options.item);
     provider.id = `created-${atomic}`; provider.identifier = `NEW-${atomic}`; provider.labels = { nodes: [{ name: "none" }] };
-    const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic }, root);
+    const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true }, root);
     assert.equal(result.created, 1); assert.equal(result.skipped, 0);
     const index = indexItemsByLinearId((await pm.listAllComplete({ includeBody: true })).items);
     assert.ok(Object.hasOwn(index, provider.id));
     const actual = (await stateFromSdk(root, index[provider.id].id!)).metadata;
     assert.deepEqual(actual.tags, ["none"]);
     for (const field of ["parent", "goal", "objective", "sprint", "release"] as const) assert.equal(actual[field], undefined, `${atomic}/${field}`);
+  }
+});
+
+/** Independent field-effect oracle uses native SDK persistence and omits repeated lifecycle transitions. */
+async function applyOwnershipReference(root: string, plan: PreparedLinearImport) {
+  const pm = new PmClient({ pmRoot: root, noExtensions: true, author: "fixture" });
+  const current = (await pm.get(plan.match!.id!, { depth: "deep" })).item;
+  const { status, tags, deadline, assignee, identifier, linearId, match, ...fields } = plan;
+  const lifecycle = await referenceLifecycle(root, current, status, assignee, `Linear issue ${identifier} terminal`);
+  await pm.update(plan.match!.id!, { ...fields, tags: JSON.stringify(tags), force: true, ...lifecycle,
+    ...(deadline ? { deadline } : {}), unset: [...(!deadline ? ["deadline"] : []), ...lifecycle.unset] });
+}
+
+
+test("projection refuses every skipped writer instead of certifying an old provider image", async (t) => {
+  const { root, pm, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  const base = (await previewLinearOwnership(options, root)).observation;
+  (state.issue as LinearIssue).title = "Provider edit hidden by a peer lease";
+  const before = (await pm.get(options.item, { depth: "deep" })).item;
+  const release = await acquireLock(root, options.item, 600, "peer");
+  try {
+    await assert.rejects(previewLinearOwnership({ ...options, base }, root), refused("projection_failed"));
+    for (const global of [{ json: true }, {}]) {
+      const result = await harness.runCommand({ command: "linear ownership", pmRoot: root, options: { item: options.item }, global });
+      assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "projection_failed");
+      assert.notEqual((result.result as { ok?: boolean }).ok, true);
+    }
+    assert.deepEqual((await pm.get(options.item, { depth: "deep" })).item, before);
+    await assert.rejects(acquireLock(root, options.item, 600, "competitor"), /lock|locked/i);
+  } finally { await release(); }
+  const retry = await previewLinearOwnership({ ...options, base }, root);
+  assert.equal(retry.fields.find((row) => row.field === "title")?.decision, "provider_edit");
+});
+
+test("every simulated import route preserves dry-run receipts and durable source bytes", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
+  for (const mode of ["update", "empty", "filtered"] as const) {
+    (state.issue as LinearIssue).title = "Simulated provider title";
+    state.rawIssuesBody = mode === "empty" ? JSON.stringify({ data: { issues: { nodes: [], pageInfo: { hasNextPage: false } } } }) : undefined;
+    const commandOptions = { team: "ENG", atomic: true, forwardOnly: true, dryRun: true, ...(mode === "filtered" ? { cycle: "missing" } : {}) };
+    await new PmClient({ pmRoot: root, noExtensions: true }).listAllComplete({ includeBody: true });
+    await negotiateLinearSchema({ team: "ENG" }, root);
+    const before = await durable(root);
+    for (const global of [{ json: true }, {}]) for (const route of ["sync", "linear", "linear-sync"]) {
+      const result = route === "sync"
+        ? await harness.runCommand({ command: "linear sync", pmRoot: root, options: commandOptions, global })
+        : await harness.runImporter({ importer: route, pmRoot: root, options: commandOptions, global });
+      assert.equal(result.exitCode ?? 0, 0, `${mode}/${route}`);
+      const receipt = result.result as SyncResult;
+      assert.equal(receipt.dryRun, true, `${mode}/${route} simulation mode`);
+      assert.equal(receipt.atomic, false); assert.equal(receipt.importMode, "forward-only");
+      assert.equal(receipt.updated, mode === "update" ? 1 : 0);
+      assert.deepEqual(await durable(root), before, `${mode}/${route} writes no source bytes`);
+    }
+    const direct = await syncLinearIssues({ ...commandOptions, limit: 10, cycleFilter: commandOptions.cycle }, root);
+    assert.equal(direct.dryRun, true); assert.deepEqual(await durable(root), before);
+  }
+  assert.ok(options.item);
+});
+
+test("read-only tracker projections write only in writable owned mirrors", async (t) => {
+  const { root, state, options } = await fixture(t);
+  const base = (await previewLinearOwnership(options, root)).observation;
+  const before = await durable(root);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  try {
+    for (const entry of entries) await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o555 : 0o444);
+    await chmod(root, 0o555);
+    (state.issue as LinearIssue).priority = 1;
+    await assert.doesNotReject(async () => {
+      const result = await previewLinearOwnership({ ...options, base }, root);
+      assert.equal(result.fields.find((row) => row.field === "priority")?.decision, "provider_edit");
+    });
+    assert.deepEqual(await durable(root), before, "read-only source bytes remain unchanged");
+    assert.equal((await stat(root)).mode & 0o777, 0o555);
+    for (const entry of entries) assert.equal((await stat(join(entry.parentPath, entry.name))).mode & 0o777, entry.isDirectory() ? 0o555 : 0o444);
+  } finally {
+    await chmod(root, 0o700);
+    for (const entry of entries) await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o700 : 0o600);
   }
 });

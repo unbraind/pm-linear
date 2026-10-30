@@ -63,17 +63,17 @@ current results and CI status are recorded in the PM item and PR.
 
 An inherited sync issue was independently reproduced and recorded as
 [pm-linear-atomic-replay-revision](../.agents/pm/issues/pm-linear-atomic-replay-revision.toon):
-replaying an atomic import can report a recovered content-keyed transaction
-while the current SDK target differs after a peer edit. Reproduce with
-`node test/ownership-inherited-replay.ts`. This observational feature does not
-repair or certify inherited sync recovery.
+the earlier atomic importer could replay a content-only journal after peer edits.
+The estimate-provenance work now replaces that importer with the shared forward-only
+coordinator. Old pending journals remain audit records; imports do not resume them.
+The item remains open for orchestrator verification.
 
 
 ## Re-review round 1: one mapping and complete trust validation
 
 | General rule | Package-wide disposition |
 | --- | --- |
-| Compare through the write-path mapper | Ownership calls `buildItemPlan`, as atomic and legacy import do. SDK atomic dry-run results expose `prepared` plans from the actual writer preparation; CLI receipts keep their compact counts. SDK operation read-back handles input parsing, status aliases, lifecycle effects and native field storage; export's calendar-date conversion stays confined to export. Omitted optional values retain the current target, as upserts do. Legacy updates now send empty mapped bodies and tags just as atomic updates do. |
+| Compare through the write-path mapper | Ownership calls `buildItemPlan`, as every import does. SDK dry-run results expose `prepared` plans from the actual writer preparation; CLI receipts keep their compact counts. SDK operation read-back handles input parsing, status aliases, lifecycle effects and native field storage; export's calendar-date conversion stays confined to export. Absent mapped assignees/deadlines clear through SDK unset options. Empty bodies and tags are applied consistently across aliases. Unchanged fields and status are omitted. |
 | Match documented nullable API fields | One issue-field schema supplies import and ownership variants. Cycle names may be null or absent, and optional objects may be omitted. Legacy string-valued workflow types remain accepted by the shared mapper. Unsupported values produce a typed `source_invalid` naming the field. The [Linear cycle schema](https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/Cycle) defines `name` as nullable. |
 | Validate before trusting any baseline row | All rows are inspected before the authority map is returned. Every occurrence of an invalid or duplicated known field is quarantined, in either order. Unidentifiable corrupt rows make the supplied baseline unknown; the item still produces a review plan. Mapping revision `linear-import-v3-sdk-projection` prevents old-policy observations becoming authority under the corrected mapper. |
 | Validate envelopes before dereference | Every HTTP consumer passes through the same transport schema. Null/scalar/array bodies, invalid data/error envelopes and invalid JSON produce sanitized typed refusals. Schema, capture, closure, import, export and validation probes are covered. Field diagnostics use schema-owned paths and never provider values. |
@@ -89,7 +89,7 @@ Both import aliases advertise one shared complete flag definition, so strict
 packed CLI parsing reaches the same handlers as direct SDK dispatch.
 
 The unchanged 500-sequence test now compares random provider/local/baseline
-triples against **real atomic dry-run import plans**, using an HTTP fixture for
+triples against **real forward-only dry-run import plans**, using an HTTP fixture for
 schema and issue reads and SDK read-back for local state. Provider workflow
 names/types, priorities, estimates, nullable/omitted cycles and replayed inputs
 vary. No hand-written status mapping or normalization supplies its oracle.
@@ -125,41 +125,50 @@ and earlier-head CI successes are excluded.
 
 ## Literal provider values and the SDK input boundary
 
-A persistence canonicalizer cannot undo earlier command-input parsing. The
-atomic mutation options and the non-atomic typed SDK writer now use the same
-`linearImportOptions` producer; ownership and both writers share
-`buildItemPlan` and its representability guard. The non-atomic path no longer
-launches a CLI subprocess or places provider strings in argv.
+A persistence canonicalizer cannot undo earlier command-input parsing. The shared
+forward-only coordinator uses the `linearImportOptions` producer; ownership and
+every import entrypoint share `buildItemPlan` and its representability guard.
+Imports do not launch a CLI subprocess or place provider strings in argv.
 
-Ownership now executes the shared atomic update/close rows through a
-SDK mutation coordinator in an owned disposable copy, scoped through
+Ownership executes the actual `syncLinearIssues` import coordinator in an
+owned disposable copy, scoped through
 `runWithActiveExtensions({ path: ownedCopy, noExtensions: true }, ...)`,
 then reads that copy back through the SDK. It does not estimate SDK parsing from raw
 options. This also observes lifecycle effects such as cancellation clearing
-assignments. Copied ownership/closure permissions are bypassed only in the
-throwaway projection; the result never authorizes a real write. The source
+assignments. Legacy inputs retain a copy-only force option for native authorization checks;
+unchanged statuses are still omitted. The shared coordinator pairs every target
+with an SDK revision and does not replay copied journals. A copied SDK policy or
+lease refusal stops that projection. A successful projection never authorizes a real write. The source
 view is compared again before it contributes any hashes, and no staged
 metadata, history or hooks reach the source tracker or provider.
 
+Import and ownership queries share one selection of every consumed issue field,
+including immutable team identity and all estimate-scale flags. The coordinator
+uses the same unit-aware or legacy input mapping as apply, preserving the existing
+same-team conversion table, including stale tables. An unchanged imported issue
+therefore has equal local/provider hashes, and acknowledging that observation
+then replaying it reports every field as `unchanged`. The projection mapping
+revision changed; older observations must be reviewed and acknowledged again.
+
 The pinned SDK still interprets body/description `-` as stdin and assignment
-`none`/`null` as clear controls. Its bulk row options have no public literal
+`none`/`null` as clear controls. Its public mutation options have no literal
 switch. Internal stdin-marker helpers are not imported. Until
 [pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614) supplies a supported
 literal path, these values produce typed `LinearImportRefusal` with
 `code: "unrepresentable_value"`, a native `field`, a remedy and exit code 2.
 Whitespace/case variants of controls refuse too. Empty native titles and
 non-calendar/relative deadline values also refuse before writes. A nullable or
-empty provider assignment is still an omitted upsert field, preserving its
-current local value. Local historical data is read and exported normally.
+empty provider assignment clears the imported assignment through the SDK unset
+option. Local historical data is read and exported normally.
 
 No caller stdin is consumed. The complete selected batch is checked before
-its first item write, including direct SDK atomic calls. JSON and native TOON
+its first item write, including the deprecated SDK atomic-name compatibility entrypoint. JSON and native TOON
 retain the code and field through both import aliases and ownership commands.
 Body strings such as `none`, `null`, `@file`, `--` and `--force`, and leading-dash
 titles, remain literal. Labels use the SDK JSON-array input. Captured comments
 use structured SDK JSON notes; export sends typed JSON GraphQL variables.
 
-The additional seeded test performs 500 real imports across both writers,
+The additional seeded test performs 500 real imports across legacy and unit-aware inputs,
 reads every result back through the SDK, checks accepted literal bytes and
 relationships, and compares acknowledged ownership observations with stored
 state. It also mixes typed refusals with the writes, and a subprocess test
@@ -174,9 +183,44 @@ field effects still come from the SDK coordinator. Deadline hashes now use
 native SDK timestamps on both sides, so a local time change cannot be hidden
 by export-only calendar-date conversion.
 
-The final SDK 2026.10.24 packed artifact passed project-local, npm global,
+Earlier literal-boundary validation on SDK 2026.10.24 passed project-local, npm global,
 Bun global, npx and bunx acceptance. Each mode made 123 read requests,
 returned a 3302-byte host JSON receipt, and passed 28 literal-value plus
 14 malformed-source dispatch checks across JSON and TOON. The public-copy
 run measured six reads and one same-field conflict across eight fields;
 both the immutable source and derived tracker stayed unchanged during previews.
+
+Ownership now projects the shared forward-only coordinator for every input shape.
+It does not execute an atomic compatibility override or rollback journal in its
+isolated copy. Mapping revision v5 requires a fresh acknowledgement. Completed
+status replays omit the unchanged status field, matching production imports.
+
+
+## Projection outcomes and simulation receipts
+
+The isolated writer's outcome is part of the ownership contract. A skipped,
+unconfirmed, missing or error-bearing target refuses the observation with typed
+`projection_failed` and a retry remedy. Reading the old item after a refused
+write does not establish a provider projection. The source lease stays owned by
+its peer; retry after it is released computes the actual provider edit.
+
+All live dry-run routes retain `dryRun: true`, including empty pages and filtered
+batches. CLI summaries label counts as hypothetical. JSON and TOON dispatch the
+same result, and the simulation leaves item/history data unchanged. Seeded
+reference writers use the SDK status normalizer and registry lifecycle roles;
+raw provider aliases never decide whether a native transition repeats.
+
+
+Read-only source files are supported. The guarded copy makes its own regular
+files and directories writable before invoking SDK producers, so native history
+appends work there. Symbolic links are never chmod targets. Source bytes and
+permissions remain unchanged; copied filesystem permissions do not attest native
+authorization. The public-copy validation separately checks those invariants.
+
+
+The [current read-only public-copy receipt](ownership-forward-validation.json)
+measures 112 original items and a declared one-item synthetic link overlay.
+Six read requests exercise eight fields, one disjoint edit pair and one
+same-field conflict. Original and derived preview bytes and permissions stay
+unchanged. The provider is a synthetic HTTP fixture; no live Linear service is
+validated by this receipt.

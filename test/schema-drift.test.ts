@@ -130,7 +130,7 @@ for (const change of ["deleted label", "renamed label", "renamed state", "state 
     if (change === "override") statusMap = { Ready: "blocked" };
     state.data = data;
     const before = await durable(root);
-    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 10, atomic: true, schemaVersion: report.schemaVersion, statusMap }, root), (error: unknown) => {
+    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true, schemaVersion: report.schemaVersion, statusMap }, root), (error: unknown) => {
       refusal("schema_drift")(error);
       assert.ok((error as LinearSchemaRefusal).report?.schemaVersion);
       return true;
@@ -228,7 +228,7 @@ test("metadata change during issue fetch invalidates both atomic and legacy appl
   };
   for (const atomic of [true, false]) {
     state.data = metadata();
-    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 5, atomic }, root), refusal("schema_drift"));
+    await assert.rejects(syncLinearIssues({ team: "ENG", limit: 5, atomic, forwardOnly: true }, root), refusal("schema_drift"));
   }
   assert.deepEqual(await durable(root), before);
 });
@@ -236,7 +236,7 @@ test("metadata change during issue fetch invalidates both atomic and legacy appl
 test("unchanged negotiation reaches the existing atomic writer", async (t) => {
   const { root, pm, state, requests } = await fixture(t);
   state.issues = [{ id: "remote", identifier: "ENG-1", title: "Remote context", description: "Read-only provider fixture", priority: 2, state: { name: "Ready", type: "unstarted" }, labels: { nodes: [{ name: "bug" }] }, dueDate: null, cycle: null }];
-  const result = await syncLinearIssues({ team: "ENG", limit: 5, atomic: true }, root);
+  const result = await syncLinearIssues({ team: "ENG", limit: 5, atomic: true, forwardOnly: true }, root);
   assert.equal(result.created, 1);
   assert.equal(result.synced, 1);
   assert.equal((await pm.listAllComplete()).count, 2);
@@ -252,7 +252,7 @@ test("connection failures and unreadable local schema have typed remedies", asyn
 
 for (const fault of ["cursor loop", "settings drift", "team drift", "no states", "more label pages", "more state pages", "bounded output"] as const) {
   test(`discovery handles ${fault}`, async (t) => {
-    const { root, pm, state } = await fixture(t);
+    const { root, state } = await fixture(t);
     let count = 0;
     state.onRequest = () => {
       const data = metadata();

@@ -723,8 +723,9 @@ test("a connection refused (no server) surfaces a request-failure CommandError",
 // ---------------------------------------------------------------------------
 
 test("syncLinearIssues updates an existing linked item instead of creating a duplicate", async () => {
+  let title = "Initial title";
   const server = await startLinearServer(() => ({
-    body: issuesPage([issue("ENG-1", { title: "Updated title" })]),
+    body: issuesPage([issue("ENG-1", { title })]),
   }));
   const root = freshWorkspace();
   try {
@@ -732,9 +733,12 @@ test("syncLinearIssues updates an existing linked item instead of creating a dup
       { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
       async () => {
         await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        title = "Updated title";
         const result = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(result.created, 0, "second run updates, no new create");
         assert.equal(result.updated, 1);
+        const replay = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(replay.updated, 0); assert.equal(replay.importResults?.[0].action, "unchanged");
       },
     );
     assert.equal(itemCount(root), 1, "still one item - no duplicate");
@@ -838,11 +842,12 @@ function mutationOk(identifier: string): string {
 }
 
 test("sync writes and then updates optional deadline and assignee fields", async () => {
+  let dueDate = "2026-02-03", email = "ada@example.com";
   const server = await startLinearServer(() => ({
     body: issuesPage([
       issue("ENG-OPTIONAL", {
-        dueDate: "2026-02-03",
-        assignee: { email: "ada@example.com", name: "Ada" },
+        dueDate,
+        assignee: { email, name: "Ada" },
       }),
     ]),
   }));
@@ -853,8 +858,11 @@ test("sync writes and then updates optional deadline and assignee fields", async
       async () => {
         const first = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(first.created, 1);
+        dueDate = "2026-03-04"; email = "grace@example.com";
         const second = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
         assert.equal(second.updated, 1);
+        const replay = await syncLinearIssues({ team: "ENG", limit: 100 }, root);
+        assert.equal(replay.updated, 0); assert.equal(replay.importResults?.[0].action, "unchanged");
       },
     );
     assert.equal(itemCount(root), 1);
@@ -1071,41 +1079,64 @@ test("export --push resolves a cycle tag to a concrete cycleId on the create inp
 });
 
 test("export --push isolates a per-item mutation failure and continues the batch", async () => {
-  let mutations = 0;
+  let mutations = 0, failedRows = 2;
   const server = await startLinearServer(({ query }) => {
     if (query?.includes("teams(")) return { body: teamResponse() };
     mutations++;
-    return { body: JSON.stringify({ errors: [{ message: "boom" }] }) };
+    return { body: mutations <= failedRows ? JSON.stringify({ errors: [{ message: "boom" }] }) : mutationOk("ENG-created") };
   });
   const root = freshWorkspace();
   try {
-    for (const t of ["A", "B"]) {
-      const add = spawnSync(
-        PM_BIN,
-        ["--path", root, "create", "--title", `Item ${t}`, "--status", "open", "--priority", "2", "--description", "fresh"],
-        PM_SPAWN_OPTS,
-      );
+    for (const title of ["A", "B"]) {
+      const add = spawnSync(PM_BIN, ["--path", root, "create", "--title", `Item ${title}`, "--status", "open", "--priority", "2", "--description", "fresh"], PM_SPAWN_OPTS);
       assert.strictEqual(add.status, 0, `pm create failed: ${add.stderr}`);
     }
     const harness = await getHarness();
-    await withEnv(
-      { LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url },
-      async () => {
-        const { result } = await harness.runExporter({
-          exporter: "linear",
-          options: { push: true, team: "ENG" },
-          pmRoot: root,
-        });
-        const r = result as { created: number; skipped: number };
-        assert.equal(r.created, 0, "no item succeeded");
-        assert.equal(r.skipped, 2, "both items skipped, batch did not abort");
-      },
-    );
-    assert.equal(mutations, 2, "both items attempted despite the first failure");
-  } finally {
-    await server.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+    await withEnv({ LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url }, async () => {
+      for (failedRows of [2, 1, 0]) for (const json of [false, true]) {
+        mutations = 0;
+        const { result, exitCode } = await harness.runExporter({ exporter: "linear", options: { push: true, team: "ENG" }, pmRoot: root, global: { json } });
+        const receipt = result as { created: number; skipped: number; success: boolean; exit_code: number };
+        assert.equal(receipt.created, 2 - failedRows); assert.equal(receipt.skipped, failedRows);
+        assert.equal(receipt.success, failedRows === 0); assert.equal(receipt.exit_code ?? 0, failedRows ? 1 : 0);
+        assert.equal(exitCode ?? 0, failedRows ? 1 : 0, "every renderer preserves failed-row process status");
+        assert.equal(mutations, 2, "both items attempted despite earlier failure");
+      }
+    });
+  } finally { await server.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("identity export class: duplicate native provenance is retained for reads but never becomes a mutation plan or push", async () => {
+  let mutations = 0;
+  const server = await startLinearServer(({ query, variables }) => {
+    if (query?.includes("teams(")) return { body: teamResponse() };
+    mutations++; assert.notEqual(variables?.id, "remote-duplicate", "ambiguous target must never be submitted");
+    return { body: mutationOk("ENG-independent") };
+  });
+  const root = freshWorkspace();
+  try {
+    for (const title of ["Duplicate A", "Duplicate B", "Independent"]) {
+      const args = ["--path", root, "create", "--title", title, "--parent", "none"];
+      if (title.startsWith("Duplicate")) args.push("--description", "[linear] linear_id=remote-duplicate linear_url=https://linear.app/issue/ENG-duplicate");
+      const created = spawnSync(PM_BIN, args, PM_SPAWN_OPTS); assert.equal(created.status, 0, created.stderr);
+    }
+    const harness = await getHarness();
+    await withEnv({ LINEAR_API_KEY: "lin_test", LINEAR_API_BASE_URL: server.url }, async () => {
+      for (const json of [false, true]) for (const mode of ["read", "plan", "push"]) {
+        mutations = 0;
+        const output = await harness.runExporter({ exporter: "linear", pmRoot: root, options: { team: "ENG", push: mode === "push", dryRun: mode === "plan" }, global: { json } });
+        const receipt = output.result as { skipped: number; created: number; exported: number; mutations?: unknown[]; exportConflicts: unknown[]; payloads?: Array<{ title: string; action: string }> };
+        assert.equal(output.exitCode, 1); assert.equal(receipt.skipped, 2); assert.equal(receipt.exportConflicts.length, 2); assert.equal(receipt.exported, 3);
+        if (mode === "read" && json) {
+          assert.ok(receipt.payloads, "JSON read previews retain every native payload");
+          assert.equal(receipt.payloads.length, 3); assert.equal(receipt.payloads.filter((row) => row.action === "conflict").length, 2);
+        }
+        if (mode === "plan") assert.equal(receipt.mutations?.length, 1, "preview uses the apply path's unambiguous target selection");
+        if (mode === "push") assert.equal(receipt.created, 1);
+        assert.equal(mutations, mode === "push" ? 1 : 0);
+      }
+    });
+  } finally { await server.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test("resolveTeamContext surfaces a GraphQL error from the team lookup", async () => {

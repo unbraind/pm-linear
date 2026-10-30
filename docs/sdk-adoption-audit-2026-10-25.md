@@ -37,6 +37,14 @@ The operands are the independently built main module and read-only scratch
 tracker roots. The script refuses writable snapshots or trackers outside the
 system temporary directory. Do not pass original trackers.
 
+Since forward-only import, the dry-run sync plan is a richer receipt
+(`importMode`, `importResults`, `prepared`, `issues`, `estimateSkips`,
+`success`) that applies per item. The script therefore keeps exact identity
+for the exporter output (apart from its additive `success` flag) and the
+schema report. For the plan it compares the shared counters (`synced`,
+`created`, `updated`, `skipped`, `team`, `dryRun`) and asserts that the
+archived baseline plans an atomic run while the candidate does not.
+
 To prepare the baseline and one snapshot from this checkout:
 
 ```sh
@@ -87,6 +95,11 @@ snapshot file name and byte before and after each module invocation; both
 snapshots remained unchanged, including the absence of new runtime files.
 No live Linear account or hosted tracker was accessed.
 
+The invocation above records the API used by this dated audit. Current reruns
+must explicitly migrate an atomic request with `forwardOnly: true`, or select
+`forwardOnly: true` without `atomic`; an unavailable atomic request now refuses
+before reads or writes. The original audit results remain historical evidence.
+
 ## Verification boundaries
 
 Revert proofs per replacement are not applicable: this follow-up replaces no
@@ -127,3 +140,8 @@ host-version skew, already tracked by
 warning tracked by [pm-linear-jloc](../.agents/pm/issues/pm-linear-jloc.toon).
 These health observations are separate from the package release gates; no
 history repair or dependency change is part of this follow-up.
+
+Current import contract update: the historical atomic-import row above is superseded
+by [forward-only imports](../README.md#forward-only-imports). Production imports no
+longer invoke SDK batch transactions or compensation; one-item SDK preview remains
+used for lifecycle validation. The development SDK pin is unchanged.

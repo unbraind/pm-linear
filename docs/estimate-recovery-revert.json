@@ -1,0 +1,54 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "deleted identities are adopted without explicit native restore",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "an applied item is misreported as skipped after observer failure",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "dependent update ignores its immediate revision fence",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "fresh retry loses the earlier declared conversion",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "missing revision silently adopts a newer native target",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "estimate ignore bypasses the shared forward writer",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "foreign unreadable history aborts independent targets",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "provider bounds incorrectly narrow SDK native identities",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "npm, manifest and lock permit the unsupported old host",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 8,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

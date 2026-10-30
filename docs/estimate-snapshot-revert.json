@@ -1,0 +1,19 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "revision captured independently of the planning document",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "missing planning revision silently adopts current target",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 2,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}

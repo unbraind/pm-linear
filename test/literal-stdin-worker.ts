@@ -10,7 +10,7 @@ const issue: LinearIssue = {
 };
 let refusal: { code?: unknown; field?: unknown } | undefined;
 try {
-  await syncLinearIssues({ team: "STDIN", limit: 1, atomic: atomic === "true" }, root, { fetchIssues: async () => [issue] });
+  await syncLinearIssues({ team: "STDIN", limit: 1, forwardOnly: true, atomic: atomic === "true" }, root, { fetchIssues: async () => [issue] });
 } catch (error: unknown) {
   assert.ok(error instanceof Error);
   refusal = error as typeof refusal;

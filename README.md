@@ -23,7 +23,7 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 >   `issueCreate`/`issueUpdate` mutations, and make **no** network call.
 > - **Reaches Linear** (live `LINEAR_API_KEY` required): the real (non-dry-run)
 >   `sync`/`import`, `export --push`, `validate --check-network`, and
->   `sync`/`import` with **`--atomic --dry-run`** — the atomic preview fetches
+>   `sync`/`import` with **`--forward-only --dry-run`** — the live preview fetches
 >   issues in order to build the plan it reports, so it needs credentials even
 >   though it writes nothing.
 >
@@ -34,10 +34,15 @@ Fetches issues from a Linear team and upserts them as pm items, keeping identifi
 
 ## Requirements
 
-- pm-cli / `@unbrained/pm-cli` SDK `>=2026.10.4`, resolvable from the installed extension
+- pm-cli / `@unbrained/pm-cli` SDK `>=2026.10.24`, resolvable from the installed extension
 - Node.js `>=22.18.0`
 - A Linear API key with read access to the relevant teams (only for **live**
   paths; every `--dry-run` and offline `validate` works without one)
+
+The host minimum covers the guarded schema, history and preview APIs used by
+default imports. npm's peer requirement and the pm manifest enforce the same
+minimum. Existing tracker data stays readable; upgrade the host before loading
+this package on an earlier SDK.
 
 ---
 
@@ -114,7 +119,9 @@ pm linear sync --team <slug> [options]
 | `--map` | string | — | Remap Linear→pm fields, e.g. `"identifier=ignore,priority=ignore"` |
 | `--project-map` | string | — | Tag items by Linear project name (additive). Bare flag tags with the verbatim name; `"Mobile=mobile,Web=web"` remaps |
 | `--limit` | number | `100` | Max issues to fetch |
-| `--dry-run` | boolean | `false` | Print the exact GraphQL request, no writes. **Offline** on its own; with `--atomic` it fetches issues to build the plan and needs `LINEAR_API_KEY` |
+| `--dry-run` | boolean | `false` | Print the exact GraphQL request, no writes. **Offline** on its own; with `--forward-only` it fetches and simulates the native apply path and needs `LINEAR_API_KEY` |
+| `--atomic` | boolean | `false` | Refuse unavailable batch atomicity unless `--forward-only` explicitly accepts migration |
+| `--forward-only` | boolean | `false` | Explicitly accept retained prior successes and per-item outcomes; with `--dry-run`, fetch and simulate the apply path |
 | `--skip-preflight-network` | boolean | `false` | Skip the preflight reachability probe (offline/CI) |
 
 #### `--map` field remapping
@@ -128,7 +135,7 @@ import time. The special value `ignore` suppresses a field:
 | `priority=ignore` | Skip priority (pm item gets the default) |
 | `labels=ignore` | Skip label→tag import (also drops the `cycle:<name>` tag) |
 | `status=ignore` | Skip status mapping (pm item stays `open`) |
-| `assignee=ignore` | Skip assignee import (pm item left unassigned) |
+| `assignee=ignore` | Suppress the provider value and clear any existing pm assignee |
 | `estimate=ignore` | Skip the `estimate:<points>` context tag |
 | `customer=ignore` | Skip the `customer:<name>` context tag |
 
@@ -291,7 +298,7 @@ pm linear schema --team ENG --status-map "Review=in_progress"
 pm --json linear schema --team ENG --status-map "Review=in_progress"
 
 # Copy schemaVersion from the report; use the same mapping when applying
-pm linear sync --team ENG --atomic --status-map "Review=in_progress" \
+pm linear sync --team ENG --forward-only --status-map "Review=in_progress" \
   --schema-version "linear-schema-v1:<reported-sha256>"
 ```
 
@@ -326,15 +333,27 @@ code `2`, and a fresh `report` when a version comparison fails.
 | `schema_drift` | Run `linear schema` again, review the new report and use its version. |
 
 An offline `--dry-run` still makes no network request and cannot certify remote
-metadata. `--atomic --dry-run` negotiates and previews against current metadata.
+metadata. `--forward-only --dry-run` negotiates and previews against current metadata.
 Negotiation proves **read** access for importing; it does not attest Linear write
 permissions or gate export/push. Linear exposes no cross-request metadata snapshot
 transaction: a provider change after the final check remains a race. Run schema
-review and apply close together; `--atomic` protects the local batch.
+review and apply close together; `--atomic` is an explicit stronger-guarantee request and refuses with `atomic_unavailable` before import work unless `--forward-only` explicitly accepts migration.
+
+`syncLinearIssues` returns `SyncResult.issues`: the complete fetched provider
+array in provider order, including records filtered or skipped by local apply.
+This applies to normal, replay, dry-run and deprecated atomic-flag modes. The
+provider-free `LinearImportReceipt` reports native write outcomes;
+`importLinearForwardOnly` returns that receipt because it accepts prepared rows and
+fetches no issues. CLI JSON/TOON retain compact counts and `importResults` without
+embedding the fetched issue payloads.
 
 See the [SDK example and measured validation](docs/schema-negotiation.md).
 
+Live `--forward-only --dry-run` receipts retain `dryRun: true` on sync and both import aliases, including empty or filtered results. Counts describe simulated changes; summaries say “Would sync/import”, and no item/history mutation is applied.
+
 ## Field ownership conflict previews
+
+A refused or unconfirmed native projection returns `projection_failed` with a remedy, never an `ok` ownership observation. Wait for the native lease owner or resolve the import policy/conflict, then re-read both systems. Read-only tracker files are supported; source bytes and permissions remain unchanged. A skipped copy write cannot certify provider values as unchanged.
 
 `pm linear ownership --item ITEM --base acknowledged.json` compares the last
 explicitly acknowledged observation with current local and Linear values. It
@@ -363,8 +382,13 @@ canonicalization; due dates use the existing export date mapping. The preview
 calls the same `buildItemPlan`/`resolveStatus` mapping as import, including
 configured `--status-map` overrides and the importer's provider-name fallback.
 Resulting local statuses use the SDK registry's alias normalization. There is no
-separate preview lifecycle policy. Omitted optional assignments retain the
-current local value, matching an SDK upsert. Custom import field/project mappings are not
+separate preview lifecycle policy. Every payload family clears absent mapped
+assignees and deadlines through SDK unset, including legacy inputs and ignored
+assignment mappings. A missing or null provider assignee does not preserve a
+local assignment; review the ownership difference before importing. Ownership acquires the same issue fields
+and runs the production import coordinator in an isolated copy, preserving saved
+estimate conversions. An unchanged imported issue's acknowledged observation
+replays as `unchanged`. Custom import field/project mappings are not
 inferred; use this command for the documented default import projection.
 
 This is an observation for review with **no atomic cross-system guarantees**.
@@ -534,7 +558,7 @@ so imported issues map onto pm's first-class fields (there are **no**
 | `tags` (`cycle:<name>`) | `cycle.name` — the issue's Linear cycle, encoded as a namespaced tag |
 | `tags` (project) | `project.name` — only when `--project-map` is supplied (see above) |
 | `deadline` | `dueDate` (if set) |
-| `assignee` | `assignee.email` (or `assignee.name` when no email); suppress with `--map assignee=ignore` |
+| `assignee` | `assignee.email` (or `assignee.name` when no email); absent/null or `--map assignee=ignore` clears the local assignee |
 | `description` marker | `[linear] linear_id=… linear_url=…` provenance (see below) |
 
 > **Cycle encoding.** pm has no first-class cycle/sprint field reachable from a
@@ -674,3 +698,74 @@ removed after each read; the source's permissions never change. Membership is re
 returning; observed local edits, paging drift, malformed data or ambiguous
 provenance produce typed refusals. Provider observations are not an atomic
 cross-issue snapshot. See [validation and limits](docs/dependency-closure.md).
+
+### Estimate units and team scales
+
+Linear estimates remain **native points**. Imports select the issue's immutable
+team ID, estimate scale, zero setting and extended-scale setting and retain them
+alongside `estimate:<points>`. They never populate `estimated_minutes` from points.
+An explicit scale-bound lookup can expose minutes in the inspection receipt:
+
+```bash
+pm linear estimates --team ENG --json
+pm linear import --team ENG --estimate-mapping conversion.json
+pm linear estimates --team ENG --scale reviewed-team.json --limit 20
+```
+
+`linear estimates` is read-only. Counts cover the complete SDK corpus, while the
+row sample defaults to 20 (maximum 100). `scale_changed` and `mapping_stale` identify
+invalidated conversions; unrelated teams remain unaffected. Missing conversions
+return `minutes: null` and retain usable native points. JSON and default TOON
+share the same typed result. See [the schema, SDK example and retry guarantees](docs/estimate-units.md).
+Imports skip an item if its planning snapshot disagrees with the SDK revision
+observation, preserving peer conversions and native edits. `estimateSkips` names
+the affected items; retry reads their current state while independent items proceed.
+Imports retain earlier successes and retry against current SDK state. They never
+roll back or implicitly restore deleted identities; reserved/foreign IDs skip with
+a remedy. Explicit conversions stay with live items through fresh-input retries.
+
+### Without git
+
+Estimate inspection, import, sync and export work in ordinary initialized tracker
+directories without a git executable. Linear network operations require provider
+credentials; `linear estimates --scale` and export previews work offline.
+
+### Forward-only imports
+
+All `linear sync`, `linear import`, `linear-sync import` and typed SDK imports
+apply each item forward-only. An explicit `--atomic` request refuses with `atomic_unavailable` (exit 2) before provider access or native writes. To migrate, remove `--atomic` and explicitly pass `--forward-only`, or add `--forward-only` to an existing invocation. In the SDK, use `importLinearForwardOnly`; `SyncOptions.atomic: true` and deprecated `importLinearAtomic` require `forwardOnly: true` before any work. The default sync/import mode remains forward-only. If item B fails, item A stays applied; `importMode`
+is `forward-only`, `atomic` is false, and `importResults` lists every selected
+native target as created, updated, unchanged, skipped or unconfirmed. A conflict has code
+`import_conflict` and a remedy. A skipped prerequisite skips its dependents.
+
+Each write re-reads the SDK history revision paired with its saved base. Changed
+revisions, including ABA edits, skip the item. Updates submit only changed fields;
+an unchanged status is omitted, including on completed issues. Imports retain the
+SDK’s assignee-release effect for the configured primary close/cancel roles, so
+replaying a completed issue does not reassign it. New items explicitly
+clear ambient relationship scope. A fresh retry uses current state and converges
+without replaying a frozen journal. Deleted/reserved identities require explicit
+native inspection and restore; imports never resurrect them implicitly.
+
+```sh
+pm linear import --team ENG --json
+# Inspect importResults; rerun after resolving an import_conflict.
+pm linear sync --team ENG --json
+```
+
+The SDK has no item precondition ([#1576](https://github.com/unbraind/pm-cli/issues/1576))
+and its workspace transaction does not exclude ordinary writers
+([#1620](https://github.com/unbraind/pm-cli/issues/1620)). A window remains between the
+last SDK read and the mutation. Native completed transitions can internally write
+fields and close separately; their exact one-item plan is validated with the SDK
+in an isolated copy first. This does not guarantee isolation from a peer or an
+I/O/policy failure inside the final native call. Inspect a failed target before
+retrying; the importer never rolls back successful writes or peer state. Failed native calls re-read through the SDK: a complete current target is `unchanged`/`import_reconciled` without attributing a new write, an unchanged target is skipped, and a changed/incomplete target is `unconfirmed` with `import_incomplete`. Its dependents skip.
+
+Failed, conflicted or unconfirmed rows set `success: false` and nonzero `exit_code` on SDK receipts and every JSON/TOON command/import alias. Filters and complete readback reconciliation remain successful. Duplicate native provenance or duplicate selected provider IDs select no target, report `import_conflict`, and write nothing for those rows.
+
+Prepared SDK rows must carry the same provider identity in `linearId` and their provenance marker. Missing or inconsistent prepared provenance returns an explicit conflict before target selection. Existing native free-text descriptions remain usable for reads and exports.
+
+Export previews preserve duplicate native records as conflict-marked payloads. Mutation plans and pushes omit ambiguous provider targets and report `exportConflicts` with a nonzero exit, while independent rows can proceed.
+
+Import dry-run and native-close validation share a separate bounded mirror policy: 65,536 source entries and the same 64 MiB byte limit. This admits legitimate item/history pairs beyond 10,000 native items. Observational ownership and closure commands retain their 20,000-entry limit. Every mirror rejects unsupported source symlinks and changes only owned copies.

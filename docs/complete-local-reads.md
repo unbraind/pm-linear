@@ -14,8 +14,9 @@ await sdk.listAllComplete(
 );
 ```
 
-The minimum peer version is the tested public SDK contract, `2026.10.4`.
-Lazy loading preserves extension discovery on older standalone hosts. Reads
+The minimum peer version is the tested public SDK contract, `2026.10.24`.
+The package floor also covers the guarded schema and history APIs used by default
+imports. Lazy SDK acquisition remains independent from module discovery. Reads
 require a resolvable SDK; missing/older SDKs produce an actionable `CommandError`.
 There is no bounded CLI fallback. Packed npm and native Bun consumers both
 export a closed item with its complete body even with an empty `PATH`.
@@ -61,11 +62,11 @@ also includes the canonical all-status/full/body/strict/unbounded CLI diagnostic
 `test/complete-local-reads.test.ts` initializes disposable trackers through the
 real `PmClient`. Its large fixture uses public `commitImportedItem` in-process,
 writing real TOON documents and per-item history for 10,002 items. Export must
-retain all items and the last body; atomic import preview must match the last
-Linear provenance instead of planning a duplicate. Legacy and atomic re-import
+retain all items and the last body; forward-only import preview must match the last
+Linear provenance instead of planning a duplicate. Normal and explicitly migrated compatibility re-import
 cases start with closed and canceled local work, update those existing IDs, and
-require the second import to create zero items. An atomic journal replay may
-report recovered items rather than fresh updates.
+require the second import to create zero items. Both flag spellings now use the forward-only writer; a replay reports three
+unchanged items and zero updates instead of recovering a content-only journal.
 
 The 48 refusal controls degrade copies of an actual `listAllComplete` result;
 they do not replace or mock the SDK. Each must fail before the synthetic fetch

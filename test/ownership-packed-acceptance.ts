@@ -25,7 +25,7 @@ async function run(bin: string, args: string[], cwd = scratch, additions: Record
     child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString(); });
     child.stderr.on("data", (chunk: Buffer) => { err += chunk.toString(); });
     child.on("error", fail);
-    child.on("exit", (code) => { if (code === expectedExit) done(out || err); else fail(new Error(`Packed acceptance command ${args[0]} failed (${code}): ${err.slice(-600)}`)); });
+    child.on("close", (code) => { if (code === expectedExit) done(out || err); else fail(new Error(`Packed acceptance command ${args[0]} failed (${code}): ${err.slice(-600)}`)); });
   });
 }
 const provider: LinearIssue & { updatedAt: string } = { id: "remote", identifier: "PACK-1", title: "Packed acceptance", description: "Synthetic", priority: 2,
@@ -109,9 +109,9 @@ try {
       for (const command of [
         ["linear", "ownership", "--item", created.item.id],
         ...[true, false].flatMap((atomic) => [
-          ["linear", "sync", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
-          ["linear", "import", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
-          ["linear-sync", "import", "--team", "ENG", ...(atomic ? ["--atomic"] : [])],
+          ["linear", "sync", "--team", "ENG", ...(atomic ? ["--atomic", "--forward-only"] : [])],
+          ["linear", "import", "--team", "ENG", ...(atomic ? ["--atomic", "--forward-only"] : [])],
+          ["linear-sync", "import", "--team", "ENG", ...(atomic ? ["--atomic", "--forward-only"] : [])],
         ]),
       ]) for (const format of [["--json"], []]) {
         const result = await run(mode.bin, [...mode.args, "--pm-path", tracker, ...command, ...format], scratch, { ...mode.vars, ...network }, 2);
@@ -128,9 +128,9 @@ try {
     let sourceDispatches = 0;
     for (const command of [
       ["linear", "schema", "--team", "ENG"], ["linear", "capture", "--item", created.item.id, "--thread", "root"],
-      ["linear", "closure", "--items", created.item.id], ["linear", "sync", "--team", "ENG", "--atomic", "--dry-run"],
-      ["linear", "import", "--team", "ENG", "--atomic", "--dry-run"],
-      ["linear-sync", "import", "--team", "ENG", "--atomic", "--dry-run"], ["linear", "export", "--team", "ENG", "--push"],
+      ["linear", "closure", "--items", created.item.id], ["linear", "sync", "--team", "ENG", "--atomic", "--forward-only", "--dry-run"],
+      ["linear", "import", "--team", "ENG", "--atomic", "--forward-only", "--dry-run"],
+      ["linear-sync", "import", "--team", "ENG", "--atomic", "--forward-only", "--dry-run"], ["linear", "export", "--team", "ENG", "--push"],
     ]) {
       for (const format of [["--json"], []]) {
         const rawError = await run(mode.bin, [...mode.args, "--pm-path", tracker, ...command, ...format], scratch, { ...mode.vars, ...network }, 2);

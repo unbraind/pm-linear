@@ -1,0 +1,54 @@
+{
+  "reverted": [
+    {
+      "revertedBehavior": "ownership certifies skipped coordinator state",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "owned projection retains read-only history files",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "import route 0 drops simulation mode",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "import route 1 drops simulation mode",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "import route 2 drops simulation mode",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "empty provider pages drop simulation mode",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "reference compares raw hyphenated status names",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "reference repeats unchanged native transitions",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "revertedBehavior": "reference omits registry terminal close reason",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "fixed": {
+    "passed": 4,
+    "failed": 0
+  },
+  "reviewedCheckoutMutated": false
+}
