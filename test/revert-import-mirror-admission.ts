@@ -5,7 +5,9 @@ import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { checkoutState } from "./checkout-state.ts";
 const root = resolve(import.meta.dirname, ".."), scratch = await mkdtemp(join(tmpdir(), "linear-admission-reverts-"));
+const checkoutBefore = checkoutState(root);
 try {
   await mkdir(join(scratch, "test"));
   await cp(join(root, "test/import-mirror-admission.ts"), join(scratch, "test/import-mirror-admission.ts"));
@@ -32,8 +34,10 @@ try {
   assert.match(fixed.stdout, /"passed":3,"failed":0/);
   const admitted = JSON.parse(fixed.stdout.trim().split("\n").at(-1)!) as { sourceSha256: string; passed: number; failed: number };
   assert.equal(admitted.sourceSha256, createHash("sha256").update(source).digest("hex"));
+  const reviewedCheckoutMutated = checkoutState(root) !== checkoutBefore;
+  assert.equal(reviewedCheckoutMutated, false, "The harness must not change the reviewed checkout.");
   const report = { sourceSha256: createHash("sha256").update(source).digest("hex"), mutants: results,
-    fixed: { passed: 3, failed: 0 }, reviewedCheckoutMutated: false };
+    fixed: { passed: 3, failed: 0 }, reviewedCheckoutMutated };
   if (process.argv[2]) {
     await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
     await writeFile(process.argv[3] ?? join(dirname(process.argv[2]), "import-mirror-admission.json"), JSON.stringify(admitted, null, 2) + "\n");

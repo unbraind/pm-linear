@@ -4,7 +4,9 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkoutState } from "./checkout-state.ts";
 const source = resolve(import.meta.dirname, "..");
+const checkoutBefore = checkoutState(source);
 const scratch = await mkdtemp(join(tmpdir(), "linear-result-revert-"));
 try {
   await mkdir(join(scratch, "test"));
@@ -40,7 +42,9 @@ try {
   await writeFile(join(scratch, "index.ts"), original); await writeFile(join(scratch, "README.md"), readme);
   const fixed = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "test/sync-result-contract.test.ts"], { cwd: scratch, env: variables, encoding: "utf8", timeout: 600000 });
   assert.equal(fixed.status, 0, (fixed.stdout + fixed.stderr).slice(-2000)); assert.match(fixed.stdout, /tests 2/);
-  const report = { reverted: results, fixed: { passed: 2, failed: 0 }, reviewedCheckoutMutated: false };
+  const reviewedCheckoutMutated = checkoutState(source) !== checkoutBefore;
+  assert.equal(reviewedCheckoutMutated, false, "The harness must not change the reviewed checkout.");
+  const report = { reverted: results, fixed: { passed: 2, failed: 0 }, reviewedCheckoutMutated };
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
   process.stdout.write(JSON.stringify(report) + "\n");
 } finally { await rm(scratch, { recursive: true, force: true }); }

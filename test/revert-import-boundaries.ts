@@ -5,7 +5,9 @@ import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkoutState } from "./checkout-state.ts";
 const source = resolve(import.meta.dirname, "..");
+const checkoutBefore = checkoutState(source);
 const scratch = await mkdtemp(join(tmpdir(), "linear-boundary-reverts-"));
 try {
   await mkdir(join(scratch, "test"));
@@ -45,7 +47,9 @@ try {
   await writeFile(join(scratch, "index.ts"), original);
   const fixed = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern=class:|export --push isolates|identity export class", "test/import-boundaries.test.ts", "test/network.test.ts", "test/prepared-provenance.test.ts"], { cwd: scratch, env: variables, encoding: "utf8", timeout: 600000 });
   assert.equal(fixed.status, 0, (fixed.stdout + fixed.stderr).slice(-3000)); assert.match(fixed.stdout, /tests 8/);
-  const report = { sourceSha256: createHash("sha256").update(original).digest("hex"), reverted: results, fixed: { passed: 8, failed: 0 }, reviewedCheckoutMutated: false };
+  const reviewedCheckoutMutated = checkoutState(source) !== checkoutBefore;
+  assert.equal(reviewedCheckoutMutated, false, "The harness must not change the reviewed checkout.");
+  const report = { sourceSha256: createHash("sha256").update(original).digest("hex"), reverted: results, fixed: { passed: 8, failed: 0 }, reviewedCheckoutMutated };
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
   process.stdout.write(JSON.stringify(report) + "\n");
 } finally { await rm(scratch, { recursive: true, force: true }); }
