@@ -31,7 +31,7 @@ try {
     { name: "estimate ignore bypasses the shared forward writer", pattern: "estimate ignore mappings", failure: "AssertionError",
       before: "const applied = await importEstimateBatch",
       after: 'const applied = prepared.every((entry) => !readLinearEstimate(entry.tags).contract) ? { synced: 0, created: 0, updated: 0, skipped: prepared.length, team: options.team, issues: [], importResults: [] } : await importEstimateBatch' },
-    { name: "foreign unreadable history aborts independent targets", pattern: "historical and malformed deletion", failure: "invalid",
+    { name: "foreign unreadable history aborts independent targets", pattern: "historical and malformed deletion", failure: "history_json_invalid",
       before: "try { return await observeEstimateTarget(pmRoot, id); } catch { return undefined; }",
       after: "return await observeEstimateTarget(pmRoot, id);" },
     { name: "provider bounds incorrectly narrow SDK native identities", pattern: "forward producers and validators", failure: "estimate_input_invalid",

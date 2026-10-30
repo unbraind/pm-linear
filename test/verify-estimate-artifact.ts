@@ -21,7 +21,10 @@ try {
     assert.equal(status.status, 0, status.stderr);
     return hash.update(status.stdout).digest("hex");
   }
-  // npm pack runs prepack (npm run build) in this checkout: plan the file set without scripts, then compare before/after.
+  // npm pack runs prepack (npm run build) in this checkout. Build first so the planned set includes the complete dist/
+  // (a fresh checkout has none, and a stale one would be blamed on npm pack), then compare that build with npm's rebuild.
+  const built = spawnSync("npm", ["run", "build"], { cwd: root, env: variables, encoding: "utf8", timeout: 300000 });
+  assert.equal(built.status, 0, built.stderr);
   const planned = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, env: variables, encoding: "utf8", timeout: 300000 });
   assert.equal(planned.status, 0, planned.stderr);
   const plannedFiles = (JSON.parse(planned.stdout) as Array<{ files: Array<{ path: string }> }>)[0]!.files.map((file) => file.path);
