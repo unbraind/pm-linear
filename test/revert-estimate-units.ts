@@ -20,7 +20,7 @@ try {
   assert.ok(original.includes(behavior));
   await writeFile(join(scratch, "index.ts"), original.replace(behavior, "void prior; // Revert only buildItemPlan's unit provenance production."));
   const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: tmpdir() };
-  const args = ["--test", "--test-concurrency=1", "--test-name-pattern=five points stay points", "test/estimate-units.test.ts"];
+  const args = ["--test", "--test-reporter=spec", "--test-concurrency=1", "--test-name-pattern=five points stay points", "test/estimate-units.test.ts"];
   const reverted = spawnSync(process.execPath, args, { cwd: scratch, encoding: "utf8", env: variables });
   assert.equal(reverted.status, 1, "Behavioral revert must fail the acceptance test");
   assert.match(reverted.stdout + reverted.stderr, /five points stay points/);

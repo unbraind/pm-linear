@@ -99,7 +99,7 @@ test("identity class: duplicate provider identities with different unused determ
       : route === "prepared" || route === "compatibility" ? await (route === "prepared" ? importLinearForwardOnly : importLinearAtomic)(root, "ENG", wire.issues.map(prepared), { forwardOnly: true })
       : (await cli(route, { team: "ENG", skipPreflightNetwork: true }, true)).result as LinearImportReceipt;
     assert.equal(receipt.exit_code, 1); assert.equal(receipt.created, 0); assert.equal(receipt.skipped, 2);
-    assert.ok(receipt.importResults?.every((row) => row.code === "import_conflict" && row.id === null));
+    assert.deepEqual(receipt.importResults?.map((row) => [row.code, row.id, row.linearId]), [["import_conflict", null, issue.id], ["import_conflict", null, issue.id]]);
     assert.deepEqual((await pm.listAllComplete({ includeBody: true })).items, before);
   }
 });
