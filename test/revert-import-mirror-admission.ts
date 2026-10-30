@@ -31,13 +31,13 @@ try {
   await writeFile(join(scratch, "index.ts"), source);
   const fixed = spawnSync(process.execPath, ["test/import-mirror-admission.ts"], { cwd: scratch, env: variables, encoding: "utf8", timeout: 1500000 });
   assert.equal(fixed.status, 0, (fixed.stdout + fixed.stderr).slice(-2000));
-  assert.match(fixed.stdout, /"passed":3,"failed":0/);
+  assert.match(fixed.stdout, /"passed":4,"failed":0/);
   const admitted = JSON.parse(fixed.stdout.trim().split("\n").at(-1)!) as { sourceSha256: string; passed: number; failed: number };
   assert.equal(admitted.sourceSha256, createHash("sha256").update(source).digest("hex"));
   const reviewedCheckoutMutated = checkoutState(root) !== checkoutBefore;
   assert.equal(reviewedCheckoutMutated, false, "The harness must not change the reviewed checkout.");
   const report = { sourceSha256: createHash("sha256").update(source).digest("hex"), mutants: results,
-    fixed: { passed: 3, failed: 0 }, reviewedCheckoutMutated };
+    fixed: { passed: 4, failed: 0 }, reviewedCheckoutMutated };
   if (process.argv[2]) {
     await writeFile(process.argv[2], JSON.stringify(report, null, 2) + "\n");
     await writeFile(process.argv[3] ?? join(dirname(process.argv[2]), "import-mirror-admission.json"), JSON.stringify(admitted, null, 2) + "\n");
