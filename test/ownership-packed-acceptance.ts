@@ -25,7 +25,7 @@ async function run(bin: string, args: string[], cwd = scratch, additions: Record
     child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString(); });
     child.stderr.on("data", (chunk: Buffer) => { err += chunk.toString(); });
     child.on("error", fail);
-    child.on("exit", (code) => { if (code === expectedExit) done(out || err); else fail(new Error(`Packed acceptance command ${args[0]} failed (${code}): ${err.slice(-600)}`)); });
+    child.on("close", (code) => { if (code === expectedExit) done(out || err); else fail(new Error(`Packed acceptance command ${args[0]} failed (${code}): ${err.slice(-600)}`)); });
   });
 }
 const provider: LinearIssue & { updatedAt: string } = { id: "remote", identifier: "PACK-1", title: "Packed acceptance", description: "Synthetic", priority: 2,

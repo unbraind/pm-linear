@@ -31,10 +31,12 @@ try {
   await rm(oversized);
 
   const archive = join(root, "legacy-audit"); await mkdir(archive);
-  const seed = join(archive, "seed.json"); await writeFile(seed, "{}\n");
-  // Regular hard-linked audit records count as distinct filesystem entries.
-  // Two operations at a time keep fixture construction within host limits.
-  for (let index = 0; index < 65536; index += 2) await Promise.all([index, index + 1].map((entry) => link(seed, join(archive, `record-${entry}.json`))));
+  // Regular hard-linked audit records count as distinct filesystem entries. ext4 caps one inode at 65,000 links, so
+  // two seeds carry 32,768 links each (65,538 archive entries). Two operations at a time keep construction within host limits.
+  for (const part of [0, 1]) {
+    const seed = join(archive, `seed-${part}.json`); await writeFile(seed, "{}\n");
+    for (let index = 0; index < 32768; index += 2) await Promise.all([index, index + 1].map((entry) => link(seed, join(archive, `record-${part}-${entry}.json`))));
+  }
   await assert.rejects(syncLinearIssues(options, root, fetch), /Tracker isolation budget exceeded/, "the import-specific 65,536-entry quota remains enforced");
   assert.deepEqual(await readFile(located.itemPath), before); assert.deepEqual(await readFile(getHistoryPath(root, id)), history);
   const report = { sourceSha256: createHash("sha256").update(await readFile(resolve(import.meta.dirname, "../index.ts"))).digest("hex"),

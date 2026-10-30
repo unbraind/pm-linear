@@ -13,6 +13,19 @@ const variables = { PATH: process.env.PATH ?? "", HOME: scratch, NPM_CONFIG_USER
 try {
   const ignored = spawnSync("git", ["check-ignore", "--quiet", "dist/index.js"], { cwd: root, env: variables, encoding: "utf8" });
   assert.equal(ignored.status, 0, "Run artifact verification in the package checkout; dist/index.js must remain ignored.");
+  /** Digest the checkout's planned shipped files and its git status, so the receipt measures checkout mutation. */
+  async function checkoutDigest(files: readonly string[]): Promise<string> {
+    const hash = createHash("sha256");
+    for (const file of [...files].sort()) hash.update(file).update("\0").update(await readFile(join(root, file))).update("\0");
+    const status = spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd: root, env: variables, encoding: "utf8" });
+    assert.equal(status.status, 0, status.stderr);
+    return hash.update(status.stdout).digest("hex");
+  }
+  // npm pack runs prepack (npm run build) in this checkout: plan the file set without scripts, then compare before/after.
+  const planned = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, env: variables, encoding: "utf8", timeout: 300000 });
+  assert.equal(planned.status, 0, planned.stderr);
+  const plannedFiles = (JSON.parse(planned.stdout) as Array<{ files: Array<{ path: string }> }>)[0]!.files.map((file) => file.path);
+  const checkoutBefore = await checkoutDigest(plannedFiles);
   const packed = spawnSync("npm", ["pack", "--json", "--pack-destination", scratch], { cwd: root, env: variables, encoding: "utf8", timeout: 300000 });
   assert.equal(packed.status, 0, packed.stderr);
   const [receipt] = JSON.parse(packed.stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
@@ -40,8 +53,10 @@ try {
   } finally { await writeFile(target, original); }
   assert.equal(await matchesCurrent(), true, "Restoring the owned copy must restore the exact artifact image.");
   assert.equal(createHash("sha256").update(await readFile(artifact)).digest("hex"), artifactSha256);
+  const reviewedCheckoutMutated = (await checkoutDigest(plannedFiles)) !== checkoutBefore;
+  assert.equal(reviewedCheckoutMutated, false, "npm pack, including its prepack build, must not change the checkout's shipped files or git status.");
   const report = { artifactSha256, shippedFiles: receipt.files.length, allCurrentShippedFilesMatch: true,
-    mutatedIgnoredCopyRejected: true, restoredCopyMatches: true, reviewedCheckoutMutated: false };
+    mutatedIgnoredCopyRejected: true, restoredCopyMatches: true, reviewedCheckoutMutated };
   if (process.argv[3]) await writeFile(process.argv[3], JSON.stringify(report, null, 2) + "\n");
   process.stdout.write(JSON.stringify(report) + "\n");
 } finally { await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }); }

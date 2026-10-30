@@ -27,7 +27,7 @@ async function run(bin: string, args: string[], cwd = scratch, extra: Record<str
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
     child.stderr.on("data", (chunk: Buffer) => { error += chunk.toString(); });
     child.on("error", fail);
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       lastDiagnostics = error;
       if (code === expectedExit) done(output || error);
       else fail(new Error(`Packed ${args[0]} failed (${code}): ${(output + error).slice(-1600)}`));

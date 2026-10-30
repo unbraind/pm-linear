@@ -6,12 +6,13 @@ status: open
 priority: 1
 tags[3]: replay,revision,sync
 created_at: "2026-10-27T09:45:22.258Z"
-updated_at: "2026-10-29T11:11:27.718Z"
+updated_at: "2026-10-30T00:42:54.569Z"
 author: codex-agent
 acceptance_criteria: Bind import retry decisions to current SDK target revisions; revalidate every expected revision before recovery; decide unchanged through current target reads; preserve peer edits or surface a typed refusal; seeded model tests cover older-input replays and interleavings without git.
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-27T09:51:27.414Z",codex-agent,"Synthetic non-git probe: sameTransaction=true, replayReportedRecovered=true, currentTargetStillDiffersFromInput=true. Reproducer: node test/ownership-inherited-replay.ts. Existing target was edited through PmClient.update before replay; no hosted provider was contacted. Ownership previews separately read current SDK state and do not apply or recover imports."
   "2026-10-29T11:11:27.718Z",codex-agent,"PR 189 round 4 replaces the provider-less legacy and unit-aware atomic import writers with one forward-only per-item coordinator. Production imports no longer invoke or resume content-only workspace/item transaction journals, perform compensation, or resurrect reserved identities. The old atomic flag and importLinearAtomic API name delegate to forward-only behavior; fresh SDK observations decide unchanged/conflict outcomes. Existing journals remain audit records for explicit operator inspection. This addresses the live frozen-replay path tracked here; leave this item open for orchestrator verification and any historical-journal guidance. The SDK final read-to-write window (#1576/#1620) remains documented."
+  "2026-10-30T00:42:54.569Z",claude-hub,"Correction to the previous comment (the earlier record stays as written): the old atomic flag and the importLinearAtomic API name do NOT delegate to forward-only behavior. assertLinearImportMode (index.ts) throws LinearAtomicRefusal (atomic_unavailable) before any work whenever atomic is requested and forwardOnly is not exactly true; importLinearAtomic calls it with atomic=true, and the linear sync/import commands apply it to --atomic. Only an explicit forwardOnly: true / --forward-only accepts per-item application. test/import-boundaries.test.ts ('atomic class: every explicit stronger-guarantee request refuses...') asserts this; README and docs/estimate-units.md say the same."
 files[2]{path,scope}:
   index.ts,project
   test/ownership-inherited-replay.ts,project
