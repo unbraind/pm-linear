@@ -2,13 +2,16 @@ id: pm-linear-focused-closure
 title: Read the bounded missing Linear prerequisite frontier
 description: "Acquire Linear-specific missing prerequisite context for explicitly selected linked pm items. Overlap recheck: core deps and pm-graph analyze available relationships; pm-context packages available neighborhoods. None fetches the selected Linear inverse blocks frontier. No graph analytics or full-team import."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-25T23:23:46.739Z"
-updated_at: "2026-10-26T02:54:04.489Z"
+updated_at: "2026-10-30T09:26:52.154Z"
+closed_at: "2026-10-30T09:26:50.547Z"
+completed_at: "2026-10-26T03:05:56.000Z"
 author: codex-agent
 acceptance_criteria: "A three-hop fixture yields the exact frontier within declared node and HTTP request caps; inaccessible blockers remain unresolved boundaries; preview writes nothing. Typed SDK and CLI emit compact TOON/JSON, typed refusals with remedies, documented non-git operation, adversarial boundaries and read-only public tracker validation. CI npm and Bun release gates pass unchanged thresholds."
+release: 2026.10.26
 comments[11]{created_at,author,text}:
   "2026-10-25T23:24:03.730Z",codex-agent,"Overlap rechecked against current core SDK dependency/provenance APIs, pm-graph offline analytics/blocker cuts and pm-context neighborhood packing. Those consume available relations. This feature only acquires missing Linear inverse blocks context for explicit existing item selections, with no import/apply mode, journals, shared mutable budgets or status classification. Use certified complete SDK reads and existing provenance parsing; count actual HTTP attempts without hidden retries; reject malformed or oversized boundary data."
   "2026-10-25T23:30:21.766Z",codex-agent,"Implemented typed read-only acquisition and CLI. Three-hop traversal, four cap classes, inaccessible/null blockers, paging drift/direction/duplicates, extreme inputs, concurrent independent previews and peer edits at each of four HTTP boundaries now pass targeted checks. Found pinned SDK reads persist usage/cache files; added an owned bounded disposable read mirror, retaining SDK corpus certification without any source-tracker writes. No provider mutations or import/apply plans are introduced."
@@ -32,4 +35,5 @@ docs[3]{path,scope}:
   docs/dependency-closure-validation.json,project
   docs/dependency-closure.md,project
   README.md,project
+close_reason: "Delivered by PR #177 (f728894): Show missing Linear prerequisites for selected linked issues"
 body: ""
