@@ -1,7 +1,7 @@
 /** The revert receipts' mutation flag is only as good as the checkout fingerprint behind it. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -46,4 +46,18 @@ test("a host without a git executable falls back to the file digest", (t) => {
   const before = checkoutState(root);
   writeFileSync(join(root, "index.ts"), "export const value = 4;\n");
   assert.notEqual(checkoutState(root), before);
+});
+
+test("untracked symlinks and nested repositories are fingerprinted without reading through them", (t) => {
+  const root = repository(t);
+  mkdirSync(join(root, "assets"));
+  symlinkSync("assets", join(root, "to-directory"));
+  symlinkSync("missing-target", join(root, "dangling"));
+  mkdirSync(join(root, "nested"));
+  assert.equal(spawnSync("git", ["init", "-q"], { cwd: join(root, "nested") }).status, 0);
+  writeFileSync(join(root, "nested", "file.txt"), "inner\n");
+  const before = checkoutState(root);
+  assert.equal(checkoutState(root), before);
+  unlinkSync(join(root, "dangling")); symlinkSync("other-target", join(root, "dangling"));
+  assert.notEqual(checkoutState(root), before, "retargeting an untracked link changes the fingerprint");
 });

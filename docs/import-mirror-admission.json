@@ -1,8 +1,9 @@
 {
   "sourceSha256": "0589fe16b65a307fe068333a26cd72a47acf96dc0bf7945ef79f0d7a30e05245",
-  "passed": 3,
+  "passed": 4,
   "failed": 0,
   "admittedSmallNativePreview": true,
+  "admittedAtEntryLimit": true,
   "refusedEntryOverflow": true,
   "refusedByteOverflow": true,
   "maximumEntries": 65536,

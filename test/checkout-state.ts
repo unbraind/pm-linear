@@ -1,7 +1,7 @@
 /** Measure the reviewed checkout so revert receipts report observed mutation instead of asserting it. */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
@@ -19,7 +19,12 @@ export function checkoutState(root: string): string {
     if (failed) throw new Error(`Cannot read the checkout state: ${failed.stderr?.toString() ?? failed.error?.message}`);
     const hash = createHash("sha256");
     for (const read of reads.slice(0, 3)) hash.update(read.stdout).update("\0");
-    for (const path of reads[3].stdout.toString().split("\0").filter(Boolean).sort()) hash.update(path).update("\0").update(readFileSync(join(root, path))).update("\0");
+    // Untracked entries can be symlinks (dangling or to directories) or nested repositories ("dir/"): hash a link's
+    // target and a regular file's bytes, and only the path of anything else, like the non-Git branch.
+    for (const path of reads[3].stdout.toString().split("\0").filter(Boolean).sort()) {
+      const absolute = join(root, path), info = lstatSync(absolute);
+      hash.update(path).update("\0").update(info.isSymbolicLink() ? `link:${readlinkSync(absolute)}` : info.isFile() ? readFileSync(absolute) : "other").update("\0");
+    }
     return hash.digest("hex");
   }
   const hash = createHash("sha256");

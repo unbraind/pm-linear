@@ -27,6 +27,9 @@ async function digest() {
 const prior = { PATH: process.env.PATH, GIT_CEILING_DIRECTORIES: process.env.GIT_CEILING_DIRECTORIES };
 try {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  // chmod follows symbolic links, so refuse them before any permission change (the inspection guard runs later).
+  const link = entries.find((entry) => entry.isSymbolicLink());
+  if (link) throw new Error(`Validation archive contains a symbolic link (${relative(root, join(link.parentPath, link.name))}); refusing before changing permissions.`);
   for (const entry of entries) await chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o555 : 0o444);
   await chmod(root, 0o555);
   process.env.PATH = ""; process.env.GIT_CEILING_DIRECTORIES = tmpdir();
