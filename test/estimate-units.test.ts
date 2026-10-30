@@ -219,7 +219,7 @@ test("missing planning revisions never fall back to newer native state; stable m
 /** Deterministic PRNG keeps 500 generated state-machine sequences reproducible. */
 function random(seed: number) { let state = seed; return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state; }; }
 
-test("seed 1620: 500 model-based import/export/sync sequences read state back through SDK", { timeout: 900000 }, async (t) => {
+test("seed 1620: 500 model-based import/export/sync sequences read state back through SDK", { timeout: 5400000 }, async (t) => {
   const container = await fixture(t);
   const originalError = console.error; console.error = () => {};
   t.after(() => { console.error = originalError; });

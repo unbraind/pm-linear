@@ -37,6 +37,14 @@ The operands are the independently built main module and read-only scratch
 tracker roots. The script refuses writable snapshots or trackers outside the
 system temporary directory. Do not pass original trackers.
 
+Since forward-only import, the dry-run sync plan is a richer receipt
+(`importMode`, `importResults`, `prepared`, `issues`, `estimateSkips`,
+`success`) that applies per item. The script therefore keeps exact identity
+for the exporter output (apart from its additive `success` flag) and the
+schema report. For the plan it compares the shared counters (`synced`,
+`created`, `updated`, `skipped`, `team`, `dryRun`) and asserts that the
+archived baseline plans an atomic run while the candidate does not.
+
 To prepare the baseline and one snapshot from this checkout:
 
 ```sh

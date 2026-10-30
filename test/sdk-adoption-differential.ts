@@ -97,7 +97,18 @@ try {
       outputs.push({ exported: exported.result, schema, planned });
       assert.equal(await snapshot(root), initial, "Snapshot bytes changed");
     }
-    assert.deepEqual(outputs[1], outputs[0]);
+    // Exporter and schema behavior must stay identical (the exporter receipt only gained an additive success flag).
+    // The archived baseline predates forward-only import, whose dry-run plan is a richer receipt (importMode,
+    // importResults, prepared, issues, estimateSkips, success) applied per item: compare the plan's shared counters
+    // and assert each side's atomic value explicitly instead of the whole object.
+    const withoutSuccess = (value: unknown) => { const { success: _success, ...rest } = value as Record<string, unknown>; return rest; };
+    assert.deepEqual(withoutSuccess(outputs[1]!.exported), withoutSuccess(outputs[0]!.exported));
+    assert.deepEqual(outputs[1]!.schema, outputs[0]!.schema);
+    const counters = (planned: unknown) => Object.fromEntries(["synced", "created", "updated", "skipped", "team", "dryRun"]
+      .map((key) => [key, (planned as Record<string, unknown>)[key]]));
+    assert.deepEqual(counters(outputs[1]!.planned), counters(outputs[0]!.planned));
+    assert.equal(outputs[0]!.planned.atomic, true, "Archived baseline plans an atomic run");
+    assert.notEqual(outputs[1]!.planned.atomic, true, "Forward-only candidate must not plan an atomic run");
     const exported = outputs[0].exported as { exported: number };
     assert.ok(exported.exported > 0, "The public tracker must contain items");
     results.push({
