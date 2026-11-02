@@ -1,0 +1,11 @@
+id: pm-linear-29uv
+title: Gated sync still refuses GitHub #134 import ownership across two closed PM records
+description: "Tracks gh:unbraind/pm-linear#198 (filed 2026-11-01, missed by the blind issue watch). The scheduled gated sync on main still fails the ownership preflight ('GitHub issue #134 has multiple existing owners'): the imported issue item carries the gh: tag and another closed record (pm-linear-ldqw) starts its description with the same source issue URL, which the identity contract treats as a competing ownership declaration. Latest failing run 41297539843 (2026-11-01T10:27Z); the failure repeats daily. Reconcile exactly one import owner with supported PM operations while preserving both records' knowledge, relationships and durable history (reword the competing description or convert the claim to a structured relationship); keep the fail-closed guard."
+type: Issue
+status: open
+priority: 2
+tags[3]: "gh:unbraind/pm-linear#198",provenance,sync
+created_at: "2026-11-02T09:17:55.204Z"
+updated_at: "2026-11-02T09:17:55.204Z"
+author: pi-glm
+body: ""
