@@ -2,14 +2,17 @@ id: pm-linear-29uv
 title: Gated sync still refuses GitHub #134 import ownership across two closed PM records
 description: "Tracks gh:unbraind/pm-linear#198 (filed 2026-11-01, missed by the blind issue watch). The scheduled gated sync on main still fails the ownership preflight ('GitHub issue #134 has multiple existing owners'): the imported issue item carries the gh: tag and another closed record (pm-linear-ldqw) starts its description with the same source issue URL, which the identity contract treats as a competing ownership declaration. Latest failing run 41297539843 (2026-11-01T10:27Z); the failure repeats daily. Reconcile exactly one import owner with supported PM operations while preserving both records' knowledge, relationships and durable history (reword the competing description or convert the claim to a structured relationship); keep the fail-closed guard."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: "gh:unbraind/pm-linear#198",provenance,sync
 created_at: "2026-11-02T09:17:55.204Z"
-updated_at: "2026-11-02T09:42:30.362Z"
+updated_at: "2026-11-02T15:48:00.693Z"
+closed_at: "2026-11-02T15:48:00.638Z"
+completed_at: "2026-11-02T15:48:00.638Z"
 author: pi-glm
 comments[1]{created_at,author,text}:
   "2026-11-02T09:41:48.761Z",pi-glm,"Duplicate #134 ownership reconciled, plus a second masked blocker found and fixed. (1) The competing record no longer declares GitHub ownership: its description no longer leads with 'GitHub issue <url>' (the URL reference is preserved in prose), a related dependency now links it to the imported record, and its status stays closed. The imported record keeps the gh: tag and github_url as sole owner. (2) The gated dry-run then refused with '1 conflicting target(s)': one feature record carried gh: tags for issues #191 and #193 as well as PR #189, so two importable issues resolved to a single item. Those two identity tags were removed (the PR #189 provenance tag stays; the relationship is documented in a comment on that record) so the import creates dedicated records for #191 and #193. Measurement — before: failing run https://github.com/unbraind/pm-linear/actions/runs/41297539843 (2026-11-01T10:27Z, 'GitHub issue #134 has multiple existing owners'). After: the same gated dry-run the scheduled workflow runs (pm-github 2026.10.28 as pinned by the reusable workflow) passes against this branch's tracker: fetched 8, planned 8, import 3, update 5, skip 0, provenance-indexed 8, #134 resolves uniquely to the imported record via provenance-tag. The command is linked as a passing test; its pm-test receipt runs in pm's isolated seeded workspace, so the reconciliation numbers here come from the direct dry-run against this checkout. GitHub API budget was checked before measuring (core remaining above the 1500 floor). Guard unchanged; item stays open for orchestrator close after merge."
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   pm github import unbraind/pm-linear --state all --atomic --gate --dry-run --with-comments --json,project,pi-glm,"2026-11-02T09:39:28.598Z",local_mutation,chore/triage-1102-issues
+close_reason: "Duplicate GitHub #134 ownership removed on this branch (pm-linear-ldqw no longer leads with the issue URL), and the feature that also carried the #191 and #193 tags keeps only its #189 delivery tag. Before: scheduled sync run 41297539843 refused with multiple existing owners. After: the same gated dry-run (pm-github 2026.10.28) passes against this tracker with import 3, update 5, skip 0. The merged result is re-checked by dispatching the scheduled sync after merge."
 body: ""
