@@ -1,0 +1,11 @@
+id: pm-linear-ktat
+title: Release merge-wait keeps a stale approval flag and misdiagnoses its own timeout
+description: "Tracks gh:unbraind/pm-linear#200 (filed 2026-11-01, missed by the blind issue watch). release.yml on current main still initializes awaiting_approval=0 outside the merge-wait loop (line ~451), sets it to 1 whenever pending_runs is nonempty (~578) and never resets it, so the timeout branch (~583) tells maintainers to approve a run that already succeeded or finished instead of reporting the actually settling checks (observed 2026-11-01: three runs approved at 15:18, timeout at 15:47 still claiming approval was awaited). Reset the flag per iteration (or test current approval state at timeout) and assert the timeout diagnostic names the real settling/failing checks."
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-linear#200",release
+created_at: "2026-11-02T09:17:58.368Z"
+updated_at: "2026-11-02T09:17:58.368Z"
+author: pi-glm
+body: ""
