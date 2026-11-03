@@ -2,10 +2,20 @@ id: pm-linear-hb2g
 title: PR187 toolchain bump still fails the two missing-configuration read fixtures
 description: "Tracks gh:unbraind/pm-linear#188 (filed 2026-10-28, missed by the blind issue watch). The open toolchain PR #187 (2026.10.24 to .25) still fails test(22)/test(26)/release-gates (latest run 41327000072, 2026-11-01): dependency-closure.test.ts and ownership.test.ts expect readClosureItems/read-only previews to backfill missing schema/settings/history through SDK reads, but both now throw LinearClosureRefusal/LinearOwnershipRefusal (local_read_failed) because the reader repairs only settings in its disposable bootstrap and then unconditionally copies bootstrap/schema into the final reader. Update the fixtures or the reader contract for the .25 SDK so missing-configuration reads complete locally before any SDK backfill, then land the bump."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-linear#188",toolchain
 created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-02T09:17:56.774Z"
+updated_at: "2026-11-03T10:37:16.446Z"
+assignee: pi-toolchain-glm-1103
+claim_principal: pi-toolchain-glm-1103
 author: pi-glm
+comments[1]{created_at,author,text}:
+  "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
+files[3]{path,scope}:
+  index.ts,project
+  test/dependency-closure.test.ts,project
+  test/ownership.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/dependency-closure.test.ts test/ownership.test.ts,project,pi-toolchain-glm-1103,"2026-11-03T10:37:16.143Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-82f052e758
 body: ""
