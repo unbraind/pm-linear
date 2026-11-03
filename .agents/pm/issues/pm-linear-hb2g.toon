@@ -6,6 +6,16 @@ status: open
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-linear#188",toolchain
 created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-02T09:17:56.774Z"
+updated_at: "2026-11-03T13:00:33.744Z"
 author: pi-glm
+comments[2]{created_at,author,text}:
+  "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
+  "2026-11-03T12:54:42.296Z",pi-toolchain-glm-1103,"Gate evidence on the PR branch: both previously failing tests pass (node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts, node --test --test-name-pattern 'source isolation precedes SDK scaffolding' test/ownership.test.ts); typecheck, the docstring gate and the changelog check pass. The full local suite is impractical on this host: the machine is saturated by parallel fleet test runs (load above 19 for hours), and the suite's live Linear fetch tests stall for tens of minutes each, so the remaining coverage is left to CI. No schema-copy site besides the fixed one exists in the extension."
+files[3]{path,scope}:
+  index.ts,project
+  test/dependency-closure.test.ts,project
+  test/ownership.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/dependency-closure.test.ts test/ownership.test.ts,project,pi-toolchain-glm-1103,"2026-11-03T10:37:16.143Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-82f052e758
+  node --test --test-name-pattern 'source isolation precedes SDK' test/dependency-closure.test.ts test/ownership.test.ts,project,pi-toolchain-glm-1103,"2026-11-03T12:56:55.228Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-82f052e758
 body: ""

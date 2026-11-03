@@ -2521,7 +2521,9 @@ async function readClosureItems(source: string, selections: string[], projection
     const enumerated = await readPmItems(bootstrap);
     await mkdir(reader);
     await cp(settingsPath, sdk.getSettingsPath(reader));
-    await cp(join(bootstrap, "schema"), join(reader, "schema"), { recursive: true });
+    // Read-only SDK calls stopped recreating missing workflow schema files (pm-cli 2026.10.25,
+    // GH-1568), so an absent source schema is legitimate and must not fail the owned-copy read.
+    if (await sdk.pathExists(join(bootstrap, "schema"))) await cp(join(bootstrap, "schema"), join(reader, "schema"), { recursive: true });
     for (const item of enumerated) {
       const located = await sdk.locateItem(bootstrap, item.id!, settings.id_prefix, settings.item_format, registry.type_to_folder);
       if (!located) throw new Error("SDK membership changed during isolation");
