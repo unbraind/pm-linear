@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
 - Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
 
 ## 2026.11.1 - 2026-11-01
