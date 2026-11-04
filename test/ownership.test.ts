@@ -34,7 +34,7 @@ async function fixture(t: TestContext) {
   await pm.init("ownership");
   const state = { rawIssuesBody: undefined as string | undefined, rawBody: undefined as string | undefined, issue: issue() as unknown, errors: undefined as unknown, status: 200, requests: [] as string[], onRead: undefined as (() => Promise<void>) | undefined };
   const plan = buildItemPlan(state.issue as LinearIssue, {});
-  const created = await pm.create({ ...plan, id: "selected", type: "Task", tags: plan.tags.join(","), parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  const created = await pm.create({ ...plan, id: "selected", type: "Task", tags: plan.tags.join(","), unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   const id = created.item.id;
   const server = http.createServer((req, res) => {
     let body = "";
@@ -242,7 +242,7 @@ test("access refusals, ambiguous links and concurrent observations fail safely",
   state.onRead = async () => { if (++reads === 2) (state.issue as LinearIssue).title = "Peer provider success"; };
   await assert.rejects(previewLinearOwnership(options, root), refused("source_changed"));
   state.onRead = undefined;
-  await pm.create({ title: "Duplicate", description: buildItemPlan(issue(), {}).description, parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.create({ title: "Duplicate", description: buildItemPlan(issue(), {}).description, unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   await assert.rejects(previewLinearOwnership(options, root), refused("selection_required"));
   await assert.rejects(previewLinearOwnership(options, join(root, "missing")), refused("local_read_failed"));
 });
@@ -261,7 +261,7 @@ function hashes(document: Awaited<ReturnType<typeof stateFromSdk>>) {
 
 test("500 seeded operation sequences cover historical replays, CRLF, all fields, relationships and random status roles", async (t) => {
   const { root, pm, state, options } = await fixture(t);
-  await pm.create({ id: "foreign", title: "Foreign", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.create({ id: "foreign", title: "Foreign", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   await pm.update(options.item, { parent: "foreign", dep: ["id=foreign,kind=blocked_by"], goal: "foreign", objective: "foreign", sprint: "one", release: "two" });
   let seed = 0x10272026;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
@@ -553,7 +553,7 @@ test("review class: ambiguous current identities never become import targets in 
   const description = buildItemPlan(issue(), {}).description;
   const items = [{ id: "one", description }, { id: "two", description }];
   assert.equal(Object.hasOwn(indexItemsByLinearId(items), "remote"), false);
-  await pm.create({ id: "duplicate", title: "Foreign duplicate", description, parent: "none", unset: ["goal", "objective", "sprint", "release", "assignee"], createMode: "progressive" });
+  await pm.create({ id: "duplicate", title: "Foreign duplicate", description, unset: ["parent", "goal", "objective", "sprint", "release", "assignee"], createMode: "progressive" });
   const before = await stateFromSdk(root, options.item);
   const messages: string[] = [];
   const previous = console.error;
@@ -635,7 +635,7 @@ test("review class: legacy updates apply empty mapped values just like the share
   await symlink(process.execPath, join(bin, "node"));
   await symlink(join(import.meta.dirname, "../node_modules/.bin/pm"), join(bin, "pm"));
   process.env.PATH = bin;
-  await pm.create({ id: "peer", title: "Peer", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.create({ id: "peer", title: "Peer", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   await pm.focus("peer");
   const before = await stateFromSdk(root, options.item);
   const provider = state.issue as LinearIssue;
@@ -680,7 +680,7 @@ test("review class: every import alias advertises the same complete apply-path f
 test("review class: every offline import alias counts linked terminal items and excludes unlinked items", async (t) => {
   const { root, pm, state } = await fixture(t);
   for (const [id, status, description] of [["terminal", "closed", "[linear] linear_id=terminal"], ["unlinked", "open", "Ordinary context"]]) {
-    await pm.create({ id, title: id, status, description, closeReason: "Fixture completed", body: "", tags: "[]", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive", allowDuplicate: true });
+    await pm.create({ id, title: id, status, description, closeReason: "Fixture completed", body: "", tags: "[]", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive", allowDuplicate: true });
   }
   const before = (await pm.listAllComplete({ includeBody: true })).items;
   const harness = await createExtensionTestHarness(extension, { name: "pm-linear", capabilities: ["commands", "schema", "importers", "preflight"] });
@@ -728,14 +728,14 @@ test("review class: every tag producer preserves literal SDK control words and d
     provider.labels = { nodes: [{ name }] };
     const expected = canonicalDocument({ metadata: { ...(await stateFromSdk(root, options.item)).metadata, tags: [name] }, body: "" }, { schema: settings.schema }).metadata.tags ?? [];
     for (const atomic of [true, false]) {
-      await pm.update(options.item, { tags: '["peer"]', parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      await pm.update(options.item, { tags: '["peer"]', unset: ["parent", "goal", "objective", "sprint", "release"] });
       const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true }, root);
       assert.equal(result.updated, 1); assert.equal(result.skipped, 0);
       assert.deepEqual((await stateFromSdk(root, options.item)).metadata.tags ?? [], expected, `${atomic}/${name}`);
     }
   }
-  const foreign = await pm.create({ title: "Foreign focus", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
-  await pm.update(options.item, { parent: "none", goal: foreign.item.id, objective: foreign.item.id, sprint: "sprint", release: "release" });
+  const foreign = await pm.create({ title: "Foreign focus", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
+  await pm.update(options.item, { unset: ["parent"], goal: foreign.item.id, objective: foreign.item.id, sprint: "sprint", release: "release" });
   await pm.focus(options.item);
   for (const atomic of [true, false]) {
     const actor = new PmClient({ pmRoot: root, cwd: root, noExtensions: true, author: atomic ? "pm-linear" : "fixture" });

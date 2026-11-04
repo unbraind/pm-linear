@@ -14,7 +14,7 @@ try {
   const issue: LinearIssue = { id: "admission-provider", identifier: "CAP-1", title: "Before", description: "Native body", priority: 2,
     state: { name: "Queue", type: "unstarted" }, labels: { nodes: [] }, dueDate: null };
   const plan = buildItemPlan(issue, {});
-  const native = await pm.create({ ...plan, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const native = await pm.create({ ...plan, tags: JSON.stringify(plan.tags), unset: ["parent", "goal", "objective", "sprint", "release"] });
   const id = native.item.id, located = await locateItem(root, id); assert.ok(located);
   const before = await readFile(located.itemPath), history = await readFile(getHistoryPath(root, id));
   issue.title = "Preview only";

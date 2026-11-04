@@ -2915,7 +2915,7 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
       if (observed && Object.keys(values).length === 0) { results.push({ id, linearId: entry.linearId, action: "unchanged" }); continue; }
       // Create explicitly clears ambient scope; updates omit unchanged relationships and fields.
       if (observed && projectionForce) values.force = true;
-      if (!observed) { values.parent = "none"; values.unset = ["goal", "objective", "sprint", "release"]; }
+      if (!observed) { values.unset = ["parent", "goal", "objective", "sprint", "release"]; }
       // The native close route can save fields before closing. Validate that exact
       // one-item mutation with the SDK before touching the live target.
       if (observed && values.status === registry.close_status) {
@@ -3403,8 +3403,7 @@ export function buildAtomicImportMutations(
         id: managedItemId,
         options: {
           ...sharedOptions,
-          parent: "none",
-          unset: ["goal", "objective", "sprint", "release"],
+          unset: ["parent", "goal", "objective", "sprint", "release"],
           // A brand-new item must be created in a valid open state; the close
           // step below performs the closed transition when required.
           status: entry.status === "closed" ? "open" : entry.status,

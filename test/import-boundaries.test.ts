@@ -58,7 +58,7 @@ test("identity class: generated non-unique provenance never selects or creates a
     const issue = provider(`${key}-${scaled}`, scaled); wire.issues = [issue];
     const row = prepared(issue), ids: string[] = [];
     for (let duplicate = 0; duplicate < 2 + key.length % 3; duplicate++) {
-      const result = await pm.create({ title: `Duplicate ${duplicate}`, description: row.description, parent: "none", unset: ["goal", "objective", "sprint", "release"] }); ids.push(result.item.id);
+      const result = await pm.create({ title: `Duplicate ${duplicate}`, description: row.description, unset: ["parent", "goal", "objective", "sprint", "release"] }); ids.push(result.item.id);
     }
     const before = (await pm.listAllComplete({ includeBody: true })).items;
     const histories = await Promise.all(ids.map((id) => readHistoryEntries(getHistoryPath(root, id), id)));
