@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { sdkInstallCommand } from "./sdk-install-command.ts";
 import "./typed-parent-clear-cases.ts";
 
 const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8")) as { pm_min_version: string };
@@ -22,15 +23,15 @@ for (const hostVersion of hostVersions) {
     t.after(() => rm(root, { recursive: true, force: true }));
     const vars = {
       PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(root, "home"),
-      NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null",
+      NPM_CONFIG_USERCONFIG: devNull, npm_config_userconfig: devNull,
       NPM_CONFIG_CACHE: join(tmpdir(), "linear-parent-host-cache"),
       GIT_CEILING_DIRECTORIES: tmpdir(), PM_AUTHOR: "fixture",
     };
     await mkdir(vars.HOME);
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }));
-    const installed = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
-      ["install", "--ignore-scripts", "--no-audit", "--no-fund", `@unbrained/pm-cli@${hostVersion}`],
-      { cwd: root, env: vars, encoding: "utf8", timeout: 180_000 });
+    const install = sdkInstallCommand(hostVersion);
+    const installed = spawnSync(install.command, install.args,
+      { cwd: root, env: vars, encoding: "utf8", timeout: 180_000, shell: install.shell });
     assert.equal(installed.status, 0, `SDK ${hostVersion} install: ${installed.error?.message ?? installed.stderr}`);
     const host = JSON.parse(await readFile(join(root, "node_modules/@unbrained/pm-cli/package.json"), "utf8")) as { version: string };
     assert.equal(host.version, hostVersion, "the consumer must resolve the requested SDK version");
