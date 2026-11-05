@@ -229,8 +229,12 @@ validated by this receipt.
 Package-generated parent clears use `unset: ["parent", "goal", "objective",
 "sprint", "release"]` in both forward creation and the shared create plan.
 Typed `parent: "none"` is refused on SDK 2026.10.30 and newer (GH-1614).
-Actual SDK readback under ambient focus covers both paths; existing-item
-relationships remain covered by the unchanged import models.
+The normal test and release gates exercise the built extension with separately
+installed SDKs at both the manifest/peer minimum and the development pin. Each
+consumer verifies ambient parent inheritance before checking both create
+routes; the shared-plan caller explicitly opts into focus on hosts that
+require it. Existing-item relationships remain covered by the unchanged
+import models.
 
 SDK 2026.11.4 also enforces strict start admission (`pm-urzubi`): a transition
 into the workflow's start status refuses while a declared blocker remains
