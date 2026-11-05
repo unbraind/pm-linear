@@ -1,0 +1,51 @@
+id: pm-linear-toolchain-1104
+title: Migrate PR206 to the November 4 pm toolchain
+description: "Update exact development pins and migrate typed parent clearing for PR https://github.com/unbraind/pm-linear/pull/206 and issue #207. Existing dated certification and literal-provider-value items cover different acceptance scopes."
+type: Chore
+status: in_progress
+priority: 2
+tags[5]: dependencies,"gh:unbraind/pm-linear#206","gh:unbraind/pm-linear#207",migration,sdk
+created_at: "2026-11-04T18:55:54.361Z"
+updated_at: "2026-11-04T23:36:36.489Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-toolchain-1104
+acceptance_criteria: Typed parent clearing preserves forward and shared create-plan ambient-scope isolation; focused and full coverage gates pass without weaker assertions; record remaining upstream defects.
+comments[10]{created_at,author,text}:
+  "2026-11-04T18:56:36.674Z",codex-toolchain-1104,"Production: pm-cli 2026.10.30 GH-1614 keeps typed sentinel values literal; forward create and shared atomic create-plan emitted parent:none and are refused on 2026.11.4. Replace with unset:[parent,goal,objective,sprint,release]. Test: fixture and reference-model parent:none controls have the same old-contract dependency; migrate explicit clears without removing assertions. npm registry confirms CLI/ops 2026.11.4 and changelog 2026.10.31."
+  "2026-11-04T18:57:26.958Z",codex-toolchain-1104,"New test/typed-parent-clear.test.ts passes 2/2 on 2026.11.4; reverting only index.ts to the PR source fails both tests, then restoring the fix passes. It exercises forward creation and the shared create-plan options via real SDK persistence under ambient parent/scope focus. Before migration: forward-import 0/6, ownership 3/29, literal-values 0/6. Retain the conservative provider-value guard for the older declared minimum; update its stale documentation instead of broadening scope."
+  "2026-11-04T18:59:30.455Z",codex-toolchain-1104,"Secondary CLI pin: update test/estimate-packed-acceptance.ts default host from 2026.10.28 to 2026.11.4. Historical validation artifacts retain their measured versions; manifest/peer minimum remains >=2026.10.24. No tracked dist files or lint script. Typecheck, build:test, docstring, production audit (0 vulnerabilities), pack dry-run, release-date and publish-attestation checks pass. Strict tracked health exits 0 with an inherited provenance advisory; no history repair attempted."
+  "2026-11-04T19:40:25.097Z",codex-toolchain-1104,"The packed estimate acceptance default now derives its host version from package.json rather than duplicating a calendar version; the existing explicit host-version override remains available. On this PR it resolves 2026.11.4, so future dependency bumps do not silently retain an older default."
+  "2026-11-04T20:09:36.150Z",codex-toolchain-1104,"Local budget reached after approximately 75 minutes. Stopped nice -n 10 env NPM_CONFIG_USERCONFIG=/dev/null npm run coverage while the 500-sequence forward failure/retry model was still active. Completed tests had no assertion failures, including the real 10002-item complete-corpus case, 500 dependency-graph sequences and 500 import/export/sync sequences. Cancellation reports for unfinished files are budget-stop effects, not SDK regressions. Full-suite pass counts and aggregate coverage are unmeasured; CI must finish the unchanged 99/96/100 gate and Node22/26/npm/Bun release acceptance. The targeted new regression passed 2/2 and failed both cases when only the production fix was reverted. No new upstream defect established."
+  "2026-11-04T20:10:18.935Z",codex-toolchain-1104,"Interrupted-run summary: 166 passed, 0 failed, 20 cancelled. These are partial Node runner counts, including cancelled file placeholders, not a complete test inventory or a coverage pass."
+  "2026-11-04T23:26:31.042Z",codex-agent,"Review round: PR206 has zero review threads and zero CodeRabbit reviews. Fetched the PR head; it includes origin/main. Work continues on fix/linear-toolchain-2026-11-4 to avoid Dependabot auto-merge. Investigating dependency-start admission in the seeded ownership model; retain all 500 sequences and assertions, add behavioral revert evidence, finish serial nice npm/Bun release gates."
+  "2026-11-04T23:29:03.364Z",codex-agent,"Root cause: pm-cli CHANGELOG 2026.11.4, pm-urzubi (Starting work ignores open blockers), introduces strict start_blocked_by_open_dependency admission. Classification: ownership model contract migration, not an SDK defect or a production need to start blocked work. Live imports already catch the native refusal as import_conflict; only owned-copy ownership projection explicitly forces writes. The model now predicts refused starts, asserts unchanged native state, cycles blocker completion to retain admitted starts, and retains all 500 sequences and field/relationship assertions. New live-import regression passes 1/1 across default and deprecated atomic opt-in routes, then succeeds after blocker completion."
+  "2026-11-04T23:32:39.913Z",codex-agent,"Fresh evidence: original CI run 41904097774 fails the seeded ownership model with start_blocked_by_open_dependency in npm, Bun, Node22 and Node26. Disposable parent-clear behavioral revert (only index.ts restored from origin/main) fails both typed-parent-clear tests (0 passed, 2 failed); restored production passes 2/2. Pinned pm test --run --progress --match 'start admission' passes 1/1 (no evidence tracking enabled; recording results here). Strict health passes with one inherited provenance advisory; no history repair. Full diff self-review found no remaining typed parent:none writes and no live import force bypass."
+  "2026-11-04T23:36:36.488Z",codex-agent,"Behavioral revert proof: in a disposable copy, replace only applyNativeChange's admission-aware body with the previous unconditional pm.update call, retaining the new blocker cycles and every assertion. The unchanged seeded test fails 0/1 after 66 completed comparisons with start_blocked_by_open_dependency. The source worktree was never reverted. Fixed focused model continues; full npm release gate started on Node26 under nice with isolated home/git config, credential-free npm config, one test worker and unchanged thresholds."
+files[17]{path,scope}:
+  index.ts,project
+  package-lock.json,project
+  package.json,project
+  test/estimate-packed-acceptance.ts,project
+  test/estimate-units.test.ts,project
+  test/forward-import.test.ts,project
+  test/import-boundaries.test.ts,project
+  test/import-isolation-budget.test.ts,project
+  test/import-mirror-admission.ts,project
+  test/literal-values.test.ts,project
+  test/native-reference.ts,project
+  test/ownership-inherited-replay.ts,project
+  test/ownership-packed-acceptance.ts,project
+  test/ownership.test.ts,project
+  test/prepared-provenance.test.ts,project
+  test/sync-result-contract.test.ts,project
+  test/typed-parent-clear.test.ts,project
+tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  nice -n 10 node --test test/typed-parent-clear.test.ts,project,codex-toolchain-1104,"2026-11-04T18:57:46.433Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-3b0ff5633e
+  nice -n 10 node --test --test-concurrency=1 --test-name-pattern='500 seeded operation sequences' test/ownership.test.ts,project,codex-agent,"2026-11-04T23:29:06.631Z",local_mutation,fix/linear-toolchain-2026-11-4
+  nice -n 10 node --test --test-concurrency=1 --test-name-pattern='start admission' test/forward-import.test.ts,project,codex-agent,"2026-11-04T23:29:08.972Z",local_mutation,fix/linear-toolchain-2026-11-4
+  "nice -n 10 npm run release:check",project,codex-agent,"2026-11-04T23:35:15.527Z",local_mutation,fix/linear-toolchain-2026-11-4
+  "nice -n 10 bun run release:check",project,codex-agent,"2026-11-04T23:35:19.513Z",local_mutation,fix/linear-toolchain-2026-11-4
+docs[1]{path,scope}:
+  docs/field-ownership.md,project
+body: ""

@@ -74,7 +74,7 @@ test("forward-only seeded 500 multi-item failure and peer schedules converge wit
   const settings = await readSettings(root); const ids = issues.map((issue) => deriveAtomicItemId("ENG", issue.identifier, settings.id_prefix, normalizeItemId));
   for (const [index, id] of ids.entries()) {
     const plan = buildItemPlan(issues[index], {});
-    await model.create({ ...plan, id, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    await model.create({ ...plan, id, tags: JSON.stringify(plan.tags), unset: ["parent", "goal", "objective", "sprint", "release"] });
     for (const client of [pm, model]) await client.update(id, { estimatedMinutes: String(100 + index) });
   }
   const stages = ["observed", "inspect", "before_write", "validated", "before_update", "written", "after_write"];
@@ -152,13 +152,37 @@ test("forward-only skipped prerequisite skips all dependent writes using SDK gra
   const retry = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => issues }); assert.equal(retry.skipped, 0); assert.equal(retry.updated, 2);
 });
 
+test("forward-only imports respect native start admission and retry after a declared blocker completes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "linear-forward-start-")); t.after(() => rm(root, { recursive: true, force: true }));
+  const pm = new PmClient({ pmRoot: root, cwd: root, noExtensions: true, author: "fixture" }); await pm.init("forward");
+  const issue = provider(0);
+  const initial = await syncLinearIssues({ team: "ENG", limit: 1 }, root, { fetchIssues: async () => [issue] });
+  const id = initial.importResults![0].id!;
+  const blocker = await pm.create({ title: "Declared blocker", unset: ["parent", "goal", "objective", "sprint", "release"] });
+  await pm.update(id, { dep: [`id=${blocker.item.id},kind=blocked_by`] });
+  const before = (await pm.get(id, { depth: "deep" })).item;
+  issue.state = { name: "In Progress", type: "started" }; issue.title = "Started remotely";
+  for (const atomic of [false, true]) {
+    const result = await syncLinearIssues({ team: "ENG", limit: 1, atomic, forwardOnly: true }, root, { fetchIssues: async () => [issue] });
+    assert.equal(result.updated, 0); assert.equal(result.skipped, 1);
+    assert.equal(result.importResults?.[0].code, "import_conflict");
+    assert.deepEqual((await pm.get(id, { depth: "deep" })).item, before, "a refused start must preserve all mapped fields and dependencies");
+  }
+  await pm.close(blocker.item.id, "Blocker completed");
+  const retry = await syncLinearIssues({ team: "ENG", limit: 1 }, root, { fetchIssues: async () => [issue] });
+  assert.equal(retry.updated, 1); assert.equal(retry.skipped, 0);
+  const actual = (await pm.get(id, { depth: "deep" })).item;
+  assert.equal(actual.status, "in_progress"); assert.equal(actual.title, "[ENG-0] Started remotely");
+  assert.deepEqual(actual.dependencies, before.dependencies);
+});
+
 test("forward-only primary terminal roles retain SDK-normalized assignee release on creation and every replay", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "linear-forward-terminal-")); t.after(() => rm(root, { recursive: true, force: true }));
   const pm = new PmClient({ pmRoot: root, noExtensions: true, author: "fixture" }); await pm.init("forward");
   const issue = provider(0); issue.state = { name: "Complete", type: "completed" }; issue.assignee = { name: "Remote Agent", email: null };
   const result = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => [issue] }); assert.equal(result.created, 1);
   const target = result.importResults![0].id!;
-  const reference = await pm.create({ title: "Native lifecycle reference", status: "open", assignee: issue.assignee.name!, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const reference = await pm.create({ title: "Native lifecycle reference", status: "open", assignee: issue.assignee.name!, unset: ["parent", "goal", "objective", "sprint", "release"] });
   const normalized = await pm.close(reference.item.id, "Native reference close");
   assert.equal((await pm.get(target)).item.assignee, normalized.item.assignee);
   for (let replay = 0; replay < 3; replay++) {
@@ -191,7 +215,7 @@ test("forward-only native lock conflicts leave peer leases and every field untou
 test("forward-only creation does not inherit an assigned actor's ambient focus", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "linear-forward-focus-")); t.after(() => rm(root, { recursive: true, force: true }));
   const pm = new PmClient({ pmRoot: root, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" }); await pm.init("forward");
-  const focus = await pm.create({ title: "Assigned focus", type: "Epic", assignee: "Peer", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const focus = await pm.create({ title: "Assigned focus", type: "Epic", assignee: "Peer", unset: ["parent", "goal", "objective", "sprint", "release"] });
   await pm.focus(focus.item.id);
   const issue = provider(0); const result = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => [issue] });
   assert.equal(result.created, 1); assert.equal(result.skipped, 0);

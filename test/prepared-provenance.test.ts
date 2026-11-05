@@ -11,8 +11,8 @@ test("identity class: prepared declarations and written provenance agree before 
   const root = await mkdtemp(join(tmpdir(), "linear-prepared-identity-"));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }));
   const pm = new PmClient({ cwd: root, pmRoot: root, noExtensions: true, author: "fixture" }); await pm.init("prepared");
-  for (const title of ["Shared A", "Shared B"]) await pm.create({ title, description: "[linear] linear_id=shared", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-  const legacy = await pm.create({ title: "Legacy unlinked item", description: "Previously stored free text", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  for (const title of ["Shared A", "Shared B"]) await pm.create({ title, description: "[linear] linear_id=shared", unset: ["parent", "goal", "objective", "sprint", "release"] });
+  const legacy = await pm.create({ title: "Legacy unlinked item", description: "Previously stored free text", unset: ["parent", "goal", "objective", "sprint", "release"] });
   const before = (await pm.listAllComplete({ includeBody: true })).items;
   const history = new Map(await Promise.all(before.map(async (row) => [row.id!, await readFile(getHistoryPath(root, row.id!))] as const)));
   const issue: LinearIssue = { id: "declared-fresh", identifier: "PREP-1", title: "Prepared target", description: "Body", priority: 2,

@@ -83,7 +83,7 @@ try {
     const pm = new PmClient({ pmRoot: tracker, noExtensions: true, author: "fixture" });
     await pm.init("packed");
     const plan = buildItemPlan(provider, {});
-    const created = await pm.create({ ...plan, tags: plan.tags.join(","), parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+    const created = await pm.create({ ...plan, tags: plan.tags.join(","), unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
     await run(mode.bin, [...mode.args, "--pm-path", tracker, "package", "install", source, "--project"], scratch, mode.vars);
     const offset = requests;
     const raw = await run(mode.bin, [...mode.args, "--pm-path", tracker, "linear", "ownership", "--item", created.item.id, "--json"], scratch, { ...mode.vars, ...network });
@@ -91,7 +91,7 @@ try {
     assert.equal(output.ok, true, mode.name); assert.equal(output.atomicCrossSystem, false); assert.equal(output.counts.unknown, 8); assert.equal(requests - offset, 2);
     const file = join(tracker, "acknowledged.json");
     await writeFile(file, JSON.stringify(output.observation));
-    await pm.update(created.item.id, { status: "in_progress", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    await pm.update(created.item.id, { status: "in_progress", unset: ["parent", "goal", "objective", "sprint", "release"] });
     provider.state = { name: "Blocked", type: "unstarted" };
     const args = [...mode.args, "--pm-path", tracker, "linear", "ownership", "--item", created.item.id, "--base", file];
     const conflict = JSON.parse(await run(mode.bin, [...args, "--json"], scratch, { ...mode.vars, ...network })) as LinearOwnershipReport;

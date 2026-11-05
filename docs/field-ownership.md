@@ -150,11 +150,12 @@ therefore has equal local/provider hashes, and acknowledging that observation
 then replaying it reports every field as `unchanged`. The projection mapping
 revision changed; older observations must be reviewed and acknowledged again.
 
-The pinned SDK still interprets body/description `-` as stdin and assignment
-`none`/`null` as clear controls. Its public mutation options have no literal
-switch. Internal stdin-marker helpers are not imported. Until
-[pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614) supplies a supported
-literal path, these values produce typed `LinearImportRefusal` with
+The supported minimum SDK predates
+[pm-cli#1614](https://github.com/unbraind/pm-cli/issues/1614), which preserves
+typed sentinel values literally from 2026.10.30. The package retains its
+conservative provider-value guard until minimum-version adoption is verified
+in `pm-linear-literal-sdk-values`. Internal stdin-marker helpers are not
+imported. These guarded values produce typed `LinearImportRefusal` with
 `code: "unrepresentable_value"`, a native `field`, a remedy and exit code 2.
 Whitespace/case variants of controls refuse too. Empty native titles and
 non-calendar/relative deadline values also refuse before writes. A nullable or
@@ -224,3 +225,18 @@ Six read requests exercise eight fields, one disjoint edit pair and one
 same-field conflict. Original and derived preview bytes and permissions stay
 unchanged. The provider is a synthetic HTTP fixture; no live Linear service is
 validated by this receipt.
+
+Package-generated parent clears use `unset: ["parent", "goal", "objective",
+"sprint", "release"]` in both forward creation and the shared create plan.
+Typed `parent: "none"` is refused on SDK 2026.10.30 and newer (GH-1614).
+Actual SDK readback under ambient focus covers both paths; existing-item
+relationships remain covered by the unchanged import models.
+
+SDK 2026.11.4 also enforces strict start admission (`pm-urzubi`): a transition
+into the workflow's start status refuses while a declared blocker remains
+open. Live imports preserve this policy and report the refusal as an import
+conflict; completing the blocker permits a fresh retry. Ownership's legacy
+projection forces only the disposable copy to compare field effects. The
+500-sequence ownership model predicts refused starts without changing native
+fields, retains every comparison, and cycles blocker completion so admitted
+starts continue to be exercised too.

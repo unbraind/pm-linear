@@ -98,9 +98,9 @@ test("one strict schema bounds input/output, producers round-trip, and malformed
   for (const token of ["!", "a".repeat(16385), Buffer.from("{}").toString("hex"), "null", Buffer.from(JSON.stringify({ ...readLinearEstimate([good]).contract!, scaleRevision: "0".repeat(64) })).toString("hex")]) assert.equal(readLinearEstimate([`linear-estimate:${token}`]).reason, "invalid");
   for (const limit of [NaN, Infinity, -1, 0, 0.5, 101]) await assert.rejects(inspectLinearEstimates({ team, limit }, root), refusal());
   await sync(root, issue());
-  await pm.create({ title: "Legacy", tags: '["estimate:5"]', parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-  await pm.create({ title: "Foreign", tags: JSON.stringify([good]), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-  await pm.create({ title: "Broken", tags: '["linear-estimate:!"]', parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  await pm.create({ title: "Legacy", tags: '["estimate:5"]', unset: ["parent", "goal", "objective", "sprint", "release"] });
+  await pm.create({ title: "Foreign", tags: JSON.stringify([good]), unset: ["parent", "goal", "objective", "sprint", "release"] });
+  await pm.create({ title: "Broken", tags: '["linear-estimate:!"]', unset: ["parent", "goal", "objective", "sprint", "release"] });
   const result = await inspectLinearEstimates({ team, limit: 1 }, root);
   assert.equal(result.counts.invalid, 2); assert.equal(result.counts.legacy, 1); assert.equal(result.counts.matched, 1); assert.ok(JSON.stringify(result).length < 1500);
   const ignored = buildItemPlan(issue(), {}, { estimate: "ignore" }); assert.ok(!ignored.tags.some((tag) => tag.startsWith("estimate:") || tag.startsWith("linear-estimate:")));
@@ -154,7 +154,7 @@ test("revision checks refuse peer transitions and ABA at every import boundary o
 
 test("planning images and revisions form one SDK observation at every acquisition boundary", async (t) => {
   const { root, pm } = await fixture(t);
-  const anchor = await pm.create({ title: "Peer relationship", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const anchor = await pm.create({ title: "Peer relationship", type: "Epic", unset: ["parent", "goal", "objective", "sprint", "release"] });
   for (const atomic of [false, true]) for (const boundary of ["before_revision", "revision_history_read", "revision_document_read", "revision_captured"]) {
     for (const aba of [false, true]) {
       const value = issue(`snapshot-${atomic}-${boundary}-${aba}`);
@@ -176,7 +176,7 @@ test("planning images and revisions form one SDK observation at every acquisitio
             parent: anchor.item.id, unset: ["goal", "objective", "sprint", "release"], estimatedMinutes: "777", dep: [`id=${anchor.item.id},kind=related_to`] });
           if (aba) await pm.update(id, { title: original.title, body: String(original.body ?? ""), priority: original.priority, status: original.status,
             tags: JSON.stringify(original.tags), assignee: original.assignee, deadline: original.deadline,
-            parent: "none", unset: ["goal", "objective", "sprint", "release", "estimated_minutes"], clearDeps: true });
+            unset: ["parent", "goal", "objective", "sprint", "release", "estimated_minutes"], clearDeps: true });
           peer = (await pm.listAllComplete({ includeBody: true })).items.find((row) => row.id === id);
         },
       });
@@ -256,8 +256,8 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     await new PmClient({ cwd: modelRoot, pmRoot: modelRoot, noExtensions: true, author: "fixture" }).init("units");
     const model = new PmClient({ cwd: modelRoot, pmRoot: modelRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" });
     t.after(() => rm(modelRoot, { recursive: true, force: true }));
-    const aParent = await actual.pm.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-    await model.create({ id: "anchor", title: "Scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    const aParent = await actual.pm.create({ id: "anchor", title: "Scope", type: "Epic", unset: ["parent", "goal", "objective", "sprint", "release"] });
+    await model.create({ id: "anchor", title: "Scope", type: "Epic", unset: ["parent", "goal", "objective", "sprint", "release"] });
     const statusNames: string[] = [];
     const roleChoices = [["active"], ["blocked"], ["terminal", "terminal_done"], ["terminal", "terminal_canceled"]];
     for (let index = 0; index < 5; index++) {
@@ -315,11 +315,11 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
         const previousContract = readLinearEstimate(previous?.tags ?? []).contract;
         const tags = [...remote.labels.nodes.map((label) => { const native = parseTags(JSON.stringify([label.name]))[0] ?? ""; return ["linear-estimate:", "linear-native-label:", "estimate:", "cycle:"].some((prefix) => native.startsWith(prefix)) ? `linear-native-label:${Buffer.from(JSON.stringify({ format: "pm-linear/label/1", linearId: remote.id, label: label.name })).toString("hex")}` : label.name; }), `cycle:${toNonEmptyImportString(remote.cycle!.name)}`, ...(points === null ? [] : [`estimate:${points}`]), `customer:${toNonEmptyImportString(remote.customer!.name)}`,
           encodeLinearEstimate(team, points, conversion ?? previousContract?.mapping)];
-        const scope = previous?.parent ?? "none";
+        const scope = previous?.parent;
         const lifecycle = await referenceLifecycle(modelRoot, previous, remote.state.name, remote.assignee?.name ?? undefined, `Linear issue ${remote.identifier} terminal`);
         const desired = { title: `[${remote.identifier}] ${remote.title}`, body: remote.description ?? "", priority: remote.priority === 0 ? 3 : remote.priority,
-          tags: JSON.stringify(tags), description: buildProvenance(remote), parent: scope,
-          ...lifecycle, unset: ["goal", "objective", "sprint", "release", ...(!remote.dueDate ? ["deadline"] : []), ...lifecycle.unset],
+          tags: JSON.stringify(tags), description: buildProvenance(remote), ...(scope ? { parent: scope } : {}),
+          ...lifecycle, unset: [...(!scope ? ["parent"] : []), "goal", "objective", "sprint", "release", ...(!remote.dueDate ? ["deadline"] : []), ...lifecycle.unset],
           ...(remote.dueDate ? { deadline: remote.dueDate } : {}) };
         if (known) await model.update(aId, desired);
         else { await model.create({ ...desired, id: aId }); known = true; }
@@ -407,7 +407,7 @@ test("unit plans preview exact SDK effects and refuse foreign deterministic targ
   const settings = await readSettings(root);
   const occupied = issue("occupied");
   const id = deriveAtomicItemId("ENG", occupied.identifier, settings.id_prefix, normalizeItemId);
-  await pm.create({ id, title: "Unrelated context", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  await pm.create({ id, title: "Unrelated context", unset: ["parent", "goal", "objective", "sprint", "release"] });
   const foreign = await sync(root, occupied, true); assert.equal(foreign.skipped, 1); assert.equal((await pm.get(id)).item.title, "Unrelated context");
   const conflicting = issue("mixed"); conflicting.team = { ...team, key: "OPS" };
   await assert.rejects(syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => [conflicting] }), refusal("estimate_scope_mismatch"));
@@ -443,7 +443,7 @@ test("custom terminal roles and retry reasons agree with the target SDK registry
     const name = `custom-${index}`; await pm.schemaAddStatus(name, { role: [...role] });
     const value = issue(`roles-${index}`); value.state = { name, type: "started" };
     const reason = role.some((value) => value === "terminal") ? `Linear issue ${value.identifier} terminal` : undefined;
-    const reference = await pm.create({ title: "Reference", status: name, closeReason: reason, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    const reference = await pm.create({ title: "Reference", status: name, closeReason: reason, unset: ["parent", "goal", "objective", "sprint", "release"] });
     for (const replay of [false, true]) {
       if (replay) await pm.update(reference.item.id, { title: reference.item.title });
       await syncLinearIssues({ team: "ENG", limit: 10, statusMap: { [name]: name } }, root, { fetchIssues: async () => [value] });
@@ -495,7 +495,7 @@ test("forward create lineages retry repeatedly without losing native history or 
     const reference = new PmClient({ pmRoot: referenceRoot, noExtensions: true, author: process.env.PM_AUTHOR ?? "pm-linear" }); await reference.init("units");
     for (const [index, value] of values.entries()) {
       const plan = buildItemPlan(value, {}, {}, undefined, mapping);
-      await reference.create({ ...plan, id: ids[index], tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      await reference.create({ ...plan, id: ids[index], tags: JSON.stringify(plan.tags), unset: ["parent", "goal", "objective", "sprint", "release"] });
       const actual = (await pm.get(ids[index], { depth: "deep" })).item;
       const expected = (await reference.get(ids[index], { depth: "deep" })).item;
       for (const field of ["title", "body", "status", "priority", "tags", "description", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes"] as const) assert.deepEqual(actual[field], expected[field], `${atomic}: SDK state ${field}`);
@@ -508,7 +508,7 @@ test("forward create lineages retry repeatedly without losing native history or 
 
 test("forward retry revalidates every dependent update boundary against ordinary SDK writers", async (t) => {
   const { root, pm } = await fixture(t);
-  const parent = await pm.create({ title: "Peer scope", type: "Epic", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const parent = await pm.create({ title: "Peer scope", type: "Epic", unset: ["parent", "goal", "objective", "sprint", "release"] });
   for (const atomic of [false, true]) for (const boundary of ["observed", "inspect", "before_write", "validated", "before_update", "written", "after_write"]) {
     const value = issue(`recovery-${atomic}-${boundary}`); await sync(root, value, atomic, mapping);
     const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
@@ -560,7 +560,7 @@ test("historical and malformed deletion records skip alone and never authorize i
   // A previously released ordinary create/delete stream has no owned rollback record.
   const value = issue("legacy-tombstone"); const settings = await readSettings(root);
   const id = deriveAtomicItemId("ENG", value.identifier, settings.id_prefix, normalizeItemId);
-  await pm.create({ id, title: "Released legacy identity", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  await pm.create({ id, title: "Released legacy identity", unset: ["parent", "goal", "objective", "sprint", "release"] });
   await pm.run("delete", { id, options: { force: true } });
   assert.equal((await sync(root, value)).estimateSkips?.[0].reason, "foreign");
   // Must allow the genuine uninterrupted format written before rollback receipts existed.
@@ -627,7 +627,7 @@ test("forward producers and validators preserve SDK-native identity domains", as
     const name = `recovery-role-${index}-${random(42 + index)()}`;
     const roles = [["active"], ["blocked"], ["terminal", "terminal_canceled"]][index];
     await pm.schemaAddStatus(name, { role: roles });
-    const reference = await pm.create({ title: "Registry reference", status: name, closeReason: "Reference terminal state", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    const reference = await pm.create({ title: "Registry reference", status: name, closeReason: "Reference terminal state", unset: ["parent", "goal", "objective", "sprint", "release"] });
     const value = { ...issue(`native-domain-${index}`), identifier, state: { name, type: "started" } };
     const settings = await readSettings(root); const id = deriveAtomicItemId("ENG", identifier, settings.id_prefix, normalizeItemId);
     const run = (onEstimateBoundary?: (stage: string, id: string) => Promise<void>) => syncLinearIssues({ team: "ENG", limit: 10, atomic: true, forwardOnly: true, statusMap: { [name]: name } }, root, { fetchIssues: async () => [value], onEstimateBoundary });
@@ -689,7 +689,7 @@ test("provider labels resembling unit and cycle tags round-trip as literal label
 
 test("model oracle normalizes hyphenated custom roles and never repeats terminal transitions", async (t) => {
   const { root, pm } = await fixture(t);
-  const native = await pm.create({ title: "Oracle reference", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const native = await pm.create({ title: "Oracle reference", unset: ["parent", "goal", "objective", "sprint", "release"] });
   let index = 0;
   for (const role of ["active", "blocked", "terminal_done", "terminal_canceled"]) {
     const name = `random-hyphenated-${index++}`;
