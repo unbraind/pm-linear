@@ -13,7 +13,8 @@ import { buildItemPlan, encodeLinearEstimate, linearEstimateScaleRevision, syncL
 import { referenceLifecycle } from "./native-reference.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "linear-units-packed-"));
-const requestedHostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? "2026.10.28";
+const toolchain = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { devDependencies: Record<string, string> };
+const requestedHostVersion = process.env.LINEAR_ACCEPTANCE_HOST_VERSION ?? toolchain.devDependencies["@unbrained/pm-cli"];
 const vars = { PATH: process.env.PATH ?? "", LANG: "C.UTF-8", HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", NPM_CONFIG_PREFER_OFFLINE: "true", npm_config_prefer_offline: "true", NPM_CONFIG_CACHE: join(tmpdir(), "linear-estimate-acceptance-cache"), GIT_CEILING_DIRECTORIES: tmpdir() };
 await mkdir(vars.HOME);
 let lastDiagnostics = "", commandCount = 0;
@@ -155,7 +156,7 @@ for (const scaled of [false, true]) {
   } finally { fs.rename = rename; syncBuiltinESMExports(); }
   assert.equal((await syncLinearIssues({ team: "PACK", limit: 1 }, root, { fetchIssues: async () => [remote] })).exit_code ?? 0, 0); checks++;
   const plan = buildItemPlan(remote, {}), entry = { ...plan, linearId: remote.id, identifier: remote.identifier };
-  await client.create({ title: "Duplicate link", description: plan.description, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  await client.create({ title: "Duplicate link", description: plan.description, unset: ["parent", "goal", "objective", "sprint", "release"] });
   const before = (await client.listAllComplete({ includeBody: true })).items;
   const conflict = await importLinearForwardOnly(root, "PACK", [entry]); assert.equal(conflict.exit_code, 1); assert.equal(conflict.created, 0);
   assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before); checks++;
@@ -224,7 +225,7 @@ console.log(JSON.stringify({ checks, ids }));
       const legacyIssue = { ...issue, team: undefined, state: { name: "Provider finished", type: "completed" } };
       const legacyPlan = buildItemPlan(legacyIssue, {});
       const legacyItem = await legacy.create({ ...legacyPlan, tags: JSON.stringify(legacyPlan.tags), status: "finished-custom", closeReason: "Synthetic terminal state",
-        parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+        unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
       const legacyPrefix = [...mode.args, "--pm-path", legacyRoot];
       await run(mode.bin, [...legacyPrefix, "package", "install", source, "--project"], scratch, mode.vars);
       const savedTeam = issue.team, savedState = issue.state;
@@ -288,7 +289,7 @@ console.log(JSON.stringify({ checks, ids }));
           for (const value of recoveryIssues) {
             const plan = buildItemPlan(value, {}, {}, undefined, conversion);
             const lifecycle = await referenceLifecycle(referenceRoot, undefined, plan.status, plan.assignee, `Linear issue ${value.identifier} terminal`);
-            const created = await reference.create({ ...plan, ...lifecycle, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release", ...lifecycle.unset] });
+            const created = await reference.create({ ...plan, ...lifecycle, tags: JSON.stringify(plan.tags), unset: ["parent", "goal", "objective", "sprint", "release", ...lifecycle.unset] });
             const expected = itemToLinearPayload((await reference.get(created.item.id, { depth: "deep" })).item);
             const actual = byProviderId.get(value.id); assert.ok(actual);
             for (const field of ["title", "description", "estimate"] as const) assert.deepEqual(actual[field], expected[field], "packed replay equals SDK-normalized reference");
@@ -316,7 +317,7 @@ fs.rename = async (from, to) => {
           assert.match(item.title!, /Partially persisted command/); assert.equal(item.status, "open"); boundaryProcessChecks++;
         }
       } finally { issue.title = faultSavedTitle; issue.state = faultSavedState; }
-      await pm.create({ title: "Duplicate provenance", description: buildItemPlan(issue, {}).description, parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+      await pm.create({ title: "Duplicate provenance", description: buildItemPlan(issue, {}).description, unset: ["parent", "goal", "objective", "sprint", "release"] });
       const beforeConflict = (await pm.listAllComplete({ includeBody: true })).items;
       for (const command of [["linear", "sync"], ["linear", "import"], ["linear-sync", "import"]]) for (const json of [true, false]) {
         const receipt = await run(mode.bin, [...prefix, ...command, "--team", "PACK", ...(json ? ["--json"] : [])], scratch, extra, 1);

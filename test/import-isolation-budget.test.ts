@@ -17,7 +17,7 @@ test("import mirror policy preserves preview/apply parity above the observationa
   const issue: LinearIssue = { id: "archive-provider", identifier: "ARCHIVE-1", title: "Before", description: "Before", priority: 2,
     state: { name: "Queue", type: "unstarted" }, labels: { nodes: [] }, dueDate: null };
   const plan = buildItemPlan(issue, {});
-  const native = await pm.create({ ...plan, tags: JSON.stringify(plan.tags), parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+  const native = await pm.create({ ...plan, tags: JSON.stringify(plan.tags), unset: ["parent", "goal", "objective", "sprint", "release"] });
   const id = native.item.id, located = await locateItem(root, id); assert.ok(located);
   const archive = join(root, "audit-archive"); await mkdir(archive);
   // These regular persisted audit files are independent of the one active item.

@@ -63,8 +63,8 @@ test("sync fetched issue contract survives every mode, filter, replay and failed
 
 test("assignment clearing and compact receipts agree across payload families, SDK and every CLI renderer", async (t) => {
   const { root, pm } = await fixture(t);
-  const reference = await pm.create({ title: "Native unset reference", assignee: "Local Agent", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
-  await pm.update(reference.item.id, { parent: "none", unset: ["assignee", "goal", "objective", "sprint", "release"] });
+  const reference = await pm.create({ title: "Native unset reference", assignee: "Local Agent", unset: ["parent", "goal", "objective", "sprint", "release"] });
+  await pm.update(reference.item.id, { unset: ["parent", "assignee", "goal", "objective", "sprint", "release"] });
   const cleared = (await pm.get(reference.item.id, { depth: "deep" })).item.assignee;
   const wire = { issue: provider("assignment", false) };
   const server = http.createServer((req, res) => {
@@ -85,7 +85,7 @@ test("assignment clearing and compact receipts agree across payload families, SD
     wire.issue = provider("assignment", scaled);
     await syncLinearIssues({ team: "ENG", limit: 1 }, root, { fetchIssues: async () => [wire.issue] });
     const id = (await pm.listAllComplete()).items.find((item) => parseProvenance(item.description)?.linear_id === wire.issue.id)!.id;
-    await pm.update(id, { assignee: "Local Agent", parent: "none", unset: ["goal", "objective", "sprint", "release"] });
+    await pm.update(id, { assignee: "Local Agent", unset: ["parent", "goal", "objective", "sprint", "release"] });
     const ignored = route === "linear-sync" || route === "sdk" && atomic;
     if (!ignored) { if (route === "sync") wire.issue.assignee = null; else if (route === "linear") wire.issue.assignee = { name: null, email: null }; else delete wire.issue.assignee; }
     if (route === "sdk") {

@@ -25,7 +25,7 @@ async function fixture(t: TestContext) {
   await pm.init("literal");
   const state = { issue: provider(), requests: 0 };
   const plan = buildItemPlan(state.issue, {});
-  const created = await pm.create({ ...plan, tags: "[]", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  const created = await pm.create({ ...plan, tags: "[]", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   const id = created.item.id;
   const server = http.createServer((req, res) => {
     let raw = ""; req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
@@ -142,7 +142,7 @@ test("literal class: leading-dash titles and @file values remain data in both ty
 
 test("literal class: 500 seeded imports round-trip literal values and agree with acknowledged previews", async (t) => {
   const { root, pm, state, id } = await fixture(t);
-  const foreign = await pm.create({ title: "Foreign focus", parent: "none", unset: ["goal", "objective", "sprint", "release"], createMode: "progressive" });
+  const foreign = await pm.create({ title: "Foreign focus", unset: ["parent", "goal", "objective", "sprint", "release"], createMode: "progressive" });
   await pm.update(id, { parent: foreign.item.id, goal: foreign.item.id, objective: foreign.item.id, sprint: "sprint", release: "release" });
   const relationships = (await document(root, id)).metadata;
   const history: LinearOwnershipSnapshot[] = [];
