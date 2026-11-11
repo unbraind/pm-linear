@@ -159,8 +159,8 @@
 
 ### Fixed
 
-- A failed provenance publish silently falls back to an unattested one ([pm-linear-tw31](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-tw31.toon))
 - Close PR 85 review findings after main rebase ([pm-linear-jyi2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-jyi2.toon))
+- A failed provenance publish silently falls back to an unattested one ([pm-linear-tw31](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-tw31.toon))
 
 ## 2026.8.28 - 2026-08-28
 
@@ -337,8 +337,8 @@
 
 ### Added
 
-- Deep enhancement: offline dry-run plans, --map field mapping, validate diagnostics, push-on-write hook ([pm-linear-oa21](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-oa21.toon))
 - Unit tests for new pure fns + README + manifest capability review + release ([pm-linear-ced8](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-ced8.toon))
+- Deep enhancement: offline dry-run plans, --map field mapping, validate diagnostics, push-on-write hook ([pm-linear-oa21](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-oa21.toon))
 
 ## 2026.6.3 - 2026-06-03
 
@@ -348,8 +348,8 @@
 
 ### Changed
 
-- Idempotent import: update existing pm items matched on linear_id ([pm-linear-xp5j](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-xp5j.toon))
 - Exporter update + bidirectional status mapping + dry-run ([pm-linear-75yf](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-75yf.toon))
+- Idempotent import: update existing pm items matched on linear_id ([pm-linear-xp5j](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-xp5j.toon))
 
 ### Fixed
 
@@ -357,16 +357,16 @@
 
 ### Other
 
-- Production-readiness audit 2026-05-28 ([pm-linear-usug](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-usug.toon))
-- Tests + functional fixtures + manifest/README ([pm-linear-swdk](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-swdk.toon))
-- preflight capability: validate LINEAR_API_KEY + API reachability ([pm-linear-u8ed](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-u8ed.toon))
-- HTTP robustness: timeout + rate-limit/429 backoff retry ([pm-linear-cj68](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-cj68.toon))
-- Import filters: assignee + label GraphQL filter clauses ([pm-linear-rnf2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-rnf2.toon))
+- Push-on-write hook (opt-in, hooks capability) mirroring pm writes to Linear ([pm-linear-wp4n](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-wp4n.toon))
 - linear validate diagnostics command (--json, no secret leak) ([pm-linear-l2oo](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-l2oo.toon))
 - Field-mapping depth + generic --map linearField=pmField (pure, both directions) ([pm-linear-1pl0](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-1pl0.toon))
 - Offline --dry-run: build+print GraphQL query/variables + export mutations, no network ([pm-linear-6u39](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-6u39.toon))
-- Push-on-write hook (opt-in, hooks capability) mirroring pm writes to Linear ([pm-linear-wp4n](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-wp4n.toon))
 - Step 0: verify activation healthy (doctor deep, command run, missing-creds clean) ([pm-linear-40k5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-40k5.toon))
+- Tests + functional fixtures + manifest/README ([pm-linear-swdk](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-swdk.toon))
+- HTTP robustness: timeout + rate-limit/429 backoff retry ([pm-linear-cj68](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-cj68.toon))
+- Import filters: assignee + label GraphQL filter clauses ([pm-linear-rnf2](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-rnf2.toon))
+- preflight capability: validate LINEAR_API_KEY + API reachability ([pm-linear-u8ed](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-u8ed.toon))
+- Production-readiness audit 2026-05-28 ([pm-linear-usug](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-usug.toon))
 
 ## 2026.6.2 - 2026-06-02
 
