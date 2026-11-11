@@ -4,6 +4,7 @@
 
 ### Dependencies
 
+- Bump @unbrained/pm-cli
 - Bump the pm-toolchain group with 2 updates ([#216](https://github.com/unbraind/pm-linear/pull/216))
 - Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
 - Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
