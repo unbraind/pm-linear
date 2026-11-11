@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.11.10 - 2026-11-10
+
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
+- Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#211](https://github.com/unbraind/pm-linear/pull/211))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#212](https://github.com/unbraind/pm-linear/pull/212))
+
 ## 2026.11.4 - 2026-11-04
 
 ### Fixed
