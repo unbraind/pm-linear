@@ -1,0 +1,1024 @@
+{
+  "needs_review": [
+    {
+      "item": "pm-linear-1xd4",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-2cy6",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-atomic-replay-revision",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-bzam",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-hb2g",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-jloc",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-ktat",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-literal-sdk-values",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-r2ay",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-toolchain-1104",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-uhu6",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-linear-xw01",
+      "action": "needs_review",
+      "candidates": [
+        107,
+        108,
+        120,
+        121,
+        139,
+        140,
+        141
+      ],
+      "missing_evidence": [
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/107 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 107,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/108 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 108,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/120 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 120,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/121 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 121,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/139 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 139,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/140 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 140,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-linear/pulls/141 failed; verify token read access and retry: HTTP 503"
+        },
+        {
+          "pr": 141,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    }
+  ]
+}
