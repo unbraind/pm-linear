@@ -2,12 +2,15 @@ id: pm-linear-hb2g
 title: PR187 toolchain bump still fails the two missing-configuration read fixtures
 description: "Tracks gh:unbraind/pm-linear#188 (filed 2026-10-28, missed by the blind issue watch). The open toolchain PR #187 (2026.10.24 to .25) still fails test(22)/test(26)/release-gates (latest run 41327000072, 2026-11-01): dependency-closure.test.ts and ownership.test.ts expect readClosureItems/read-only previews to backfill missing schema/settings/history through SDK reads, but both now throw LinearClosureRefusal/LinearOwnershipRefusal (local_read_failed) because the reader repairs only settings in its disposable bootstrap and then unconditionally copies bootstrap/schema into the final reader. Update the fixtures or the reader contract for the .25 SDK so missing-configuration reads complete locally before any SDK backfill, then land the bump."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-linear#188",toolchain
 created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-06T19:23:03.697Z"
+updated_at: "2026-11-14T08:55:46.852Z"
+closed_at: "2026-11-14T08:55:46.794Z"
+completed_at: "2026-11-14T08:55:46.794Z"
 author: pi-glm
+release: 2026.11.4
 comments[11]{created_at,author,text}:
   "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
   "2026-11-03T12:54:42.296Z",pi-toolchain-glm-1103,"Gate evidence on the PR branch: both previously failing tests pass (node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts, node --test --test-name-pattern 'source isolation precedes SDK scaffolding' test/ownership.test.ts); typecheck, the docstring gate and the changelog check pass. The full local suite is impractical on this host: the machine is saturated by parallel fleet test runs (load above 19 for hours), and the suite's live Linear fetch tests stall for tens of minutes each, so the remaining coverage is left to CI. No schema-copy site besides the fixed one exists in the extension."
@@ -31,4 +34,5 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run build && node --test --test-concurrency=1 --test-name-pattern \"source isolation precedes SDK\" test/dependency-closure.test.ts test/ownership.test.ts",project,codex-sol,"2026-11-06T15:12:27.105Z",local_mutation,sdk-toolchain-missing-config-closure
 docs[1]{path,scope}:
   CHANGELOG.md,project
+close_reason: "https://github.com/unbraind/pm-linear/pull/209 merged 2026-11-06T23:07:42Z; merge SHA f4f87a0b617c08d77a63d910151f94b4db900c91; PR head 3194f39e0fb8f4e109e3f65daa1bf25a775806a3. Delivered: Verified missing-configuration read fixtures and issue closure evidence; preserve the already published release entry. Green at that head: test (22), codeql, test (26), release-gate (npm), release-gate (bun), CodeQL, CodeRabbit, DeepScan, Hound, Sourcery review. Other check outcomes: enable-auto-merge: SKIPPED; cubic · AI code reviewer: NEUTRAL (not counted as green)."
 body: ""

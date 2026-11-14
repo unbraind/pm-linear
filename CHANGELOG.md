@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Migrate PR206 to the November 4 pm toolchain ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-toolchain-1104.toon))
+
 ## 2026.11.13 - 2026-11-13
 
 ### Dependencies

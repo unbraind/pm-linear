@@ -2,11 +2,13 @@ id: pm-linear-toolchain-1104
 title: Migrate PR206 to the November 4 pm toolchain
 description: "Update exact development pins and migrate typed parent clearing for PR https://github.com/unbraind/pm-linear/pull/206 and issue #207. Existing dated certification and literal-provider-value items cover different acceptance scopes."
 type: Chore
-status: in_progress
+status: closed
 priority: 2
 tags[6]: dependencies,"gh:unbraind/pm-linear#206","gh:unbraind/pm-linear#207","gh:unbraind/pm-linear#208",migration,sdk
 created_at: "2026-11-04T18:55:54.361Z"
-updated_at: "2026-11-05T13:21:09.749Z"
+updated_at: "2026-11-14T08:55:52.058Z"
+closed_at: "2026-11-14T08:55:52.004Z"
+completed_at: "2026-11-14T08:55:52.004Z"
 author: codex-toolchain-1104
 acceptance_criteria: Typed parent clearing preserves forward and shared create-plan ambient-scope isolation; focused and full coverage gates pass without weaker assertions; record remaining upstream defects.
 comments[28]{created_at,author,text}:
@@ -123,4 +125,5 @@ tests[8]:
       source_ref: fix/linear-toolchain-2026-11-4
 docs[1]{path,scope}:
   docs/field-ownership.md,project
+close_reason: "https://github.com/unbraind/pm-linear/pull/208 merged 2026-11-05T17:02:47Z; merge SHA 682bef85e26c10bbbdc492642b9ef566eaa49cd7; PR head 88481d52031da5bbc89abbe33111740f6da69ec5. Delivered: Typed parent clearing and strict blocked-start admission preserve forward/shared-create ambient scope isolation and unchanged coverage requirements. Green at that head: test (22), codeql, test (26), release-gate (npm), release-gate (bun), CodeQL, CodeRabbit, DeepScan, Hound. Other check outcomes: enable-auto-merge: SKIPPED; cubic · AI code reviewer: NEUTRAL; Sourcery review: SKIPPED (not counted as green)."
 body: ""
