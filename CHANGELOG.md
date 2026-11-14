@@ -5,7 +5,6 @@
 ### Other
 
 - Close delivered pm items and reserve in progress for active work (2026-10-24) ([pm-linear-r2ay](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-r2ay.toon))
-- Migrate PR206 to the November 4 pm toolchain ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-toolchain-1104.toon))
 
 ## 2026.11.13 - 2026-11-13
 
@@ -16,19 +15,18 @@
 
 ## 2026.11.11 - 2026-11-11
 
-### Dependencies
+### Fixed
 
-- Bump the pm-toolchain group with 2 updates ([#216](https://github.com/unbraind/pm-linear/pull/216))
-- Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
-- Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
-- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#211](https://github.com/unbraind/pm-linear/pull/211))
-- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#212](https://github.com/unbraind/pm-linear/pull/212))
+- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
+
+### Other
+
+- Migrate PR206 to the November 4 pm toolchain ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-toolchain-1104.toon))
 
 ## 2026.11.4 - 2026-11-04
 
 ### Fixed
 
-- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
 - Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
 
 ## 2026.11.1 - 2026-11-01
