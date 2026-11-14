@@ -1,11 +1,21 @@
 id: pm-linear-ktat
-title: Release merge-wait keeps a stale approval flag and misdiagnoses its own timeout
-description: "Tracks gh:unbraind/pm-linear#200 (filed 2026-11-01, missed by the blind issue watch). release.yml on current main still initializes awaiting_approval=0 outside the merge-wait loop (line ~451), sets it to 1 whenever pending_runs is nonempty (~578) and never resets it, so the timeout branch (~583) tells maintainers to approve a run that already succeeded or finished instead of reporting the actually settling checks (observed 2026-11-01: three runs approved at 15:18, timeout at 15:47 still claiming approval was awaited). Reset the flag per iteration (or test current approval state at timeout) and assert the timeout diagnostic names the real settling/failing checks."
+title: "fix(release): clear stale approval state before merge-wait timeout diagnosis"
+description: "GH issue #200: https://github.com/unbraind/pm-linear/issues/200 · author @unbraind · created 2026-11-01T16:25:42Z · updated 2026-11-01T16:25:42Z"
 type: Issue
 status: open
 priority: 2
-tags[2]: "gh:unbraind/pm-linear#200",release
-created_at: "2026-11-02T09:17:58.368Z"
-updated_at: "2026-11-02T09:17:58.368Z"
+tags[2]: "gh:unbraind/pm-linear#200","github_author:unbraind"
+created_at: "2026-11-01T16:25:42Z"
+updated_at: "2026-11-14T11:37:45.189Z"
 author: pi-glm
-body: ""
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-01T16:25:42Z"
+github_link_only: false
+github_number: 200
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-01T16:25:42Z"
+github_url: "https://github.com/unbraind/pm-linear/issues/200"
+body: "## Observed defect\nThe release merge wait retains an old approval-required flag after approval succeeds. On timeout it therefore tells maintainers to approve a run that is already running or finished, hiding the actual settling checks.\n\nAffected source: [release.yml at 133914ec3f7b39c00ae2434f138c004540d9e5a2, lines 450–586](https://github.com/unbraind/pm-linear/blob/133914ec3f7b39c00ae2434f138c004540d9e5a2/.github/workflows/release.yml#L450-L586).\n\n## Hosted evidence and current status\n[Release job 124878188416](https://github.com/unbraind/pm-linear/actions/runs/41298011467/job/124878188416):\n- 15:18:07–15:18:08 UTC, 2026-11-01: reports successful approval of runs 41320486523, 41320486470 and 41320486461.\n- 15:47:44 UTC: merge API reports required `test (22)` still in progress; workflow lists `test (22), release-gate (npm)` settling, no failing checks.\n- 15:47:45 UTC: timeout instead claims “its CI run is awaiting workflow approval” and directs a maintainer to approve it.\n\nAt 16:23 UTC, [release PR #199](https://github.com/unbraind/pm-linear/pull/199) remains open at `1072b05f71f85479defb7a2ede9fdedb759c661d`; GitHub reports clean mergeability, and its check runs have completed successfully/neutral/skipped. The three previously approved workflow runs now report success/skipped/success. This is not a claim that checks are still failing, nor a request to bypass protection or manually merge.\n\n## Cause and bounded reproduction\n`awaiting_approval=0` is initialized outside the loop (line451), set to1 whenever `pending_runs` is nonempty (line578), and never reset. The timeout tests that historical flag (line583) instead of current approval state.\nA local Bash fixture preserving these assignment/conditional statements, substituting a no-op for approval calls, and feeding `pending_runs=41320486461` followed by empty `pending_runs`, reproduces the incorrect approval timeout. No network calls, merges, approvals, or full release workflow were executed.\n\n## Intended guarantee and impact\nThe existing [pm-linear-niyz record](https://github.com/unbraind/pm-linear/blob/133914ec3f7b39c00ae2434f138c004540d9e5a2/.agents/pm/issues/pm-linear-niyz.toon) explicitly separates awaiting approval from failed checks in deadline diagnostics; [PR #65](https://github.com/unbraind/pm-linear/pull/65) delivered that work. This is a follow-up diagnostic defect, not a repetition of its merge-state deadlock.\nAn inaccurate instruction misdirects release recovery after the bounded wait expires. No publication/tag safety failure is established.\n\n## Acceptance / regression criteria\n- Derive timeout approval diagnosis from current successfully fetched state, not “ever observed approval required.”\n- Approval pending → successfully approved/running → timeout must name remaining settling checks, not request approval.\n- Still awaiting approval at timeout must retain the actual pending-run link; API lookup failure must be reported as unknown, not silently “no pending approval.”\n- Preserve protected-merge authority, exact-head checks, and no-publish/no-tag behavior on failure; do not relax approval policy, coverage, or increase timeouts merely to hide the diagnostic.\n- Test the state transition behavior with mocked responses, including persistent pending, cleared pending, API failure, and successful merge.\n\n## Scope / dedup\nAll 199 current all-status issues/PR records were checked. No standalone issue covers this diagnostic. Related closed PR65 and canonical pm-linear-niyz were inspected. This is hosted evidence plus a bounded classifier reproduction, not whole-project or release certification."
