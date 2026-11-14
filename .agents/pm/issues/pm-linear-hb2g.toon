@@ -1,13 +1,16 @@
 id: pm-linear-hb2g
-title: PR187 toolchain bump still fails the two missing-configuration read fixtures
-description: "Tracks gh:unbraind/pm-linear#188 (filed 2026-10-28, missed by the blind issue watch). The open toolchain PR #187 (2026.10.24 to .25) still fails test(22)/test(26)/release-gates (latest run 41327000072, 2026-11-01): dependency-closure.test.ts and ownership.test.ts expect readClosureItems/read-only previews to backfill missing schema/settings/history through SDK reads, but both now throw LinearClosureRefusal/LinearOwnershipRefusal (local_read_failed) because the reader repairs only settings in its disposable bootstrap and then unconditionally copies bootstrap/schema into the final reader. Update the fixtures or the reader contract for the .25 SDK so missing-configuration reads complete locally before any SDK backfill, then land the bump."
+title: PR187 SDK toolchain update fails missing-configuration closure and ownership reads
+description: "GH issue #188: https://github.com/unbraind/pm-linear/issues/188 · author @unbraind · state reason completed · created 2026-10-28T17:00:10Z · updated 2026-11-06T23:07:43Z"
 type: Issue
-status: in_progress
+status: closed
 priority: 2
-tags[3]: ci,"gh:unbraind/pm-linear#188",toolchain
-created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-06T19:23:03.697Z"
+tags[2]: "gh:unbraind/pm-linear#188","github_author:unbraind"
+created_at: "2026-10-28T17:00:10Z"
+updated_at: "2026-11-14T11:37:45.268Z"
+closed_at: "2026-11-06T23:07:43Z"
+completed_at: "2026-11-06T23:07:43Z"
 author: pi-glm
+release: v2026.11.11
 comments[11]{created_at,author,text}:
   "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
   "2026-11-03T12:54:42.296Z",pi-toolchain-glm-1103,"Gate evidence on the PR branch: both previously failing tests pass (node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts, node --test --test-name-pattern 'source isolation precedes SDK scaffolding' test/ownership.test.ts); typecheck, the docstring gate and the changelog check pass. The full local suite is impractical on this host: the machine is saturated by parallel fleet test runs (load above 19 for hours), and the suite's live Linear fetch tests stall for tens of minutes each, so the remaining coverage is left to CI. No schema-copy site besides the fixed one exists in the extension."
@@ -31,4 +34,15 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run build && node --test --test-concurrency=1 --test-name-pattern \"source isolation precedes SDK\" test/dependency-closure.test.ts test/ownership.test.ts",project,codex-sol,"2026-11-06T15:12:27.105Z",local_mutation,sdk-toolchain-missing-config-closure
 docs[1]{path,scope}:
   CHANGELOG.md,project
-body: ""
+close_reason: "Closed on GitHub as completed on 2026-11-06T23:07:43Z; closing commit https://github.com/unbraind/pm-linear/commit/f4f87a0b617c08d77a63d910151f94b4db900c91"
+github_close_reason: "Closed on GitHub as completed on 2026-11-06T23:07:43Z; closing commit https://github.com/unbraind/pm-linear/commit/f4f87a0b617c08d77a63d910151f94b4db900c91"
+github_closed_at: "2026-11-06T23:07:43Z"
+github_created_at: "2026-10-28T17:00:10Z"
+github_link_only: false
+github_number: 188
+github_release: v2026.11.11
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-06T23:07:43Z"
+github_url: "https://github.com/unbraind/pm-linear/issues/188"
+body: "## Hosted regression on a dependency-update PR\nPR #187 at `1d22742b2ddbb378a947c41d849bca948136e5b4` updates the three development toolchain pins from 2026.10.24 to 2026.10.25. Its current Node 22 and Node 26 jobs both report **409 tests,407 passed,2 failed,0 skipped**:\n- [Node 22](https://github.com/unbraind/pm-linear/actions/runs/40725122382/job/122946193071)\n- [Node 26](https://github.com/unbraind/pm-linear/actions/runs/40725122382/job/122946192946)\n\nBoth failures are missing-configuration read fixtures, rather than the already-tracked #184 coverage-only failure:\n1. [dependency-closure.test.ts:318–339](https://github.com/unbraind/pm-linear/blob/1d22742b2ddbb378a947c41d849bca948136e5b4/test/dependency-closure.test.ts#L318-L339): “source isolation precedes SDK backfill for missing schema, settings and history” throws `LinearClosureRefusal(local_read_failed)` at `index.ts:2326` instead of returning a complete closure.\n2. [ownership.test.ts:296–313](https://github.com/unbraind/pm-linear/blob/1d22742b2ddbb378a947c41d849bca948136e5b4/test/ownership.test.ts#L296-L313): “source isolation precedes SDK scaffolding even for immutable trackers and absent schema history” throws `LinearOwnershipRefusal(local_read_failed)` at `index.ts:1844` instead of a successful read-only preview.\n\n## Static evidence and intended contract\n[readClosureItems](https://github.com/unbraind/pm-linear/blob/1d22742b2ddbb378a947c41d849bca948136e5b4/index.ts#L2205-L2262) copies source bytes before invoking SDK reads. It explicitly repairs missing settings only in its disposable bootstrap, then unconditionally copies bootstrap/schema into the final reader. Its comments and fixtures still depend on SDK reads to backfill other missing files. The logs do not expose the underlying exception or identify which absent-path iteration failed, so the precise root cause is not established here.\n\nThe [canonical field-ownership record](https://github.com/unbraind/pm-linear/blob/1d22742b2ddbb378a947c41d849bca948136e5b4/.agents/pm/features/pm-linear-field-ownership.toon) requires read-only preview and complete SDK reads. Preserve that safety invariant; do not restore source mutation or assume accidental historical SDK repair side effects are a permanent contract.\n\n## Impact and acceptance\nThe toolchain-update PR's current Node 22/26 and npm/Bun gates are red. This is a concrete consumer compatibility/test-contract blocker, **not evidence of source writes, data loss, or a live Linear outage**.\n- Isolate each absent-path case and retain the typed underlying diagnostic in sanitized test evidence.\n- Derive supported missing-configuration behavior from the current SDK contract. If disposable reconstruction is intended, use supported SDK primitives on owned copies; if refusal is intended, document and assert that explicit boundary rather than expecting incidental scaffolding.\n- Keep original bytes/permissions/history unchanged and retain must-allow valid-tracker cases plus must-refuse incomplete/unsafe cases.\n- Rerun current-head Node 22/26 and npm/Bun gates without weakening coverage or excluding assertions.\n\nAll 187 all-status issue/PR records, PR 187 conversation and the canonical record were checked before filing. #184 is a distinct earlier all-tests-passing coverage gap; #134 is closed complete-read lineage. Evidence here is exact hosted logs plus static source inspection; no local full-suite or live-provider execution was performed."

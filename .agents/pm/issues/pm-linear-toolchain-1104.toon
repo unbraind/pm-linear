@@ -1,14 +1,17 @@
 id: pm-linear-toolchain-1104
-title: Migrate PR206 to the November 4 pm toolchain
-description: "Update exact development pins and migrate typed parent clearing for PR https://github.com/unbraind/pm-linear/pull/206 and issue #207. Existing dated certification and literal-provider-value items cover different acceptance scopes."
-type: Chore
-status: in_progress
+title: "SDK 2026.11.1 upgrade refuses parent:none in Linear creation paths"
+description: "GH issue #207: https://github.com/unbraind/pm-linear/issues/207 · author @unbraind · state reason completed · created 2026-11-04T16:42:34Z · updated 2026-11-05T17:03:02Z"
+type: Issue
+status: closed
 priority: 2
-tags[6]: dependencies,"gh:unbraind/pm-linear#206","gh:unbraind/pm-linear#207","gh:unbraind/pm-linear#208",migration,sdk
-created_at: "2026-11-04T18:55:54.361Z"
-updated_at: "2026-11-05T13:21:09.749Z"
+tags[2]: "gh:unbraind/pm-linear#207","github_author:unbraind"
+created_at: "2026-11-04T16:42:34Z"
+updated_at: "2026-11-14T11:37:45.165Z"
+closed_at: "2026-11-05T17:03:02Z"
+completed_at: "2026-11-05T17:03:02Z"
 author: codex-toolchain-1104
 acceptance_criteria: Typed parent clearing preserves forward and shared create-plan ambient-scope isolation; focused and full coverage gates pass without weaker assertions; record remaining upstream defects.
+release: v2026.11.11
 comments[28]{created_at,author,text}:
   "2026-11-04T18:56:36.674Z",codex-toolchain-1104,"Production: pm-cli 2026.10.30 GH-1614 keeps typed sentinel values literal; forward create and shared atomic create-plan emitted parent:none and are refused on 2026.11.4. Replace with unset:[parent,goal,objective,sprint,release]. Test: fixture and reference-model parent:none controls have the same old-contract dependency; migrate explicit clears without removing assertions. npm registry confirms CLI/ops 2026.11.4 and changelog 2026.10.31."
   "2026-11-04T18:57:26.958Z",codex-toolchain-1104,"New test/typed-parent-clear.test.ts passes 2/2 on 2026.11.4; reverting only index.ts to the PR source fails both tests, then restoring the fix passes. It exercises forward creation and the shared create-plan options via real SDK persistence under ambient parent/scope focus. Before migration: forward-import 0/6, ownership 3/29, literal-values 0/6. Retain the conservative provider-value guard for the older declared minimum; update its stale documentation instead of broadening scope."
@@ -123,4 +126,15 @@ tests[8]:
       source_ref: fix/linear-toolchain-2026-11-4
 docs[1]{path,scope}:
   docs/field-ownership.md,project
-body: ""
+close_reason: "Closed on GitHub as completed on 2026-11-05T17:03:02Z"
+github_close_reason: "Closed on GitHub as completed on 2026-11-05T17:03:02Z"
+github_closed_at: "2026-11-05T17:03:02Z"
+github_created_at: "2026-11-04T16:42:34Z"
+github_link_only: false
+github_number: 207
+github_release: v2026.11.11
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-05T17:03:02Z"
+github_url: "https://github.com/unbraind/pm-linear/issues/207"
+body: "## Exact failing version and evidence\n[PR #206](https://github.com/unbraind/pm-linear/pull/206), head `0ad48b35d55743608dde2a9d92eddc4be8f06508`, upgrades the development SDK from 2026.10.28 to 2026.11.1 (and changelog/ops pins). Hosted tests execute merge `88c02e7a2286dbc3d1f27ed531770dfdc6c25908` against base `033b0601597aebd27c627d85bbcfad138beaf6d1`.\n\nBoth [Node 22](https://github.com/unbraind/pm-linear/actions/runs/41865301849/job/126697903105) and [Node 26](https://github.com/unbraind/pm-linear/actions/runs/41865301849/job/126697902917) finish with **457 tests, 352 passed, 105 failed**. Numerous creation/import/ownership tests report:\n\n`--parent must not use placeholder token \"none\". Use --unset parent to clear this field.`\n\nThe npm and Bun release gates also fail on that head. The 105 total failures are not all individually attributed to this one cause.\n\n## Producer and source goal\nThe [forward importer](https://github.com/unbraind/pm-linear/blob/0ad48b35d55743608dde2a9d92eddc4be8f06508/index.ts#L2904-L2943) unconditionally sets `values.parent = \"none\"` when the target does not exist, then passes those values to `pm.create`. The [shared create-plan producer](https://github.com/unbraind/pm-linear/blob/0ad48b35d55743608dde2a9d92eddc4be8f06508/index.ts#L3398-L3411) likewise emits `parent: \"none\"`. These are package-generated controls, not invalid provider values.\n\nThe [canonical field-ownership record](https://github.com/unbraind/pm-linear/blob/0ad48b35d55743608dde2a9d92eddc4be8f06508/.agents/pm/features/pm-linear-field-ownership.toon) explicitly records the intended invariant: both creation paths clear ambient parent/scope defaults. Preserve that invariant using the installed SDK's supported typed mutation contract. Simply omitting the field may reintroduce ambient-focus inheritance.\n\nExpected: ordinary valid imports and isolated ownership projections can create unparented items while clearing ambient scopes. Actual on the upgraded SDK: the package's own placeholder is rejected. This blocks SDK compatibility acceptance and ordinary new-item import paths under the tested version; it is not evidence of a live Linear incident or data loss.\n\n## Existing ownership and limits\nAll 206 all-status issue/PR records, PR206 discussion/reviews, and 117 canonical task/issue/feature/chore records were inspected. Open #188 covers different missing-configuration read failures. The existing `pm-linear-literal-sdk-values` item tracks literal provider fields and upstream #1614, not these package-generated parent controls. Core [#1655](https://github.com/unbraind/pm-cli/issues/1655)/[#1658](https://github.com/unbraind/pm-cli/pull/1658) address typed parent clearing and diagnostics upstream; that does not automatically migrate Linear's producers or establish behavior on the pinned 2026.11.1 artifact.\n\nEvidence is exact immutable source plus completed hosted execution. No local full suite, provider API calls, production data changes, publication check, or proof that every failing test has the same cause is claimed.\n\n## Acceptance and regression criteria\n- Migrate every package-generated parent-clear producer to a supported contract on the accepted SDK version, or hold/refuse the incompatible upgrade with an explicit actionable explanation. Do not weaken SDK placeholder validation or use private SDK internals.\n- Cover both forward new-item creation and shared create-plan/ownership projection with actual SDK readback, including ambient parent and goal/objective/sprint/release defaults. Assert created items remain unparented and unintended scopes are absent.\n- Retain existing-item relationship preservation, literal provider-value guards, typed refusal behavior, source-copy isolation, forward-only receipts, and no unsafe rollback.\n- Rerun focused creation/ownership regressions, complete Node22/26 and npm/Bun release gates, and packed-consumer acceptance on the selected supported SDK. Report unrelated failures separately, preserving coverage thresholds and assertions.\n\n\n---\n\n### GitHub comments (1)\n\n> **@unbraind** (2026-11-05T17:03:01Z)\n>\n> Fixed by #208 (merged 2026-11-05): Linear creation paths clear the typed parent with `unset` instead of 'none' (pm-cli GH-1614). The parent-clear regression runs on both the declared minimum SDK and the dev pin."

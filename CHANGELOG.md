@@ -9,20 +9,20 @@
 
 ## 2026.11.11 - 2026-11-11
 
-### Dependencies
+### Fixed
 
-- Bump the pm-toolchain group with 2 updates ([#216](https://github.com/unbraind/pm-linear/pull/216))
-- Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
-- Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
-- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#211](https://github.com/unbraind/pm-linear/pull/211))
-- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#212](https://github.com/unbraind/pm-linear/pull/212))
+- PR187 SDK toolchain update fails missing-configuration closure and ownership reads ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
+- SDK 2026.11.1 upgrade refuses parent:none in Linear creation paths ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-toolchain-1104.toon))
 
 ## 2026.11.4 - 2026-11-04
 
 ### Fixed
 
-- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
-- Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
+- Disambiguate GitHub \#134 import ownership while preserving both PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
+
+### Closed
+
+- Closed: PR183 current release gates fail 100% function coverage after 400 passing tests ([pm-linear-github-18076be0368a-184](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-184.toon))
 
 ## 2026.11.1 - 2026-11-01
 
@@ -33,6 +33,11 @@
 ### Fixed
 
 - Restore generated notes for prepared 2026.10.29 ([pm-linear-release-notes-1029](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-release-notes-1029.toon))
+
+### Closed
+
+- Closed: Reconcile complete-corpus dry-run support with the inherited isolation-copy admission budget ([pm-linear-github-18076be0368a-193](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-193.toon))
+- Closed: Preserve the explicit atomic-request boundary when migrating to forward-only imports ([pm-linear-github-18076be0368a-191](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-191.toon))
 
 ## 2026.10.29 - 2026-10-29
 
@@ -52,9 +57,9 @@
 
 - Read the bounded missing Linear prerequisite frontier ([pm-linear-focused-closure](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-focused-closure.toon))
 
-### Other
+### Fixed
 
-- Point the npm homepage at the package catalog and link the author ([pm-linear-1y6b](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1y6b.toon))
+- Point the npm homepage at the package's website and link the author ([pm-linear-1y6b](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-1y6b.toon))
 
 ## 2026.10.25 - 2026-10-25
 
@@ -87,17 +92,15 @@
 - Closed: Harden the release merge wait against mergeStateStatus deadlock ([pm-linear-niyz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-niyz.toon))
 - Closed: The publish-attestation gate misses a publish routed through an unquoted shell variable ([pm-linear-pa9x](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-pa9x.toon))
 
-## 2026.10.21 - 2026-10-21
-
-### Closed
-
-- Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
-
 ## 2026.10.8 - 2026-10-08
 
 ### Fixed
 
 - Certify complete local item reads before Linear reconciliation and export ([pm-linear-ldqw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ldqw.toon))
+
+### Closed
+
+- Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
 
 ## 2026.10.5 - 2026-10-05
 
