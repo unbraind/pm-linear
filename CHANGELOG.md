@@ -4,6 +4,7 @@
 
 ### Other
 
+- Close delivered pm items and reserve in progress for active work (2026-10-24) ([pm-linear-r2ay](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-r2ay.toon))
 - Migrate PR206 to the November 4 pm toolchain ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-toolchain-1104.toon))
 
 ## 2026.11.13 - 2026-11-13
