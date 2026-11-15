@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Focused acquisition uses real SDK trackers, bounded HTTP reads and no Git executable. */
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -261,7 +262,7 @@ test("500 seeded random operation sequences replay older provider graphs and rea
     return (await readLocatedItem(located, { schema: (await readSettings(root)).schema })).document;
   }
   // Each sequence has graph edit, historical replay, CRLF/whitespace and foreign-field changes.
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     if (sequence % 50 === 0) {
       const status = `custom_${Math.floor(random() * 1000000)}`;
       const role = ["active", "blocked", "draft", "terminal_done", "terminal_canceled"][Math.floor(random() * 5)];

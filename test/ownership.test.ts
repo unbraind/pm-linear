@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Ownership previews use real SDK trackers, an observable wire, and no git executable. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -292,7 +293,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     }
   }
   let baseline = (await previewLinearOwnership(options, root)).observation;
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     if (sequence % 100 === 0) t.diagnostic(`seed 0x10272026: sequence ${sequence}/500`);
     // Keep the edge while exercising both unresolved and completed blockers.
     if (sequence % 10 === 0) {
@@ -364,7 +365,7 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
   }
   assert.ok(starts.refused > 0, "the model must exercise refused starts with open blockers");
   assert.ok(starts.admitted > 0, "the model must keep exercising starts after blockers complete");
-  t.diagnostic(`500 sequences complete: ${starts.refused} refused starts, ${starts.admitted} admitted starts`);
+  t.diagnostic(`${testDepth(500)} sequences complete: ${starts.refused} refused starts, ${starts.admitted} admitted starts`);
 });
 
 test("custom status aliases and provider names use the same importer mapping and SDK normalization", async (t) => {
@@ -746,7 +747,7 @@ test("review class: every tag producer preserves literal SDK control words and d
   const reference = (await stateFromSdk(root, options.item)).metadata;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const vocabulary = ["none", "null", "-", "a,b", " BUG ", "Ω label", "quoted\"label", "CRLF\r\nlabel"];
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const names = Array.from({ length: Math.floor(random() * 8) }, () => vocabulary[Math.floor(random() * vocabulary.length)]);
     const plan = buildItemPlan({ ...provider, labels: { nodes: names.map((name) => ({ name })) } }, {});
     const entry = { ...plan, identifier: provider.identifier, linearId: provider.id, match: { id: options.item } };

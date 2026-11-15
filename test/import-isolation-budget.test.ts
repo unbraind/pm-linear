@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Import mirrors admit legitimate native audit corpora while observation budgets and source safety remain enforced. */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -7,7 +8,7 @@ import { join } from "node:path";
 import { getHistoryPath, locateItem, PmClient } from "@unbrained/pm-cli/sdk";
 import { buildItemPlan, previewLinearOwnership, syncLinearIssues, type LinearIssue } from "../index.ts";
 
-test("import mirror policy preserves preview/apply parity above the observational entry limit", { timeout: 1200000 }, async (t) => {
+test("import mirror policy preserves preview/apply parity above the observational entry limit", { timeout: testTime(1200000) }, async (t) => {
   const savedKey = process.env.LINEAR_API_KEY; delete process.env.LINEAR_API_KEY;
   t.after(() => { if (savedKey === undefined) delete process.env.LINEAR_API_KEY; else process.env.LINEAR_API_KEY = savedKey; });
   const base = await mkdtemp(join(tmpdir(), "linear-import-isolation-")), root = join(base, "tracker");
