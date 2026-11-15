@@ -363,6 +363,15 @@ test("500 seeded operation sequences cover historical replays, CRLF, all fields,
     assert.equal(exported.linearId, "remote");
     assert.equal(exported.description, before.body);
   }
+  await t.test("directed start admission refuses an open blocker then admits its completion", async () => {
+    await applyNativeChange({ status: "open" });
+    await pm.update("foreign", { status: "open" });
+    blockerOpen = true;
+    await applyNativeChange({ status: "in_progress" });
+    await pm.update("foreign", { status: "closed", closeReason: "Directed blocker completion" });
+    blockerOpen = false;
+    await applyNativeChange({ status: "in_progress" });
+  });
   assert.ok(starts.refused > 0, "the model must exercise refused starts with open blockers");
   assert.ok(starts.admitted > 0, "the model must keep exercising starts after blockers complete");
   t.diagnostic(`${testDepth(500)} sequences complete: ${starts.refused} refused starts, ${starts.admitted} admitted starts`);

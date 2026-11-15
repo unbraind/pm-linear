@@ -109,7 +109,7 @@ jobs:
         if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check
 
-      # Retain packed acceptance; smoke Bun separately from the single npm gate.
+      # Packed scripts are standalone; smoke the installed Bun paths here.
       - name: Verify Bun can install the package graph
         if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: |
