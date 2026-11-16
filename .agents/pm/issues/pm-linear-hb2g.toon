@@ -6,11 +6,9 @@ status: in_progress
 priority: 2
 tags[5]: ci,"gh:unbraind/pm-linear#188","gh:unbraind/pm-linear#228",performance,toolchain
 created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-16T03:46:05.348Z"
-assignee: pi-glm
-claim_principal: pi-glm
+updated_at: "2026-11-16T04:24:30.649Z"
 author: pi-glm
-comments[20]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
   "2026-11-03T12:54:42.296Z",pi-toolchain-glm-1103,"Gate evidence on the PR branch: both previously failing tests pass (node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts, node --test --test-name-pattern 'source isolation precedes SDK scaffolding' test/ownership.test.ts); typecheck, the docstring gate and the changelog check pass. The full local suite is impractical on this host: the machine is saturated by parallel fleet test runs (load above 19 for hours), and the suite's live Linear fetch tests stall for tens of minutes each, so the remaining coverage is left to CI. No schema-copy site besides the fixed one exists in the extension."
   "2026-11-06T15:12:00.383Z",codex-sol,"Issue #188 is already fixed on main by fd16802 (#187): readClosureItems now copies schema only when present in the owned bootstrap. Revalidating both original SDK fixtures and a disposable behavioral revert against current main 682bef8; this closure PR will change tracker evidence and the generated changelog only, with no production or test changes."
@@ -31,6 +29,8 @@ comments[20]{created_at,author,text}:
   "2026-11-16T00:35:32.237Z",codex-sol,"Round F: PRRT_kwDOSYpKlc63uvRU is valid. Ordered push and PR CodeQL filters now re-include js, mjs, cjs and ts tracker programs at every nesting depth. Executable filter regressions and release-workflow tests passed (7 tests), with typecheck, test compilation, strict YAML and author-email checks. No lint script exists in this repository. Starting Actions checks passed; no coverage source changed."
   "2026-11-16T00:37:00.745Z",codex-sol,"Round F focused and PM-linked regression gates passed. Strict YAML and branch commit identity checks passed. Changelog verification completed without weakening checks. No thread replies, resolutions, reactions or merges were performed. Final CI status remains for the orchestrator to verify after push."
   "2026-11-16T03:46:00.357Z",pi-glm,"Round G review threads, both verified valid and fixed. (1) test/ci-codeql.test.ts: Node matchesGlob never selects dot-leading components with **, so the inert-tracker assertion passed even without the !.agents/pm/** exclusion. The routing check now uses a GitHub-compatible dot-matching glob model (the runner matches hidden components, dot:true) and a new mutation test removes the exclusion and requires inert tracker data to route to CodeQL, proving it is load-bearing. (2) test/support/time.ts: PM_TEST_TIME_SCALE set to an empty string evaluated to Number('')=0 and threw before any test file could import. An empty or whitespace-only setting is now treated as unset (scale 1); non-empty invalid values still refuse import. Added test/time-scale.test.ts: empty/unset import cleanly at scale 1, scale 2 doubles budgets, 0/-1/abc/NaN/Infinity still throw the validation error. node --test test/ci-codeql.test.ts test/time-scale.test.ts: 4/4 pass; typecheck and changelog:check green."
+  "2026-11-16T04:22:37.771Z",codex-sol,"Continuing round G: repair the time-scale spawn output typing, preserve the two completed review fixes, and validate build:test, lint, and the touched test before pushing."
+  "2026-11-16T04:24:29.590Z",codex-sol,"Validation passed: npm run build:test; npm run typecheck; node --test test/time-scale.test.ts test/ci-codeql.test.ts (3 tests); npm run changelog:check. The package has no lint script. Attempting the fleet ESLint launcher failed because its optional @babel/eslint-parser peer is absent; lint is not certified. The return type is now SpawnSyncReturns<string>, matching the existing UTF-8 spawn encoding without changing assertions."
 files[18]{path,scope}:
   .agents/pm/issues/pm-linear-hb2g.toon,project
   .github/workflows/ci-deep.yml,project
@@ -50,7 +50,7 @@ files[18]{path,scope}:
   test/sync-result-contract.test.ts,project
   test/time-scale.test.ts,project
   test/typed-parent-clear.test.ts,project
-tests[7]:
+tests[8]:
   - command: node --test test/dependency-closure.test.ts test/ownership.test.ts
     scope: project
     provenance:
@@ -101,6 +101,13 @@ tests[7]:
     provenance:
       author: pi-glm
       created_at: "2026-11-16T03:46:05.282Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "npm run build:test && npm run typecheck && node --test test/time-scale.test.ts test/ci-codeql.test.ts && npm run changelog:check"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T04:23:27.889Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[2]{path,scope}:

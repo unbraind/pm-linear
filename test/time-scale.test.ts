@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import test from "node:test";
 
 /** Import the scale helper in a child so the evaluated env is fully controlled. */
 const program = `import { testTime } from ${JSON.stringify(new URL("./support/time.ts", import.meta.url).href)}; process.stdout.write(String(testTime(120000)));`;
 
 /** Run the helper import with one scale setting; undefined deletes the variable. */
-function importWithScale(scale: string | undefined): ReturnType<typeof spawnSync> {
+function importWithScale(scale: string | undefined): SpawnSyncReturns<string> {
   const env = { ...process.env };
   if (scale === undefined) delete env.PM_TEST_TIME_SCALE;
   else env.PM_TEST_TIME_SCALE = scale;
