@@ -2,14 +2,17 @@ id: pm-linear-toolchain-1104
 title: Migrate PR206 to the November 4 pm toolchain
 description: "Update exact development pins and migrate typed parent clearing for PR https://github.com/unbraind/pm-linear/pull/206 and issue #207. Existing dated certification and literal-provider-value items cover different acceptance scopes."
 type: Chore
-status: in_progress
+status: closed
 priority: 2
 tags[6]: dependencies,"gh:unbraind/pm-linear#206","gh:unbraind/pm-linear#207","gh:unbraind/pm-linear#208",migration,sdk
 created_at: "2026-11-04T18:55:54.361Z"
-updated_at: "2026-11-05T13:21:09.749Z"
+updated_at: "2026-11-14T10:11:05.418Z"
+closed_at: "2026-11-14T08:55:52.004Z"
+completed_at: "2026-11-05T17:02:47.000Z"
 author: codex-toolchain-1104
 acceptance_criteria: Typed parent clearing preserves forward and shared create-plan ambient-scope isolation; focused and full coverage gates pass without weaker assertions; record remaining upstream defects.
-comments[28]{created_at,author,text}:
+release: 2026.11.11
+comments[29]{created_at,author,text}:
   "2026-11-04T18:56:36.674Z",codex-toolchain-1104,"Production: pm-cli 2026.10.30 GH-1614 keeps typed sentinel values literal; forward create and shared atomic create-plan emitted parent:none and are refused on 2026.11.4. Replace with unset:[parent,goal,objective,sprint,release]. Test: fixture and reference-model parent:none controls have the same old-contract dependency; migrate explicit clears without removing assertions. npm registry confirms CLI/ops 2026.11.4 and changelog 2026.10.31."
   "2026-11-04T18:57:26.958Z",codex-toolchain-1104,"New test/typed-parent-clear.test.ts passes 2/2 on 2026.11.4; reverting only index.ts to the PR source fails both tests, then restoring the fix passes. It exercises forward creation and the shared create-plan options via real SDK persistence under ambient parent/scope focus. Before migration: forward-import 0/6, ownership 3/29, literal-values 0/6. Retain the conservative provider-value guard for the older declared minimum; update its stale documentation instead of broadening scope."
   "2026-11-04T18:59:30.455Z",codex-toolchain-1104,"Secondary CLI pin: update test/estimate-packed-acceptance.ts default host from 2026.10.28 to 2026.11.4. Historical validation artifacts retain their measured versions; manifest/peer minimum remains >=2026.10.24. No tracked dist files or lint script. Typecheck, build:test, docstring, production audit (0 vulnerabilities), pack dry-run, release-date and publish-attestation checks pass. Strict tracked health exits 0 with an inherited provenance advisory; no history repair attempted."
@@ -38,6 +41,7 @@ comments[28]{created_at,author,text}:
   "2026-11-05T12:49:30.237Z",codex-agent,"Published code and matching PM evidence together in 0368230e38557254bb8ff3af1f6d27610316c267. Remote head readback matches; worktree was clean after push and every PR commit email matches the required SteveBot identity. Final-head CI is queued at https://github.com/unbraind/pm-linear/actions/runs/42030291467 and CodeQL at https://github.com/unbraind/pm-linear/actions/runs/42030291361. Full npm and Bun gates are pending, not approval. Local serial npm remains active with no reported failed tests; no concurrent local Bun suite. CI polling cutoff is 30 minutes after this push. No thread replies/resolutions, merge, release, or auto-merge request."
   "2026-11-05T13:19:45.738Z",codex-agent,"Required 30-minute CI cutoff reached for code head 0368230e38557254bb8ff3af1f6d27610316c267. CI run https://github.com/unbraind/pm-linear/actions/runs/42030291467 still has the full npm release gate running; full Bun and Node22/26 test jobs remain queued. CodeQL passed at https://github.com/unbraind/pm-linear/actions/runs/42030291361. CodeRabbit/Sourcery are skipped and cubic neutral, which are not review approval. Local nice npm release:check was intentionally interrupted at handoff after 138 completed passing cases and no reported failed tests; it had completed all 500 forward failure/retry schedules and was running the literal-value model. No complete local gate pass or aggregate coverage is claimed, no timeout was observed, and no local Bun suite was started concurrently. Only this task-owned isolated process groups were signaled; cleanup confirms no live task test or monitor processes remain. Current full npm/Bun gate counts and coverage remain unmeasured; thresholds stay 99/96/100 with required source presence. Focused tests remain 8/8; all four independent behavioral mutations fail 3/1 each and restoring fixed inputs passes 4/4. Fresh review enumeration still has only the two original unresolved threads, every comment fetched without pagination, and no Outside diff range findings. Both are fixed, with no replies/resolutions. No additional valid defect found in the changed diff, no new PM CLI/SDK defect, and no history rewrite. Releasing this agent claim only; leave the item in_progress for orchestrator verification. This receipt-only push requires fresh final-head CI at https://github.com/unbraind/pm-linear/pull/208/checks and does not claim readiness, merge or release."
   "2026-11-05T13:21:09.747Z",codex-agent,"Shutdown detail: the local runner printed an explicit Interrupted while running banner, followed by 17 file-level cancellation placeholders after the task-owned process groups were signaled. The 138 completed passing cases were reported before interruption; the earlier no-reported-failures statement refers to that pre-interruption interval. There is no complete aggregate test result or coverage measurement from this interrupted command. Preserve the cancellation evidence and verify the full npm/Bun gates on the final pushed head. Task-owned process cleanup is complete."
+  "2026-11-14T10:11:05.416Z",codex-sweep-1114,"Release-attribution correction: completed_at = 2026-11-05T17:02:47Z from https://github.com/unbraind/pm-linear/pull/208 (merge SHA 682bef85e26c10bbbdc492642b9ef566eaa49cd7); first containing release tag v2026.11.11, recorded release 2026.11.11."
 files[21]{path,scope}:
   index.ts,project
   package-lock.json,project
@@ -123,4 +127,5 @@ tests[8]:
       source_ref: fix/linear-toolchain-2026-11-4
 docs[1]{path,scope}:
   docs/field-ownership.md,project
+close_reason: "https://github.com/unbraind/pm-linear/pull/208 merged 2026-11-05T17:02:47Z; merge SHA 682bef85e26c10bbbdc492642b9ef566eaa49cd7; PR head 88481d52031da5bbc89abbe33111740f6da69ec5. Delivered: Typed parent clearing and strict blocked-start admission preserve forward/shared-create ambient scope isolation and unchanged coverage requirements. Green at that head: test (22), codeql, test (26), release-gate (npm), release-gate (bun), CodeQL, CodeRabbit, DeepScan, Hound. Other check outcomes: enable-auto-merge: SKIPPED; cubic · AI code reviewer: NEUTRAL; Sourcery review: SKIPPED (not counted as green)."
 body: ""
