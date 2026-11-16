@@ -69,3 +69,7 @@ only after actual operations; they are never seeded to manufacture success.
 The same directed case runs at both depths, with the original random prefix intact.
 Other local quick model times: closure 14.72 s, estimate 38.32 s, forward 75.86 s,
 literal 22.11 s. Different-run full baselines above are not controlled benchmarks.
+
+Round F: ordered CodeQL path filters exclude inert tracker data and re-include
+all JavaScript and TypeScript tracker programs at any nesting depth on both
+PRs and main pushes. The routing regression evaluates both event filters.
