@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Public fetched-payload contracts and optional assignment effects use real non-git SDK trackers. */
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
@@ -47,14 +48,14 @@ test("sync fetched issue contract survives every mode, filter, replay and failed
     }
     // A deterministic 500-record corpus proves local filters do not redefine fetched membership.
     let seed = 62026;
-    const generated = Array.from({ length: 500 }, (_, index) => {
+    const generated = Array.from({ length: testDepth(500) }, (_, index) => {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const issue = provider(`generated-${index}`, scaled); issue.priority = seed % 5; issue.estimate = [null, 0, 1, 3.5, 5, 8][seed % 6];
       issue.description = seed % 2 ? " Whitespace\r\nvariant " : " Whitespace\nvariant "; return issue;
     });
     for (const atomic of [false, true]) for (const dryRun of [false, true]) {
       const result = await syncLinearIssues({ team: "ENG", limit: 500, atomic, forwardOnly: true, dryRun, stateFilter: "missing" }, root, { fetchIssues: async () => generated });
-      assert.deepEqual(result.issues, generated); assert.equal(result.skipped, 500); assert.equal(result.synced, 0);
+      assert.deepEqual(result.issues, generated); assert.equal(result.skipped, generated.length); assert.equal(result.synced, 0);
     }
     const empty = await syncLinearIssues({ team: "ENG", limit: 1 }, root, { fetchIssues: async () => [] }); assert.deepEqual(empty.issues, []);
     const receipt = await importLinearForwardOnly(root, "ENG", []); assert.equal(Object.hasOwn(receipt, "issues"), false, "prepared-row receipts never fabricate provider payloads");

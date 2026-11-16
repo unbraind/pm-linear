@@ -1,3 +1,5 @@
+import { testTime } from "./support/time.ts";
+import { testDepth } from "./support/depth.ts";
 /** Unit provenance, real SDK persistence, replay and revision interleavings in non-git trackers. */
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
@@ -79,7 +81,7 @@ test("one strict schema bounds input/output, producers round-trip, and malformed
   for (const minutes of [NaN, Infinity, -1, 0.5, 175201, Number.MAX_VALUE]) assert.throws(() => encodeLinearEstimate(team, 5, { ...mapping, entries: [{ points: 5, minutes }] }), refusal());
   for (const extra of [{ unknown: true }, { entries: new Array(1) }, { entries: Array.from({ length: 65 }, () => ({ points: 5, minutes: 1 })) }, { entries: [{ points: 5, minutes: 1 }, { points: 5, minutes: 2 }] }]) assert.throws(() => encodeLinearEstimate(team, 5, { ...mapping, ...extra }), refusal());
   assert.throws(() => encodeLinearEstimate(team, 5, { ...mapping, teamId: "other" }), refusal("estimate_scope_mismatch"));
-  for (let index = 0; index < 500; index++) {
+  for (let index = 0; index < testDepth(500); index++) {
     const points = index % 3 ? index / 2 : null;
     const encoded = encodeLinearEstimate({ ...team, issueEstimationType: index % 2 ? "future-scale" : "fibonacci" }, points);
     const read = readLinearEstimate([encoded]); assert.ok(read.contract);
@@ -219,7 +221,7 @@ test("missing planning revisions never fall back to newer native state; stable m
 /** Deterministic PRNG keeps 500 generated state-machine sequences reproducible. */
 function random(seed: number) { let state = seed; return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state; }; }
 
-test("seed 1620: 500 model-based import/export/sync sequences read state back through SDK", { timeout: 5400000 }, async (t) => {
+test("seed 1620: 500 model-based import/export/sync sequences read state back through SDK", { timeout: testTime(5400000) }, async (t) => {
   const container = await fixture(t);
   const originalError = console.error; console.error = () => {};
   t.after(() => { console.error = originalError; });
@@ -247,7 +249,8 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
   const conversionFile = join(container.root, "conversion.json"); await writeFile(conversionFile, JSON.stringify(mapping));
   const routes = ["sdk", "sync", "linear", "linear-sync"];
   const routeCounts = new Map<string, number>();
-  for (let group = 0; group < 10; group++) {
+  let generated = 0;
+  for (let group = 0; group < Math.ceil(testDepth(500) / 50); group++) {
     const actualRoot = join(container.root, `actual-${group}`);
     await mkdir(actualRoot, { recursive: true });
     const actual = { root: actualRoot, pm: new PmClient({ cwd: actualRoot, pmRoot: actualRoot, noExtensions: true, author: "fixture" }) };
@@ -270,8 +273,9 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     const aId = deriveAtomicItemId("ENG", "ENG-model", settings.id_prefix, normalizeItemId);
     let known = false;
     const history: LinearIssue[] = [];
-    for (let local = 0; local < 50; local++) {
+    for (let local = 0; local < Math.min(50, testDepth(500) - group * 50); local++) {
       const sequence = group * 50 + local;
+      generated++;
       if (sequence % 100 === 0) process.stdout.write(`model sequences: ${sequence}/500\n`);
       const value = issue("model"); value.identifier = "ENG-model";
       value.title = ` ${(rng() >>> 8) % 9} Work ${sequence % 3 ? "" : "\r\n"} `;
@@ -347,7 +351,8 @@ test("seed 1620: 500 model-based import/export/sync sequences read state back th
     const events = await readHistoryEntries(getHistoryPath(actual.root, aId), aId);
     assert.ok(events.length > 25);
   }
-  assert.ok(routes.every((route) => (routeCounts.get(route) ?? 0) >= 125));
+  assert.equal(generated, testDepth(500));
+  assert.ok(routes.every((route) => (routeCounts.get(route) ?? 0) >= Math.floor(generated / routes.length)));
 });
 
 test("network inspection and every importer alias preserve the unit contract and typed refusals", async (t) => {

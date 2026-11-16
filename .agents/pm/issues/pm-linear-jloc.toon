@@ -6,7 +6,9 @@ status: open
 priority: 2
 tags[2]: health,provenance
 created_at: "2026-10-04T11:44:05.071Z"
-updated_at: "2026-10-04T11:44:05.071Z"
+updated_at: "2026-11-15T20:47:31.641Z"
 author: codex-sol
 acceptance_criteria: Classify the historical warning with a disposable synthetic reproduction; preserve normalization audit receipts and verified history chains; file upstream only for a confirmed defect after duplicate search
+comments[1]{created_at,author,text}:
+  "2026-11-15T20:47:31.640Z",codex-sol,Fleet CI v2 local strict health reports the existing provenance_value_domain_invalid finding for a historical role. History remains unchanged in the tier rollout.
 body: ""
