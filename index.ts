@@ -4283,7 +4283,7 @@ const defineExtension = <TModule extends ExtensionModule>(module: TModule): TMod
 
 export default defineExtension({
   name: "pm-linear",
-  version: "2026.11.13",
+  version: "2026.11.16",
 
   activate(api: ExtensionApi) {
     registerLinearCommand(api, {
