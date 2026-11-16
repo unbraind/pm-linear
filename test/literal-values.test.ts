@@ -1,3 +1,5 @@
+import { testTime } from "./support/time.ts";
+import { testDepth } from "./support/depth.ts";
 /** Literal-value regressions use real SDK state, real imports and no git or pm executable. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -123,7 +125,7 @@ test("literal class: actual import workers never consume caller stdin", async (t
   const { root } = await fixture(t);
   for (const atomic of [true, false]) for (const field of ["body", "assignee", "safe"]) {
     const result = spawnSync(process.execPath, [join(import.meta.dirname, "literal-stdin-worker.ts"), root, String(atomic), field], {
-      encoding: "utf8", input: "caller-stdin-is-not-provider-data\n", timeout: 30000,
+      encoding: "utf8", input: "caller-stdin-is-not-provider-data\n", timeout: testTime(30000),
     });
     assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).passed, true);
   }
@@ -151,7 +153,7 @@ test("literal class: 500 seeded imports round-trip literal values and agree with
   const assignees = ["-", "@file", "--", "--force", "-leading", "none-user", "null-user", "agent", ""];
   let seed = 0x16141027;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     if (sequence % 100 === 0) t.diagnostic(`literal seed 0x16141027: sequence ${sequence}/500`);
     const atomic = sequence % 2 === 0;
     if (sequence % 25 === 0) await pm.focus(random() < 0.5 ? id : foreign.item.id);

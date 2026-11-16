@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Run parent-clear behavior against both declared host contracts and the built artifact. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -31,7 +32,7 @@ for (const hostVersion of hostVersions) {
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }));
     const install = sdkInstallCommand(hostVersion);
     const installed = spawnSync(install.command, install.args,
-      { cwd: root, env: vars, encoding: "utf8", timeout: 180_000, shell: install.shell });
+      { cwd: root, env: vars, encoding: "utf8", timeout: testTime(180_000), shell: install.shell });
     assert.equal(installed.status, 0, `SDK ${hostVersion} install: ${installed.error?.message ?? installed.stderr}`);
     const host = JSON.parse(await readFile(join(root, "node_modules/@unbrained/pm-cli/package.json"), "utf8")) as { version: string };
     assert.equal(host.version, hostVersion, "the consumer must resolve the requested SDK version");
@@ -41,7 +42,7 @@ for (const hostVersion of hostVersions) {
     await copyFile(new URL("./typed-parent-clear-cases.ts", import.meta.url), join(root, "test/typed-parent-clear-cases.ts"));
     const result = spawnSync(process.execPath,
       ["--test", "--test-reporter=tap", "--test-concurrency=1", "test/typed-parent-clear-cases.ts"],
-      { cwd: root, env: vars, encoding: "utf8", timeout: 180_000 });
+      { cwd: root, env: vars, encoding: "utf8", timeout: testTime(180_000) });
     assert.equal(result.status, 0, `SDK ${hostVersion} consumer: ${result.error?.message ?? ""}\n${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /# pass 2\b/);
     assert.match(result.stdout, /# fail 0\b/);

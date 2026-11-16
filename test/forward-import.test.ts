@@ -1,3 +1,5 @@
+import { testTime } from "./support/time.ts";
+import { testDepth } from "./support/depth.ts";
 /** Forward-only imports use SDK-normalized reference states and real non-git interleavings. */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -60,7 +62,7 @@ test("forward-only title plus close survives a later failure and completed title
   const replay = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => issues }); assert.equal(replay.synced, 0);
 });
 
-test("forward-only seeded 500 multi-item failure and peer schedules converge with exact SDK state and receipts", { timeout: 5400000 }, async (t) => {
+test("forward-only seeded 500 multi-item failure and peer schedules converge with exact SDK state and receipts", { timeout: testTime(5400000) }, async (t) => {
   const base = await mkdtemp(join(tmpdir(), "linear-forward-model-")); t.after(() => rm(base, { recursive: true, force: true }));
   const root = join(base, "actual"), referenceRoot = join(base, "reference");
   await mkdir(root); await mkdir(referenceRoot);
@@ -81,7 +83,7 @@ test("forward-only seeded 500 multi-item failure and peer schedules converge wit
   let seed = 15761620;
   const rng = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
   const fields = ["id", "type", "author", "title", "body", "status", "priority", "description", "tags", "deadline", "assignee", "parent", "goal", "objective", "sprint", "release", "dependencies", "estimated_minutes", "close_reason"] as const;
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const desired = oldInputs.length && sequence % 9 === 0 ? structuredClone(oldInputs[rng() % oldInputs.length]) : issues.map((issue, index) => ({ ...issue,
       title: ` Work ${sequence}-${index} `, description: ` Body ${sequence}${sequence % 2 ? "\r\n" : "\n"}line `,
       priority: 1 + rng() % 4, dueDate: sequence % 2 ? null : "2026-12-01", assignee: sequence % 3 ? null : { name: " Agent ", email: null },

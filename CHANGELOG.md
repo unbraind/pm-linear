@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-### Other
-
-- Close delivered pm items and reserve in progress for active work (2026-10-24) ([pm-linear-r2ay](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-r2ay.toon))
+No changes.
 
 ## 2026.11.13 - 2026-11-13
 
@@ -15,18 +13,19 @@
 
 ## 2026.11.11 - 2026-11-11
 
-### Fixed
+### Dependencies
 
-- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
-
-### Other
-
-- Migrate PR206 to the November 4 pm toolchain ([pm-linear-toolchain-1104](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-toolchain-1104.toon))
+- Bump the pm-toolchain group with 2 updates ([#216](https://github.com/unbraind/pm-linear/pull/216))
+- Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
+- Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#211](https://github.com/unbraind/pm-linear/pull/211))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#212](https://github.com/unbraind/pm-linear/pull/212))
 
 ## 2026.11.4 - 2026-11-04
 
 ### Fixed
 
+- PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
 - Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
 
 ## 2026.11.1 - 2026-11-01
@@ -44,6 +43,10 @@
 ### Added
 
 - Preview Linear field ownership and same-field conflicts ([pm-linear-field-ownership](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-field-ownership.toon))
+
+## 2026.10.28 - 2026-10-28
+
+No changes.
 
 ## 2026.10.27 - 2026-10-27
 
@@ -72,6 +75,10 @@
 
 - Map Linear canonical canceled and duplicate state types to closed ([pm-linear-canonical-terminal-states](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-canonical-terminal-states.toon))
 
+## 2026.10.24 - 2026-10-24
+
+No changes.
+
 ## 2026.10.23 - 2026-10-23
 
 ### Changed
@@ -98,6 +105,38 @@
 
 - Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
 
+## 2026.10.20 - 2026-10-20
+
+No changes.
+
+## 2026.10.18 - 2026-10-18
+
+No changes.
+
+## 2026.10.17 - 2026-10-17
+
+No changes.
+
+## 2026.10.16 - 2026-10-16
+
+No changes.
+
+## 2026.10.15 - 2026-10-15
+
+No changes.
+
+## 2026.10.14 - 2026-10-14
+
+No changes.
+
+## 2026.10.10 - 2026-10-10
+
+No changes.
+
+## 2026.10.9 - 2026-10-09
+
+No changes.
+
 ## 2026.10.8 - 2026-10-08
 
 ### Fixed
@@ -109,6 +148,10 @@
 ### Other
 
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-linear-1hnc](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-1hnc.toon))
+
+## 2026.10.3 - 2026-10-03
+
+No changes.
 
 ## 2026.9.26 - 2026-09-26
 
@@ -125,6 +168,10 @@
 ### Other
 
 - Certify pm CLI 2026.9.21 and install merge drivers through the canonical pm-ops launcher ([pm-linear-em7w](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-em7w.toon))
+
+## 2026.9.19 - 2026-09-19
+
+No changes.
 
 ## 2026.9.18 - 2026-09-18
 
@@ -143,6 +190,10 @@
 ### Other
 
 - Certify pm CLI 2026.9.10 and pick up the canonical auditor fixes the lockfile was holding back ([pm-linear-tyq9](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-tyq9.toon))
+
+## 2026.9.9 - 2026-09-09
+
+No changes.
 
 ## 2026.9.8 - 2026-09-08
 
@@ -245,6 +296,10 @@
 
 - Resolve pm-changelog to the release that derives release dates in UTC ([pm-linear-hrda](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-hrda.toon))
 
+## 2026.8.3 - 2026-08-03
+
+No changes.
+
 ## 2026.7.29 - 2026-07-29
 
 ### Added
@@ -295,11 +350,23 @@
 
 - Closed: Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([pm-linear-3ifi](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-3ifi.toon))
 
+## 2026.7.22 - 2026-07-22
+
+No changes.
+
 ## 2026.7.21 - 2026-07-21
 
 ### Added
 
 - Add opt-in --atomic to linear import/sync via SDK commitItemMutations ([pm-linear-nvt5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-nvt5.toon))
+
+## 2026.7.19 - 2026-07-19
+
+No changes.
+
+## 2026.7.13 - 2026-07-13
+
+No changes.
 
 ## 2026.7.11 - 2026-07-11
 
@@ -315,6 +382,14 @@
 
 - Closed: state filter is applied client-side after --limit, under-returning on large teams ([pm-linear-zczw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-zczw.toon))
 
+## 2026.7.10 - 2026-07-10
+
+No changes.
+
+## 2026.7.7 - 2026-07-07
+
+No changes.
+
 ## 2026.7.6 - 2026-07-06
 
 ### Fixed
@@ -326,11 +401,31 @@
 - Align Node engine with pm CLI runtime ([pm-linear-g7jd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-g7jd.toon))
 - Regenerate CHANGELOG after pm close item ([pm-linear-jixz](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-jixz.toon))
 
+## 2026.6.14 - 2026-06-14
+
+No changes.
+
+## 2026.6.13 - 2026-06-13
+
+No changes.
+
+## 2026.6.10-1 - 2026-06-10
+
+No changes.
+
+## 2026.6.10 - 2026-06-09
+
+No changes.
+
 ## 2026.6.9 - 2026-06-09
 
 ### Added
 
 - Round-trip Linear estimate and cycle on export ([pm-linear-2xj5](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/features/pm-linear-2xj5.toon))
+
+## 2026.6.8 - 2026-06-08
+
+No changes.
 
 ## 2026.6.7 - 2026-06-07
 
@@ -401,6 +496,14 @@
 ### Fixed
 
 - linear sync threw plain Error (no exitCode) → runtime double-invocation ([pm-linear-sn60](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-sn60.toon))
+
+## 2026.5.31 - 2026-05-31
+
+No changes.
+
+## 2026.5.30 - 2026-05-30
+
+No changes.
 
 ## 2026.5.29 - 2026-05-29
 
