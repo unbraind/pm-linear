@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-No changes.
-
 ## 2026.11.13 - 2026-11-13
 
 ### Dependencies
