@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+No changes.
+
 ## 2026.11.20 - 2026-11-20
 
 No changes.
@@ -17,13 +21,10 @@ No changes.
 
 ## 2026.11.11 - 2026-11-11
 
-### Dependencies
+### Closed
 
-- Bump the pm-toolchain group with 2 updates ([#216](https://github.com/unbraind/pm-linear/pull/216))
-- Bump the pm-toolchain group with 3 updates ([#214](https://github.com/unbraind/pm-linear/pull/214))
-- Bump the codeql-action group across 1 directory with 2 updates ([#210](https://github.com/unbraind/pm-linear/pull/210))
-- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#211](https://github.com/unbraind/pm-linear/pull/211))
-- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#212](https://github.com/unbraind/pm-linear/pull/212))
+- Closed: PR187 SDK toolchain update fails missing-configuration closure and ownership reads ([pm-linear-github-18076be0368a-188](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-188.toon))
+- Closed: SDK 2026.11.1 upgrade refuses parent:none in Linear creation paths ([pm-linear-github-18076be0368a-207](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-207.toon))
 
 ## 2026.11.4 - 2026-11-04
 
@@ -31,6 +32,11 @@ No changes.
 
 - PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
 - Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
+
+### Closed
+
+- Closed: Disambiguate GitHub \#134 import ownership while preserving both PM records ([pm-linear-github-18076be0368a-198](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-198.toon))
+- Closed: PR183 current release gates fail 100% function coverage after 400 passing tests ([pm-linear-github-18076be0368a-184](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-184.toon))
 
 ## 2026.11.1 - 2026-11-01
 
@@ -41,6 +47,11 @@ No changes.
 ### Fixed
 
 - Restore generated notes for prepared 2026.10.29 ([pm-linear-release-notes-1029](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-release-notes-1029.toon))
+
+### Closed
+
+- Closed: Reconcile complete-corpus dry-run support with the inherited isolation-copy admission budget ([pm-linear-github-18076be0368a-193](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-193.toon))
+- Closed: Preserve the explicit atomic-request boundary when migrating to forward-only imports ([pm-linear-github-18076be0368a-191](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-191.toon))
 
 ## 2026.10.29 - 2026-10-29
 
@@ -67,6 +78,10 @@ No changes.
 ### Other
 
 - Point the npm homepage at the package catalog and link the author ([pm-linear-1y6b](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-1y6b.toon))
+
+### Closed
+
+- Closed: Point the npm homepage at the package's website and link the author ([pm-linear-github-18076be0368a-176](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-176.toon))
 
 ## 2026.10.25 - 2026-10-25
 
@@ -105,9 +120,7 @@ No changes.
 
 ## 2026.10.21 - 2026-10-21
 
-### Closed
-
-- Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
+No changes.
 
 ## 2026.10.20 - 2026-10-20
 
@@ -146,6 +159,10 @@ No changes.
 ### Fixed
 
 - Certify complete local item reads before Linear reconciliation and export ([pm-linear-ldqw](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ldqw.toon))
+
+### Closed
+
+- Closed: Certify complete local item reads before Linear sync and export ([pm-linear-github-18076be0368a-134](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-github-18076be0368a-134.toon))
 
 ## 2026.10.5 - 2026-10-05
 
