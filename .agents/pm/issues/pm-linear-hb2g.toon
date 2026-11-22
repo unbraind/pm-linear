@@ -6,9 +6,9 @@ status: in_progress
 priority: 2
 tags[5]: ci,"gh:unbraind/pm-linear#188","gh:unbraind/pm-linear#228",performance,toolchain
 created_at: "2026-11-02T09:17:56.774Z"
-updated_at: "2026-11-16T14:22:53.986Z"
+updated_at: "2026-11-16T05:06:58.098Z"
 author: pi-glm
-comments[25]{created_at,author,text}:
+comments[24]{created_at,author,text}:
   "2026-11-03T10:37:06.402Z",pi-toolchain-glm-1103,"Root cause reproduced and fixed on the branch pin (@unbrained/pm-cli 2026.10.28): readClosureItems copies bootstrap/schema into the reader unconditionally, and read-side SDK calls stopped recreating missing workflow schema files in pm-cli 2026.10.25 (GH-1568), so a tracker whose schema directory is absent now fails the copy with ENOENT and both previews refuse local_read_failed. Classification: production code relying on old CLI read-side backfill. Fix: copy the schema directory only when it exists in the owned bootstrap copy (mirroring the existing explicit settings repair); reads on the new CLI no longer need schema files. Both previously failing tests pass: node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts and ...'source isolation precedes SDK scaffolding' test/ownership.test.ts."
   "2026-11-03T12:54:42.296Z",pi-toolchain-glm-1103,"Gate evidence on the PR branch: both previously failing tests pass (node --test --test-name-pattern 'source isolation precedes SDK backfill' test/dependency-closure.test.ts, node --test --test-name-pattern 'source isolation precedes SDK scaffolding' test/ownership.test.ts); typecheck, the docstring gate and the changelog check pass. The full local suite is impractical on this host: the machine is saturated by parallel fleet test runs (load above 19 for hours), and the suite's live Linear fetch tests stall for tens of minutes each, so the remaining coverage is left to CI. No schema-copy site besides the fixed one exists in the extension."
   "2026-11-06T15:12:00.383Z",codex-sol,"Issue #188 is already fixed on main by fd16802 (#187): readClosureItems now copies schema only when present in the owned bootstrap. Revalidating both original SDK fixtures and a disposable behavioral revert against current main 682bef8; this closure PR will change tracker evidence and the generated changelog only, with no production or test changes."
@@ -20,7 +20,6 @@ comments[25]{created_at,author,text}:
   "2026-11-06T19:17:50.839Z",codex-sol,"Fixed CodeRabbit thread PRRT_kwDOSYpKlc60oVNt by setting release=2026.11.4, verified against tag v2026.11.04. The live item remains in_progress for orchestrator closure. Added a self-contained linked SDK regression command: pm test pm-linear-hb2g --run --only-last --progress executes two assertions with a real non-git temporary tracker and the pinned pm-changelog generator. Both assertions failed before the pin (a later closure reappeared in release 2026.11.6 and disappeared from 2026.11.4), and both now pass. Behavioral revert in a disposable SDK copy unsets only release: fixed 2 pass/0 fail; reverted 0 pass/2 fail; restored 2 pass/0 fail. The package checkout was unchanged by this proof. Typecheck and the docstring gate pass (8 files, 112 declarations). Prior issue-188 source-read verification and the original 466-test gates remain recorded; final CI must certify the new metadata head."
   "2026-11-06T19:22:58.523Z",codex-sol,"Review disposition correction after full-generator verification: the CodeRabbit request is conditional on a future status change to closed, which this PR does not perform and the owner reserves for the orchestrator. Pinning release=2026.11.4 while status remains in_progress makes the pinned all-release-tags generator remove the already-published pm-linear-hb2g bullet. Removing the experimental pin restores that bullet. Therefore the previous comment calling the pin the final fix is superseded: retain in_progress without a new completion timestamp, preserve the existing historical entry, and apply release=2026.11.4 together with the orchestrator-owned future closure. The late-closure SDK experiment and its two failing controls remain in append-only history; its prospective pinned-state test is unlinked because that is not this PR state. No existing test or threshold was removed or weakened. Respond to PRRT_kwDOSYpKlc60oVNt with these applicability and generated-output receipts."
   "2026-11-06T19:23:03.696Z",codex-sol,Canonical-checkout local health reports two pre-existing clone-local merge receipts. Pinned pm merge reconcile --dry-run refuses merge_receipt_not_portable and writes no audit history; preserve those receipts and existing history rather than stage unrelated evidence or force repair. Prior CI health passed in a clean checkout; the new head must get fresh CI. No new PM CLI/SDK gap is claimed.
-  "2026-11-14T10:11:00.350Z",codex-sweep-1114,"Release-attribution correction: completed_at = 2026-11-06T23:07:42Z from https://github.com/unbraind/pm-linear/pull/209 (merge SHA f4f87a0b617c08d77a63d910151f94b4db900c91); first containing release tag v2026.11.11, recorded release 2026.11.11."
   "2026-11-15T20:44:47.808Z",codex-sol,"Reuse existing CI gate item for Fleet CI v2, companion pm-cli-website-dyhg. Supersedes wave-1 PR #224 without closing it. Preserve required test (22)/(26); use a single quick npm gate on Node 26, Node 22 quick tests, four distinct full deep matrix jobs. Preserve coverage 99 lines/96 branches/100 functions and product request deadlines."
   "2026-11-15T20:46:22.083Z",codex-sol,"Typecheck passed. Initial build:test needed emitted dist first; corrected build order to build then build:test, matching npm test. Main successful CI run 43729395704: Node 26 wall 2h15m32s, Node 22 wall 2h33m24s. Full test baselines: forward model 383.33 s, ownership 216.37 s, estimate 123.30 s, literal 115.31 s, closure 72.50 s. No lint script/actionlint available; strict YAML parsing passed. Bounded touched-file quick run in progress; no full local depth or coverage run."
   "2026-11-15T20:47:32.769Z",codex-sol,"PR #228 is open. Typecheck/build/build:test, release publish/date verifiers, identity audit 4/4 and Bun/bunx smokes passed. Local strict health findings remain tracked in pm-linear-bzam and pm-linear-jloc. Full-depth gate and quick coverage remain CI evidence, not a local readiness claim."
@@ -36,18 +35,18 @@ comments[25]{created_at,author,text}:
   "2026-11-16T05:06:56.565Z",codex-sol,"Latest hosted evidence for pushed head b1b9167766023101f1322f30b87de21f39bed749: both required checks passed in run 43805139522. 2026-11-16 05:06:53 UTC. Coverage 99.64% lines, 96.99% branches, 100% functions, unchanged 99/96/100 thresholds met. CodeQL passed. The no-lint-script limitation is unchanged. These are Jobs API wall times, including queueing in the first duration column.\n\n| Job | Result | Created to completion | Execution |\n| --- | --- | --- | --- |\n| test (22) | success | 643s | 405s |\n| test (26) | success | 871s | 514s |\n\nhttps://github.com/unbraind/pm-linear/actions/runs/43805139522"
 files[18]{path,scope}:
   .agents/pm/issues/pm-linear-hb2g.toon,project
-  index.ts,project
-  test/dependency-closure.test.ts,project
-  test/ownership.test.ts,project
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
   .github/workflows/codeql.yml,project
   docs/ci-tiers.md,project
+  index.ts,project
   test/ci-codeql.test.ts,project
+  test/dependency-closure.test.ts,project
   test/estimate-units.test.ts,project
   test/forward-import.test.ts,project
   test/import-isolation-budget.test.ts,project
   test/literal-values.test.ts,project
+  test/ownership.test.ts,project
   test/support/depth.ts,project
   test/support/time.ts,project
   test/sync-result-contract.test.ts,project
@@ -81,7 +80,7 @@ tests[8]:
     provenance:
       author: codex-sol
       created_at: "2026-11-15T20:45:52.180Z"
-      source_kind: merge_union
+      source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
   - command: "PM_TEST_DEPTH=quick timeout -k 5s 240 node --test --test-name-pattern=\"500 seeded operation\" test/ownership.test.ts"
     scope: project
@@ -89,7 +88,7 @@ tests[8]:
     provenance:
       author: codex-sol
       created_at: "2026-11-15T20:55:00.796Z"
-      source_kind: merge_union
+      source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
   - command: node --test test/ci-codeql.test.ts test/release-workflow.test.ts
     scope: project
@@ -97,21 +96,21 @@ tests[8]:
     provenance:
       author: codex-sol
       created_at: "2026-11-16T00:33:32.442Z"
-      source_kind: merge_union
+      source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
   - command: node --test test/ci-codeql.test.ts test/time-scale.test.ts
     scope: project
     provenance:
       author: pi-glm
       created_at: "2026-11-16T03:46:05.282Z"
-      source_kind: merge_union
+      source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
   - command: "npm run build:test && npm run typecheck && node --test test/time-scale.test.ts test/ci-codeql.test.ts && npm run changelog:check"
     scope: project
     provenance:
       author: codex-sol
       created_at: "2026-11-16T04:23:27.889Z"
-      source_kind: merge_union
+      source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[2]{path,scope}:
   CHANGELOG.md,project
