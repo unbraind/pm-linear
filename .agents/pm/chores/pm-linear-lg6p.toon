@@ -2,14 +2,29 @@ id: pm-linear-lg6p
 title: Keep dependency bullets when a closed item covers a release window
 description: "Review-thread follow-up from the 2026-11-14 sweep PR rebase: the pinned pm-changelog generator renders the git-derived Dependencies section only for windows without closed tracker items, so evidenced closures covering a window replace its published dependency bullets. Consider opting the changelog generation into dependency-updates rendering so published dependency entries survive alongside item notes."
 type: Chore
-status: open
+status: in_progress
 priority: 3
 tags[3]: changelog,"gh:unbraind/pm-linear#223",maintenance
 created_at: "2026-11-16T15:08:47.085Z"
-updated_at: "2026-11-16T15:21:51.829Z"
+updated_at: "2026-11-23T10:06:08.722Z"
 author: pi-glm
 estimated_minutes: 30
 acceptance_criteria: "A decision records whether changelog:full should render git-derived dependency bullets alongside item-covered windows; any script change regenerates and checks the changelog and passes release gates"
-comments[1]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-11-16T15:21:51.823Z",codex-sol,"Verified the unresolved dependency-note review against published tag v2026.11.11: dependency PRs 216, 214, 210, 211, 212 are present there. The configured changelog:full omits --dependency-updates; the pinned generator enriches item-covered windows only with that option. A persistent fix requires package-script or generator changes, outside the authorized tracker/changelog scope. Reused this follow-up; no review reply or resolution was sent."
+  "2026-11-23T09:52:02.667Z",codex-agent,"Closure follow-up: changelog dependency updates. Verify against current main and the existing PR head before recording the result."
+  "2026-11-23T09:53:08.784Z",codex-agent,The closure verifier allows tracker files and CHANGELOG.md only. This follow-up explicitly calls for package.json flags so the verifier will still report the manifest as out of scope.
+  "2026-11-23T09:54:45.156Z",codex-agent,"The inherited reconciled receipt 8751e3d1-ec58-487a-917c-3b7dc9a8dcf6 for pm-linear-hb2g predates the current main snapshot. The item and history are byte-identical to current main, which carries no receipt or history reference to it. Pinned reconcile dry-run refused the old receipt with no_receipt_set_proves_snapshot. Restoring main's active receipt set made the same reconcile dry-run report ok and zero pending receipts, and pinned validation passed. The old receipt remains in Git history."
+  "2026-11-23T09:57:06.129Z",codex-agent,"Package changelog generation, verification and release notes use --dependency-updates, including checks that delegate to the full generator. With the same tracker and fetched tags, the original manifest omitted published dependency bullets for #210, #211, #212, #214, #216. The flag restored all of them. Changelog byte check and release notes rendering passed."
+  "2026-11-23T10:06:03.329Z",codex-agent,"Additional direct checkout tracker read passed: node --test --test-concurrency=2 test/toolchain-review.test.ts"
+  "2026-11-23T10:06:05.977Z",codex-agent,"Linked Node tests passed 38/38 with no skips, and the changelog check passed. Final verification will use the committed branch. CI checks for the closure follow-up are tracked at https://github.com/unbraind/pm-linear/pull/223/checks."
+files[3]{path,scope}:
+  .agents/pm/issues/pm-linear-hb2g.toon,project
+  CHANGELOG.md,project
+  package.json,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/identity-audit.test.ts test/sync-result-contract.test.ts test/verify-release-changelog-date.test.ts test/prepare-merge-driver.test.ts,project,codex-agent,"2026-11-23T09:53:07.277Z",local_mutation,codex/closure-1122/chore/in-progress-sweep-2026-11-14
+  node --test --test-concurrency=2 test/toolchain-review.test.ts,project,codex-agent,"2026-11-23T10:05:52.211Z",local_mutation,codex/closure-1122/chore/in-progress-sweep-2026-11-14
+docs[1]{path,scope}:
+  README.md,project
 body: ""
