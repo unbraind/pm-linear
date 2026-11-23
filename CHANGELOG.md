@@ -40,6 +40,11 @@ No changes.
 - PR187 toolchain bump still fails the two missing-configuration read fixtures ([pm-linear-hb2g](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-hb2g.toon))
 - Gated sync still refuses GitHub \#134 import ownership across two closed PM records ([pm-linear-29uv](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-29uv.toon))
 
+### Dependencies
+
+- Bump @types/node ([#202](https://github.com/unbraind/pm-linear/pull/202))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#187](https://github.com/unbraind/pm-linear/pull/187))
+
 ## 2026.11.1 - 2026-11-01
 
 ### Added
@@ -50,6 +55,11 @@ No changes.
 
 - Restore generated notes for prepared 2026.10.29 ([pm-linear-release-notes-1029](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-release-notes-1029.toon))
 
+### Dependencies
+
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#196](https://github.com/unbraind/pm-linear/pull/196))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#197](https://github.com/unbraind/pm-linear/pull/197))
+
 ## 2026.10.29 - 2026-10-29
 
 ### Added
@@ -58,7 +68,10 @@ No changes.
 
 ## 2026.10.28 - 2026-10-28
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#185](https://github.com/unbraind/pm-linear/pull/185))
+- Bump the pm-toolchain group with 3 updates ([#181](https://github.com/unbraind/pm-linear/pull/181))
 
 ## 2026.10.27 - 2026-10-27
 
@@ -87,9 +100,17 @@ No changes.
 
 - Map Linear canonical canceled and duplicate state types to closed ([pm-linear-canonical-terminal-states](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-canonical-terminal-states.toon))
 
+### Dependencies
+
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#171](https://github.com/unbraind/pm-linear/pull/171))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#170](https://github.com/unbraind/pm-linear/pull/170))
+- Bump the codeql-action group with 2 updates ([#169](https://github.com/unbraind/pm-linear/pull/169))
+
 ## 2026.10.24 - 2026-10-24
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#161](https://github.com/unbraind/pm-linear/pull/161))
 
 ## 2026.10.23 - 2026-10-23
 
@@ -119,35 +140,52 @@ No changes.
 
 ## 2026.10.20 - 2026-10-20
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#157](https://github.com/unbraind/pm-linear/pull/157))
 
 ## 2026.10.18 - 2026-10-18
 
-No changes.
+### Dependencies
+
+- Bump the codeql-action group with 2 updates ([#155](https://github.com/unbraind/pm-linear/pull/155))
 
 ## 2026.10.17 - 2026-10-17
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#153](https://github.com/unbraind/pm-linear/pull/153))
 
 ## 2026.10.16 - 2026-10-16
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#149](https://github.com/unbraind/pm-linear/pull/149))
 
 ## 2026.10.15 - 2026-10-15
 
-No changes.
+### Dependencies
+
+- Bump @unbrained/pm-cli ([#147](https://github.com/unbraind/pm-linear/pull/147))
 
 ## 2026.10.14 - 2026-10-14
 
-No changes.
+### Dependencies
+
+- Bump @types/node ([#144](https://github.com/unbraind/pm-linear/pull/144))
+- Bump @unbrained/pm-cli ([#143](https://github.com/unbraind/pm-linear/pull/143))
 
 ## 2026.10.10 - 2026-10-10
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 3 updates ([#141](https://github.com/unbraind/pm-linear/pull/141))
 
 ## 2026.10.9 - 2026-10-09
 
-No changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 2 updates ([#139](https://github.com/unbraind/pm-linear/pull/139))
 
 ## 2026.10.8 - 2026-10-08
 
@@ -181,6 +219,10 @@ No changes.
 
 - Certify pm CLI 2026.9.21 and install merge drivers through the canonical pm-ops launcher ([pm-linear-em7w](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/tasks/pm-linear-em7w.toon))
 
+### Dependencies
+
+- Bump @types/node from 26.5.1 to 26.6.2 ([#120](https://github.com/unbraind/pm-linear/pull/120))
+
 ## 2026.9.19 - 2026-09-19
 
 No changes.
@@ -196,6 +238,12 @@ No changes.
 ### Other
 
 - Certify pm CLI 2026.9.12 and the pm-ops 2026.9.11 auditor ([pm-linear-hq5i](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-hq5i.toon))
+
+### Dependencies
+
+- Bump @types/node from 26.4.1 to 26.5.1 ([#110](https://github.com/unbraind/pm-linear/pull/110))
+- Bump pm-changelog from 2026.9.6 to 2026.9.9 ([#111](https://github.com/unbraind/pm-linear/pull/111))
+- Bump the codeql-action group with 2 updates ([#112](https://github.com/unbraind/pm-linear/pull/112))
 
 ## 2026.9.11 - 2026-09-11
 
@@ -224,6 +272,10 @@ No changes.
 - Bound the release-date control by version so it cannot certify a heading it does not recognise ([pm-linear-ndrd](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ndrd.toon))
 - Adopt pm CLI 2026.9.5 and repair the release-date control that its changelog fix invalidated ([pm-linear-tfj7](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/chores/pm-linear-tfj7.toon))
 
+### Dependencies
+
+- Bump @types/node from 26.4.0 to 26.4.1 ([#98](https://github.com/unbraind/pm-linear/pull/98))
+
 ## 2026.9.1 - 2026-09-01
 
 ### Fixed
@@ -239,6 +291,11 @@ No changes.
 
 - Closed: Pin pm-changelog 2026.8.30 before the next release ([pm-linear-ljx3](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ljx3.toon))
 - Closed: The release changelog remained Unreleased after the release tag was created ([pm-linear-fkps](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-fkps.toon))
+
+### Dependencies
+
+- Bump @unbrained/pm-cli from 2026.8.22 to 2026.8.27 ([#88](https://github.com/unbraind/pm-linear/pull/88))
+- Bump @types/node from 26.2.0 to 26.4.0 ([#89](https://github.com/unbraind/pm-linear/pull/89))
 
 ## 2026.8.29 - 2026-08-29
 
@@ -261,6 +318,11 @@ No changes.
 
 - Closed: The identity gate deadlocks the one remediation its own failure message prescribes ([pm-linear-ofoe](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ofoe.toon))
 
+### Dependencies
+
+- Bump pm-changelog from 2026.8.12 to 2026.8.17 ([#75](https://github.com/unbraind/pm-linear/pull/75))
+- Bump pm-ops from 2026.8.10 to 2026.8.17 ([#74](https://github.com/unbraind/pm-linear/pull/74))
+
 ## 2026.8.16 - 2026-08-16
 
 ### Fixed
@@ -270,6 +332,12 @@ No changes.
 ### Deprecated
 
 - The deprecated linear-sync importer alias loses its credential gate when the preflight override is scoped ([pm-linear-ydo4](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ydo4.toon))
+
+### Dependencies
+
+- Bump pm-changelog from 2026.8.6 to 2026.8.12 ([#71](https://github.com/unbraind/pm-linear/pull/71))
+- Bump @types/node from 26.1.2 to 26.2.0 ([#70](https://github.com/unbraind/pm-linear/pull/70))
+- Bump pm-ops from 2026.8.8 to 2026.8.10 ([#68](https://github.com/unbraind/pm-linear/pull/68))
 
 ## 2026.8.10 - 2026-08-10
 
@@ -310,7 +378,10 @@ No changes.
 
 ## 2026.8.3 - 2026-08-03
 
-No changes.
+### Dependencies
+
+- Bump pm-changelog from 2026.7.25 to 2026.7.29 ([#54](https://github.com/unbraind/pm-linear/pull/54))
+- Bump @types/node from 26.1.1 to 26.1.2 ([#55](https://github.com/unbraind/pm-linear/pull/55))
 
 ## 2026.7.29 - 2026-07-29
 
@@ -346,6 +417,10 @@ No changes.
 
 - Closed: Documented install command fails: pm install github.com/unbraind/pm-linear cannot resolve an entry file ([pm-linear-ga1c](https://github.com/unbraind/pm-linear/blob/main/.agents/pm/issues/pm-linear-ga1c.toon))
 
+### Dependencies
+
+- Bump pm-changelog from 2026.7.24 to 2026.7.25 ([#44](https://github.com/unbraind/pm-linear/pull/44))
+
 ## 2026.7.25 - 2026-07-25
 
 ### Other
@@ -374,11 +449,18 @@ No changes.
 
 ## 2026.7.19 - 2026-07-19
 
-No changes.
+### Dependencies
+
+- Bump pm-changelog from 2026.7.11 to 2026.7.18 ([#35](https://github.com/unbraind/pm-linear/pull/35))
+- Bump @unbrained/pm-cli from 2026.7.11 to 2026.7.18 ([#34](https://github.com/unbraind/pm-linear/pull/34))
+- Bump actions/setup-node from 6 to 7 ([#33](https://github.com/unbraind/pm-linear/pull/33))
 
 ## 2026.7.13 - 2026-07-13
 
-No changes.
+### Dependencies
+
+- Bump pm-changelog from 2026.7.10 to 2026.7.11 ([#32](https://github.com/unbraind/pm-linear/pull/32))
+- Bump @unbrained/pm-cli from 2026.7.10 to 2026.7.11 ([#31](https://github.com/unbraind/pm-linear/pull/31))
 
 ## 2026.7.11 - 2026-07-11
 
