@@ -6,13 +6,13 @@ status: open
 priority: 2
 tags[3]: "gh:unbraind/pm-linear#223",maintenance,tracker-hygiene
 created_at: "2026-10-24T21:40:11.759Z"
-updated_at: "2026-11-16T15:43:39.073Z"
+updated_at: "2026-11-23T00:06:43.084Z"
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: "Every original in-progress and open item is inspected; delivery closures name the implementing merged PR, date and merge SHA and match the recorded acceptance; inactive work is open with claims released; original history records remain append-only; tracker health, changelog and PR CI outcomes are recorded."
 risk: low
 confidence: high
-comments[11]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-24T21:40:13.540Z",codex-agent,"Oriented context, searched existing hygiene work, and read the complete tracker. Checking every original in-progress and open item against PR title/body/commits, delivery links and acceptance. The owner authorizes evidence-backed closure in this sweep. Ambiguous claims remain open; no PR merge or history rewrite."
   "2026-10-24T21:46:43.915Z",codex-agent,"Reviewed 9 original active items. 3 verified deliveries closed and 0 inactive items returned to open. Every other original open item remains open because complete delivery or explicit supersession was not established. No cancellation by inference, software change, threshold reduction, or history rewrite. Per-item evidence is recorded in closure reasons and the PR table. Tracker, changelog and CI verification follow."
   "2026-10-24T21:47:49.209Z",codex-agent,"Local tracker verification passed: repository changelog generation and consistency check, pinned strict health with required merge drivers under isolated Git identity, changed-item history verification, independent original-history prefix checks and linked git diff --check. All original inactive work and this audit have released claims; no in-progress item remains. No production function changed, so source-function revert proof is inapplicable; per-item merged ancestry and lifecycle/history checks are the evidence. The PR will carry the full before/after/evidence table. Complete npm/Bun release checks and native platform checks run in PR CI; their final outcome is reported separately, without treating queued or skipped checks as approval."
@@ -24,7 +24,10 @@ comments[11]{created_at,author,text}:
   "2026-11-16T15:18:51.601Z",codex-sol,"Continuation inspected the existing branch, remote PR head, tracker context and current GitHub delivery evidence. Preserved landed commits and existing tracker items. The branch includes current main; changelog conflicts use main before generator regeneration. Delivered PR merge timestamps and first containing release tags are rechecked. Sweep closure remains reserved for orchestrator verification. Dropped the old delivery closure for pm-linear-hb2g because main linked subsequent work; lossless merge evidence and both histories are retained."
   "2026-11-16T15:39:55.180Z",codex-sol,The tracker-only quick gate uses the repository documentation and public identity contracts. Full package npm test includes long native-state/model workloads; the initial two broader attempts were interrupted and are not passing evidence. Focused commands are linked and run to completion separately; no source coverage or full release-gate claim is made.
   "2026-11-16T15:43:30.026Z",codex-sol,"Continuation verification: npm ci passed; focused documentation/tracker tests (PM_TEST_DEPTH=quick node --test --test-concurrency=2 test/identity-audit.test.ts test/sync-result-contract.test.ts) passed to completion. All retained delivery rows were checked against current GitHub merge state, completion timestamps and first containing tags. No active implementation PR delivers the remaining reopened roadmap work. Both source history streams are retained in timestamp order, including original records carried by audited reanchor evidence. Final released-state tracker validation, repository changelog generation/check and identity gates run before push. The unresolved dependency-note review is valid but requires package-script or generator changes; tracked in pm-linear-lg6p. No thread reply or resolution was sent."
-files[3]:
+  "2026-11-22T23:50:23.805Z",codex-agent,PR #208 delivered the toolchain work. The replay begins from main's item and append-only history. The published dependency notes concern is tracked by pm-linear-lg6p.
+  "2026-11-23T00:02:11.538Z",codex-agent,"Focused linked test completed successfully. 6 tests, 6 pass, 0 fail, 0 skipped."
+  "2026-11-23T00:06:43.084Z",codex-agent,"The unchanged generator removes published PRs #210, #211, #212, #214 and #216 from 2026.11.11. The same generator with dependency updates enabled restores all five. Keep the package-script follow-up in pm-linear-lg6p. The one permitted merge reconcile attempt refused the inherited pm-linear-hb2g receipt because it does not prove the current snapshot. Both findings hold the push."
+files[4]:
   - path: .agents/pm
     scope: project
     note: Tracker lifecycle and append-only evidence
@@ -32,7 +35,9 @@ files[3]:
     scope: project
   - path: .agents/pm/issues/pm-linear-hb2g.toon
     scope: project
-tests[3]:
+  - path: CHANGELOG.md
+    scope: project
+tests[4]:
   - command: git diff --check
     scope: project
     provenance:
@@ -55,6 +60,13 @@ tests[3]:
       created_at: "2026-11-16T15:40:34.134Z"
       source_kind: local_mutation
       source_ref: chore/in-progress-sweep-2026-11-14
+  - command: node --test --test-concurrency=2 test/identity-audit.test.ts test/sync-result-contract.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-22T23:50:33.028Z"
+      source_kind: local_mutation
+      source_ref: codex/closure-1122/chore/in-progress-sweep-2026-11-14
 docs[1]{path,scope,note}:
   CHANGELOG.md,project,Regenerated package release notes
 body: ""
