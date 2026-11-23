@@ -126,6 +126,10 @@ test("atomic class: every explicit stronger-guarantee request refuses before eve
 
 test("outcome class: failed, conflicted and partially saved rows exit nonzero on all routes and renderers; filters and reconciled writes succeed", async (t) => {
   const { root, pm, wire, cli } = await fixture(t);
+  await assert.rejects(cli("sync", { team: "ENG", stateFilter: "missing" }, true), {
+    code: "unknown_option",
+    message: /'stateFilter'.*'linear sync'/,
+  });
   for (const scaled of [false, true]) for (const route of routes) for (const json of route === "sdk" || route === "prepared" || route === "compatibility" ? [true] : [false, true]) {
     const issue = provider(`outcome-${route}-${json}-${scaled}`, scaled); wire.issues = [issue];
     const seeded = await syncLinearIssues({ team: "ENG", limit: 10 }, root, { fetchIssues: async () => [issue] }); const id = seeded.importResults![0].id!;
@@ -168,7 +172,12 @@ test("outcome class: failed, conflicted and partially saved rows exit nonzero on
     const retry = await run(); assert.equal(retry.exit_code ?? 0, 0); assert.equal(retry.unconfirmed, 0); assert.equal((await pm.get(id)).item.status, "closed");
     const unchanged = await run(); assert.equal(unchanged.exit_code ?? 0, 0); assert.equal("imported" in unchanged ? unchanged.imported : unchanged.synced, 0);
     assert.equal(parseProvenance((await pm.get(id)).item.description)?.linear_id, issue.id);
-    if (route !== "prepared" && route !== "compatibility") { const filtered = await run({ state: "missing", stateFilter: "missing" }); assert.equal(filtered.exit_code ?? 0, 0); assert.equal(filtered.skipped, 1); }
+    if (route !== "prepared" && route !== "compatibility") {
+      const stateOption = route === "sdk" ? { stateFilter: "missing" } : { state: "missing" };
+      const filtered = await run(stateOption);
+      assert.equal(filtered.exit_code ?? 0, 0);
+      assert.equal(filtered.skipped, 1);
+    }
   }
 });
 

@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import http from "node:http";
-import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString, verifyHistoryEntries, getItemAt } from "@unbrained/pm-cli/sdk";
+import { PmClient, readSettings, normalizeItemId, getHistoryPath, readHistoryEntries, parseTags, toNonEmptyImportString, verifyHistoryEntries, getItemAt, runWithActiveExtensions } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { encodeLinearEstimate, readLinearEstimate, linearEstimateScaleRevision, inspectLinearEstimates, syncLinearIssues, buildItemPlan, itemToLinearPayload, buildProvenance, deriveAtomicItemId, LinearEstimateRefusal,
   previewLinearOwnership,
@@ -398,6 +398,10 @@ test("network inspection and every importer alias preserve the unit contract and
 
 test("unit plans preview exact SDK effects and refuse foreign deterministic targets", async (t) => {
   const { root, pm } = await fixture(t);
+  await assert.rejects(
+    runWithActiveExtensions({ path: root, noExtensions: true }, () => pm.create({ title: "Refused nested cwd" })),
+    { code: "invalid_argument_value", message: /nested SDK call cannot change the working directory/ },
+  );
   const value = issue("preview");
   const options = { team: "ENG", limit: 10, atomic: true, forwardOnly: true, estimateMapping: mapping };
   const fetchIssues = async () => [value];

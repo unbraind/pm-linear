@@ -187,7 +187,7 @@ pm linear sync --team ENG --dry-run
 Native import pipeline. Pulls issues from a Linear team (and optional project) via the
 GraphQL API and creates pm items. Accepts the same `--team`, `--project`, `--state`, `--cycle`,
 `--assignee`, `--label`, `--updated-since`, `--status-map`, `--map`, `--project-map`,
-`--limit`, and `--dry-run` flags as `pm linear sync`.
+`--limit`, `--dry-run`, and `--skip-preflight-network` flags as `pm linear sync`.
 
 ```bash
 pm linear import --team ENG
