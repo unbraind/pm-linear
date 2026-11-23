@@ -6,11 +6,11 @@ status: in_progress
 priority: 3
 tags[3]: changelog,"gh:unbraind/pm-linear#223",maintenance
 created_at: "2026-11-16T15:08:47.085Z"
-updated_at: "2026-11-23T10:06:08.722Z"
+updated_at: "2026-11-23T16:17:42.199Z"
 author: pi-glm
 estimated_minutes: 30
 acceptance_criteria: "A decision records whether changelog:full should render git-derived dependency bullets alongside item-covered windows; any script change regenerates and checks the changelog and passes release gates"
-comments[7]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-11-16T15:21:51.823Z",codex-sol,"Verified the unresolved dependency-note review against published tag v2026.11.11: dependency PRs 216, 214, 210, 211, 212 are present there. The configured changelog:full omits --dependency-updates; the pinned generator enriches item-covered windows only with that option. A persistent fix requires package-script or generator changes, outside the authorized tracker/changelog scope. Reused this follow-up; no review reply or resolution was sent."
   "2026-11-23T09:52:02.667Z",codex-agent,"Closure follow-up: changelog dependency updates. Verify against current main and the existing PR head before recording the result."
   "2026-11-23T09:53:08.784Z",codex-agent,The closure verifier allows tracker files and CHANGELOG.md only. This follow-up explicitly calls for package.json flags so the verifier will still report the manifest as out of scope.
@@ -18,13 +18,17 @@ comments[7]{created_at,author,text}:
   "2026-11-23T09:57:06.129Z",codex-agent,"Package changelog generation, verification and release notes use --dependency-updates, including checks that delegate to the full generator. With the same tracker and fetched tags, the original manifest omitted published dependency bullets for #210, #211, #212, #214, #216. The flag restored all of them. Changelog byte check and release notes rendering passed."
   "2026-11-23T10:06:03.329Z",codex-agent,"Additional direct checkout tracker read passed: node --test --test-concurrency=2 test/toolchain-review.test.ts"
   "2026-11-23T10:06:05.977Z",codex-agent,"Linked Node tests passed 38/38 with no skips, and the changelog check passed. Final verification will use the committed branch. CI checks for the closure follow-up are tracked at https://github.com/unbraind/pm-linear/pull/223/checks."
+  "2026-11-23T16:12:56.090Z",codex-agent,The dependency-note switch belongs in fix/changelog-keep-dependency-updates. Restore this closure branch's package scripts to main and regenerate with the unflagged invocation. The flag PR will restore the dependency notes separately.
+  "2026-11-23T16:17:38.841Z",codex-agent,"The registered focused Node tests and changelog check passed. Identity, public-content and history prefix checks are part of the final-head gate. The full release gate runs in package CI."
 files[3]{path,scope}:
   .agents/pm/issues/pm-linear-hb2g.toon,project
   CHANGELOG.md,project
   package.json,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/identity-audit.test.ts test/sync-result-contract.test.ts test/verify-release-changelog-date.test.ts test/prepare-merge-driver.test.ts,project,codex-agent,"2026-11-23T09:53:07.277Z",local_mutation,codex/closure-1122/chore/in-progress-sweep-2026-11-14
   node --test --test-concurrency=2 test/toolchain-review.test.ts,project,codex-agent,"2026-11-23T10:05:52.211Z",local_mutation,codex/closure-1122/chore/in-progress-sweep-2026-11-14
-docs[1]{path,scope}:
+  "npm run changelog:check",project,codex-agent,"2026-11-23T16:13:14.168Z",local_mutation,codex/closure-1122/chore/in-progress-sweep-2026-11-14
+docs[2]{path,scope}:
+  CHANGELOG.md,project
   README.md,project
 body: ""
