@@ -27,6 +27,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { installLinearCli } from "./support/installed-cli.ts";
+
 import type { PreflightOverrideContext } from "@unbrained/pm-cli/sdk/authoring";
 import {
   createExtensionTestHarness,
@@ -1210,12 +1212,17 @@ test("the preflight override injects a USAGE sentinel when LINEAR_API_KEY is mis
         typeof opts["__linear_preflight_error"] === "string",
         "the override stashes the missing-key error on the sentinel option",
       );
-      // Forwarding the sentinel into the command handler yields the USAGE error.
       await assert.rejects(
-        () => harness.runCommand({ command: "linear sync", options: { team: "ENG", ...opts }, pmRoot: root }),
-        (err: unknown) => {
-          assert.ok(err instanceof CommandError);
-          assert.match((err as Error).message, /LINEAR_API_KEY is not set/);
+        harness.runCommand({ command: "linear sync", options: { team: "ENG", ...opts }, pmRoot: root }),
+        { code: "unknown_option", message: /__linear_preflight_error/ },
+      );
+      const run = await installLinearCli(root);
+      await assert.rejects(
+        run(["linear", "sync", "--team", "ENG", "--json"]),
+        (error: unknown) => {
+          assert.ok(error instanceof Error && "code" in error && "stdout" in error && "stderr" in error);
+          assert.equal(error.code, 2);
+          assert.match(String(error.stdout) + String(error.stderr), /LINEAR_API_KEY is not set/);
           return true;
         },
       );

@@ -2833,7 +2833,8 @@ async function importEstimateBatch(pmRoot: string, options: SyncOptions, entries
   const author = runtime.selectImportAuthor(explicitAuthor, process.env.PM_AUTHOR ?? "pm-linear");
   const nativeSchema = (await assertSdkFunction(sdk.loadGuardedRuntimeSchema, "loadGuardedRuntimeSchema")(pmRoot, settings.schema)).schema;
   const registry = runtime.resolveRuntimeStatusRegistry(nativeSchema);
-  const pm = new runtime.PmClient({ cwd: pmRoot, pmRoot, noExtensions: true, author });
+  // Bind the tracker without changing process.cwd() inside the preview mirror's extension scope.
+  const pm = new runtime.PmClient({ pmRoot, noExtensions: true, author });
   const results: LinearImportOutcome[] = [];
   // Quarantine duplicates in both native provenance and the selected provider
   // batch. Missing unique matches never grant ownership of a fresh identity.
@@ -4623,6 +4624,7 @@ export default defineExtension({
       { long: "--atomic", description: "Deprecated atomic request: refused unless --forward-only explicitly accepts per-item application" },
       { long: "--forward-only", description: "Accept per-item writes that retain earlier successes; required to migrate an explicit --atomic request" },
       { long: "--dry-run", description: "Print the exact GraphQL request without writes. Offline on its own; with --forward-only it fetches and simulates the apply path, so it needs LINEAR_API_KEY." },
+      { long: "--skip-preflight-network", description: "Skip the preflight reachability probe (offline/CI)" },
     ];
     for (const command of ["linear import", "linear-sync import"]) api.registerFlags(command, linearImportFlags);
     api.registerFlags("linear export", [

@@ -12,6 +12,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { buildItemPlan, itemToLinearPayload, linearEstimateScaleRevision, readLinearEstimate, LINEAR_OWNERSHIP_FIELDS, LinearOwnershipRefusal, parseStatusMap, previewLinearOwnership, syncLinearIssues, buildAtomicImportMutations, negotiateLinearSchema, captureLinearThread, fetchLinearDependencyClosure, invertStatusMap, resolveLinearStateName, resolveCycleId, resolveLabelIds, parseProjectMap, resolveProjectTag, parseFieldMap, resolvePmField, indexItemsByLinearId, type LinearIssue, type SyncResult, type LinearOwnershipOptions, type LinearOwnershipSnapshot, type PreparedLinearImport } from "../index.ts";
 
 import { referenceLifecycle } from "./native-reference.ts";
+import { installLinearCli } from "./support/installed-cli.ts";
 
 /** Provider issue with every native mapped field, including null clearing coordinates. */
 function issue(): LinearIssue & { updatedAt: string } {
@@ -648,9 +649,30 @@ test("review class: preflight source refusals survive host dispatch without losi
   });
   const opts = (pre as { context?: { options?: Record<string, unknown> } }).context?.options ?? {};
   assert.equal(opts.__linear_preflight_source_field, "response");
-  const result = await harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "ENG", ...opts }, global: { json: true } });
-  assert.equal(result.exitCode, 2); assert.equal(result.errorCode, "source_invalid");
-  assert.equal((result.result as { field: string }).field, "response");
+  await assert.rejects(
+    harness.runCommand({ command: "linear sync", pmRoot: root, options: { team: "ENG", ...opts }, global: { json: true } }),
+    { code: "unknown_option", message: /__linear_preflight_error/ },
+  );
+
+  const run = await installLinearCli(root);
+  const requestCount = state.requests.length;
+  await assert.rejects(
+    run(["linear", "sync", "--team", "ENG", "--json"], {
+      key: process.env.LINEAR_API_KEY,
+      url: process.env.LINEAR_API_BASE_URL,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error && "code" in error && "stdout" in error);
+      assert.equal(error.code, 2);
+      const result = JSON.parse(String(error.stdout)) as { code: string; field: string };
+      assert.equal(result.code, "source_invalid");
+      assert.equal(result.field, "response");
+      return true;
+    },
+  );
+  const requests = state.requests.slice(requestCount);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /viewer/);
 });
 
 

@@ -1,0 +1,28 @@
+id: pm-linear-sdk-host-alignment-1122
+title: Adopt pm-cli 2026.11.23 host-aligned SDK behaviour
+description: "Bring the pinned Linear toolchain onto the current SDK and verify native host behaviour. Companion item: pm-cli-website-spus."
+type: Chore
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-11-23T19:31:36.043Z"
+updated_at: "2026-11-23T22:05:22.412Z"
+author: codex-agent
+acceptance_criteria: "Pin the current toolchain, classify full-suite failures against the installed SDK, preserve import and export validation and native state semantics, pass the repository gates at existing thresholds, and regenerate the changelog."
+comments[1]{created_at,author,text}:
+  "2026-11-23T22:05:20.660Z",codex-agent,"The full bumped-toolchain baseline reached the 60-minute limit after the forward-import model passed all 500 sequences. Its 11 failures and supplemental baseline runs gave 27 distinct failing test entries. A supplemental run initially used an older global pm binary and hit a version-skew refusal during fixture creation. The pinned rerun cleared those setup failures and isolated the real host behavior.\n\nScoped SDK clients used to change cwd inside an extension scope. The current host refuses that operation, which caused preview, corpus, mirror, ownership, and seed-1620 parity failures. Bind the client through pmRoot and keep the active scope's cwd. The old harness forwarded undeclared options. The current host rejects them before dispatch, so register the existing preflight opt-out on both import aliases and use the CLI state flag separately from the SDK stateFilter key. Private preflight fields also refuse caller injection. The tests now exercise the real installed CLI to prove that host-produced missing-key and typed response diagnostics survive. Reverting the cwd or flag changes individually reproduced the respective parity and dispatch failures. The original outcome and preflight fixtures reproduced the caller-option refusals.\n\nFull-depth runs covered 97 tests in the changed files, including all 500 seed-1620 operations and the 500-sequence ownership model. The repository's quick npm and Bun release gates each passed 469/469 with zero skips or cancellations. Coverage across the configured source was 99.56% lines, 96.84% branches, and 100% functions at unchanged thresholds. Typecheck, builds, docstrings (8 files, 112 declarations), native Bun smoke, production audit, pack dry run, strict tracker health, and release/changelog checks passed. The linked PM test passed 4/4 in a disposable tracker copy. No upstream SDK bug was reproduced. Branch checks will appear at https://github.com/unbraind/pm-linear/actions?query=branch%3Adeps%2Fadopt-pm-cli-host-alignment-1122."
+files[8]{path,scope}:
+  index.ts,project
+  package-lock.json,project
+  package.json,project
+  test/estimate-units.test.ts,project
+  test/import-boundaries.test.ts,project
+  test/network.test.ts,project
+  test/ownership.test.ts,project
+  test/support/installed-cli.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=1 --test-name-pattern='unit plans preview exact|network inspection and every importer alias|preflight source refusals|preflight override injects a USAGE sentinel' test/estimate-units.test.ts test/network.test.ts test/ownership.test.ts,project,300,codex-agent,"2026-11-23T20:39:20.793Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
+docs[2]{path,scope}:
+  CHANGELOG.md,project
+  README.md,project
+body: ""
