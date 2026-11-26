@@ -4,7 +4,7 @@
 
 ### Dependencies
 
-- Bump the codeql-action group with 2 updates
+- Bump the codeql-action group with 2 updates ([#241](https://github.com/unbraind/pm-linear/pull/241))
 - Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml from 2026.11.15 to 2026.11.18 ([#233](https://github.com/unbraind/pm-linear/pull/233))
 - Bump unbraind/pm-ops/.github/workflows/daily-release.yml from 2026.11.14 to 2026.11.18 ([#234](https://github.com/unbraind/pm-linear/pull/234))
 - Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml from 2026.11.15 to 2026.11.18 ([#235](https://github.com/unbraind/pm-linear/pull/235))
