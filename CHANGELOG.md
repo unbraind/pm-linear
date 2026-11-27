@@ -2,7 +2,9 @@
 
 ## 2026.11.27 - 2026-11-27
 
-No changes.
+### Dependencies
+
+- Bump @unbrained/pm-cli
 
 ## 2026.11.23 - 2026-11-26
 
