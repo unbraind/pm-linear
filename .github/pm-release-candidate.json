@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "repository": "unbraind/pm-linear",
-  "baseSha": "62d200dd8c0f0fbf0f20113bd32945fea0de3b8e",
-  "version": "2026.11.23",
-  "runId": 45822436188,
+  "baseSha": "ed609b8093500e9ba8b9b0249c82c2f4b7ade309",
+  "version": "2026.11.27",
+  "runId": 45999913479,
   "runAttempt": 1,
   "configDigest": "19f861084767fcd1b42ece3bc60c873d40cadd652aba909211d2aaf4f1e1ede6"
 }
