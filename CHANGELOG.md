@@ -4,6 +4,7 @@
 
 ### Dependencies
 
+- Bump the codeql-action group with 2 updates
 - Bump @unbrained/pm-cli from 2026.11.23 to 2026.11.24 in the pm-toolchain group ([#246](https://github.com/unbraind/pm-linear/pull/246))
 
 ## 2026.11.23 - 2026-11-26
